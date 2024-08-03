@@ -1,0 +1,6 @@
+tweepy
+transformers
+torch
+gtts
+moviepy
+requests
