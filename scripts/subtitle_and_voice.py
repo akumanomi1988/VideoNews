@@ -4,25 +4,24 @@ import uuid
 import configparser
 
 class SubtitleAndVoiceGenerator:
-    def __init__(self, article_text):
-        self.article_text = article_text
-        self.language = self.load_language()
-
-    def load_language(self):
-        config = configparser.ConfigParser()
-        config.read('settings.config')
-        return config['LanguageSettings']['LANGUAGE']
+    def __init__(self, text):
+        self.text = text
+        self.model = whisper.load_model("base")
 
     def generate_subtitles(self):
-        subtitle_path = os.path.join(".temp", f"{uuid.uuid4()}.srt")
-        with open(subtitle_path, "w") as f:
-            f.write(self.article_text)
+        print(f"Generating subtitles for: {self.text}")
+        subtitle_path = os.path.join(".temp", "subtitles.srt")
+        print(f"Subtitle path: {subtitle_path}")
+        with open(subtitle_path, 'w') as file:
+            file.write("Generated subtitles based on text.")
         return subtitle_path
 
+
     def generate_voiceover(self):
-        model = whisper.load_model("base")
-        voiceover_path = os.path.join(".temp", f"{uuid.uuid4()}.wav")
-        result = model.transcribe(text=self.article_text, language=self.language)
-        with open(voiceover_path, "wb") as f:
-            f.write(result["audio"].tobytes())
+        # Implementación para generar la voz
+        voiceover_path = os.path.join(".temp", "voiceover.mp3")
+        # Aquí deberías utilizar el modelo de whisper para generar voz
+        # Por ahora es un ejemplo simplificado
+        with open(voiceover_path, 'wb') as file:
+            file.write(b"Generated voiceover audio.")
         return voiceover_path

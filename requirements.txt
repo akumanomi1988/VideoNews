@@ -8,3 +8,4 @@ tiktok-api
 configparser
 TikTok-Api
 curl_cffi
+openai-whisper
