@@ -1,6 +1,10 @@
 tweepy
-transformers
-torch
-gtts
-moviepy
+g4f
 requests
+moviepy
+whisper
+google-api-python-client
+tiktok-api
+configparser
+TikTok-Api
+curl_cffi

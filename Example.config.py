@@ -1,7 +1,0 @@
-TWITTER_CONSUMER_KEY = 'tu_twitter_consumer_key'
-TWITTER_CONSUMER_SECRET = 'tu_twitter_consumer_secret'
-TWITTER_ACCESS_TOKEN = 'tu_twitter_access_token'
-TWITTER_ACCESS_TOKEN_SECRET = 'tu_twitter_access_token_secret'
-PEXELS_API_KEY = 'tu_pexels_api_key'
-YOUTUBE_API_KEY = 'tu_youtube_api_key'
-TIKTOK_API_KEY = 'tu_tiktok_api_key'

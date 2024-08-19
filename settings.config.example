@@ -1,0 +1,11 @@
+[TwitterAPI]
+API_KEY = your_twitter_api_key
+API_SECRET_KEY = your_twitter_api_secret_key
+ACCESS_TOKEN = your_twitter_access_token
+ACCESS_TOKEN_SECRET = your_twitter_access_token_secret
+
+[PexelsAPI]
+API_KEY = your_pexels_api_key
+
+[GPTConfig]
+API_KEY = your_g4f_api_key
