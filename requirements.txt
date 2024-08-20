@@ -9,3 +9,6 @@ configparser
 TikTok-Api
 curl_cffi
 openai-whisper
+newsapi-python
+pyttsx3 
+gtts 
