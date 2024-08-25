@@ -2,7 +2,7 @@
 
 # News to Video Generator
 
-![banner](https://www.bing.com/images/create/cyberpunk-style-github-repository-banner-with-a-ne/1-66cb1ec3f24d4c9d88053afcf4f75322?id=8AD6lB1%2b6DQD8GOCKozo3A%3d%3d&view=detailv2&idpp=genimg&idpclose=1&thId=OIG4.QJJxpMDBlrWO4t0OTO.j&frame=sydedg&skey=pkZd3082J10YyK_n-_bUzjEqI07RvOOHgMqr0GJZqkE&FORM=SYDBIC)
+![banner](https://th.bing.com/th/id/OIG4.QJJxpMDBlrWO4t0OTO.j?w=1024&h=1024&rs=1&pid=ImgDetMain)
 
 ## Overview
 
