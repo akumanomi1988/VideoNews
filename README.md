@@ -111,8 +111,6 @@ cd from_news_to_video_uploaded
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Star Histoy
-
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Akumanomi1988/from_news_to_uploaded&type=Date)](https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date)
