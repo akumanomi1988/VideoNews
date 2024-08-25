@@ -1,1 +1,9 @@
 settings.config
+venv/
+settings.json
+.temp/
+scripts/__pycache__/
+secrets/
+*.log
+*.mp3
+*.mp4

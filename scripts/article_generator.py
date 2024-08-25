@@ -21,37 +21,29 @@ class ArticleGenerator:
 
     def generate_article_and_phrases(self, topic):
         # Construcción del mensaje para la generación
-        prompt = f"""
-            Based on the following headline, write an article designed to be listened to rather than read. 
-            The language should be natural, engaging, and highly compelling for the listener, with a sensationalist style that keeps their attention at all times. 
-            Use effective hooks, intense emotions, and unexpected twists to captivate the listener from start to finish. 
-            The article should flow continuously without headings or sections, creating a seamless and immersive narrative.
+        prompt_template = (
+            f"Eres un experto redactor de noticias sensacionalistas. A partir del titular que te proporcionaré y el idioma que te indique, genera un resultado en formato JSON con la siguiente estructura:\n\n"
+            f"{{\n"
+            f'  "title": "{topic}",  // El titular de la noticia que te proporcionaré, que quiero que devuelvas taducido\n'
+            f'  "description": "",  // Una breve descripción del titular (resumen).\n'
+            f'  "article": "",  // Un artículo completo de entre 500 y 700 palabras, escrito en un tono extremadamente sensacionalista, con giros narrativos y recursos dramáticos que mantengan al lector intrigado hasta el final.\n'
+            f'  "image_descriptions": [  // Una lista de 25 descripciones breves y específicas que se puedan usar para encontrar imágenes relacionadas en Pexels.\n'
+            f'    "description1",\n'
+            f'    "description2",\n'
+            f'    ...\n'
+            f'  ]\n'
+            f'}}\n\n'
+            f"Parámetros:\n"
+            f'- Idioma: "{self.language}"\n'
+            f'- Titular: "{topic}"\n\n'
+            f"Instrucciones adicionales:\n"
+            f"- El idioma del contenido debe ser el que te especifique en el parámetro 'idioma'.\n"
+            f"- El JSON debe estar completamente estructurado y correctamente formateado, sin excepciones. NO DENTRO DE UN BLOQUE DE CODIGO DE MARKDOWN."
+            f"- Si no cumples alguna de estas condiciones SERÁS DESPEDIDO"
+        )
 
-            Format your response exclusively as JSON with the following structure. Do not include any markdown or code blocks. The JSON should be a single line with no additional line breaks:
-
-            {{
-                "article": "The generated text here.",
-                "image_descriptions": [
-                    "Short phrase 1 describing an image.",
-                    "Short phrase 2 describing an image.",
-                    "Short phrase 3 describing an image.",
-                    "Short phrase 4 describing an image.",
-                    "Short phrase 5 describing an image.",
-                    "Short phrase 6 describing an image.",
-                    "Short phrase 7 describing an image.",
-                    "Short phrase 8 describing an image.",
-                    "Short phrase 9 describing an image.",
-                    "Short phrase 10 describing an image."
-                ]
-            }}
-
-            Headline: {topic}
-
-            Language: {self.language}
-            """
-
-
-        messages = [{"role": "system", "content": prompt}]
+        # formatted_prompt = prompt_template.format(idioma=self.language, titular=topic)
+        messages = [{"role": "system", "content": prompt_template}]
         
         # Utiliza g4f con el modelo especificado y el mensaje construido
         response = g4f.ChatCompletion.create(model=self.model, messages=messages)
@@ -67,11 +59,12 @@ class ArticleGenerator:
             # Obtener el artículo y las descripciones de imágenes
             article = response_json.get('article', '')
             image_descriptions = response_json.get('image_descriptions', [])
-
+            description = response_json.get('description', '')
+            title = response_json.get('title', '')
             # Limitar el número de frases cortas a 10 si hay más
             short_phrases = random.sample(image_descriptions, min(10, len(image_descriptions)))
 
-            return article, short_phrases
+            return article, short_phrases, title, description
 
         except json.JSONDecodeError:
             # Manejo de errores si el contenido no es un JSON válido

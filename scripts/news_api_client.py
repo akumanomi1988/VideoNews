@@ -1,8 +1,4 @@
-# scripts/news_api_client.py
-
 from newsapi import NewsApiClient
-import os
-
 class NewsAPIClient:
     def __init__(self, api_key):
         self.api_key = api_key

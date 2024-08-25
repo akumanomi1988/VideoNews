@@ -1,6 +1,7 @@
 import tweepy
 import configparser
-
+#Obsolete --> Twitter free API ⚠️
+#Now use News API
 def get_trending_topics(region):
     # Leer archivo de configuración
     config = configparser.ConfigParser()
@@ -33,7 +34,3 @@ def get_trending_topics(region):
     tendencias = api.get_place_trends(woeid)
     for tendencia in tendencias[0]['trends']:
         print(f"#{tendencia['name']} - {tendencia['tweet_volume']} tweets")
-
-# if __name__ == "__main__":
-#     region = input("Ingresa el nombre de la región: ")
-#     get_trending_topics(region)

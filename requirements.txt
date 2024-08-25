@@ -4,11 +4,20 @@ requests
 moviepy
 whisper
 google-api-python-client
-tiktok-api
-configparser
-TikTok-Api
+tiktok-api  # Nota: Verifica si es la librería correcta y si está estable
 curl_cffi
 openai-whisper
 newsapi-python
-pyttsx3 
-gtts 
+pyttsx3
+gtts
+numpy<2
+pillow==8.2.0
+pydub
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+
+# Dependencias adicionales (no se instalan con pip):
+# - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.
+# - ImageMagick: Necesario para manejar subtítulos y otros efectos de video. Puedes descargarlo de https://imagemagick.org/script/download.php y agregarlo al PATH del sistema.
+# - Voces de Windows: Asegúrate de tener instaladas las voces necesarias para los idiomas que utilizarás con pyttsx3.

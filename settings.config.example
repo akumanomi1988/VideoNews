@@ -1,11 +1,37 @@
 [TwitterAPI]
-API_KEY = your_twitter_api_key
-API_SECRET_KEY = your_twitter_api_secret_key
-ACCESS_TOKEN = your_twitter_access_token
-ACCESS_TOKEN_SECRET = your_twitter_access_token_secret
+# Replace these with your actual Twitter API credentials
+API_KEY = YOUR_TWITTER_API_KEY
+API_SECRET_KEY = YOUR_TWITTER_API_SECRET_KEY
+ACCESS_TOKEN = YOUR_TWITTER_ACCESS_TOKEN
+ACCESS_TOKEN_SECRET = YOUR_TWITTER_ACCESS_TOKEN_SECRET
+BEARER_TOKEN = YOUR_TWITTER_BEARER_TOKEN
+COUNTRY_NAME = YOUR_COUNTRY_NAME
+
+[Youtube]
+# Replace with the path to your YouTube API credentials file
+youtube_credentials_file = PATH_TO_YOUR_YOUTUBE_CREDENTIALS_FILE.json
 
 [PexelsAPI]
-API_KEY = your_pexels_api_key
+# Replace with your actual Pexels API key
+API_KEY = YOUR_PEXELS_API_KEY
 
-[GPTConfig]
-API_KEY = your_g4f_api_key
+[LanguageSettings]
+# Set your preferred language here example: Spanish
+LANGUAGE = YOUR_LANGUAGE
+
+[NewsAPI]
+# Replace with your actual NewsAPI key
+api_key = YOUR_NEWS_API_KEY
+country = YOUR_COUNTRY
+page_size = YOUR_PAGE_SIZE
+
+[GPTModelSettings]
+# Specify the GPT model version you want to use example: gpt-4-turbo
+MODEL = YOUR_GPT_MODEL
+
+[VideoResult]
+# Specify the aspect ratio for your videos (e.g., 9:16 or 16:9)
+aspect_ratio = YOUR_ASPECT_RATIO
+# Path to the background music file (e.g., MP3 file)
+background_music = PATH_TO_YOUR_BACKGROUND_MUSIC_FILE
+
