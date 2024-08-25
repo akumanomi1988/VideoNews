@@ -1,6 +1,3 @@
-### `README.md`
-
-```markdown
 ![Banner](https://img.shields.io/badge/Project%20Status-Active-green) ![Python Version](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 # News to Video Generator
@@ -115,5 +112,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 For more information, visit the [GitHub repository](https://github.com/your-username/from_news_to_video_uploaded).
-
-```
