@@ -1,3 +1,4 @@
+import shutil
 import re
 import os
 import configparser
@@ -48,7 +49,7 @@ def main():
             media_file = media_fetcher.fetch_and_save_media(phrase)
             if media_file:
                 media_files.append(media_file)
-            if len(media_files) >= 10:
+            if len(media_files) >= 5:
                 break
         if not media_files:
             print(f"No media found for topic: {topic}")
@@ -81,6 +82,7 @@ def main():
         )
         print(f"YouTube upload response: {youtube_response}")
 
+        cleanup_temp_folder()
     #     tiktok_response = uploader.upload_to_tiktok(output_file, 
     #         description=f"Trending Topic: {topic} #Trending"
     #     )
@@ -100,6 +102,14 @@ def main():
     #         tags=["Trending", "Compilation"]
     #     )
     #     print(f"YouTube long video upload response: {long_video_response}")
+def cleanup_temp_folder():
+    temp_folder = ".temp"
+    if os.path.exists(temp_folder):
+        shutil.rmtree(temp_folder)
+        print(f"Deleted {temp_folder} directory.")
+    else:
+        print(f"{temp_folder} directory does not exist.")
+
 def clean_filename(topic_title, max_length=30):
     # Reemplaza espacios por guiones bajos
     clean_title = topic_title.replace(' ', '_')

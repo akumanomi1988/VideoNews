@@ -157,9 +157,11 @@ class VideoAssembler:
 
 
     def generate_subtitle(self, txt, video_size):
-            return mp.TextClip(self.split_subtitles(txt), 
-                            font='Arial', 
-                            fontsize=40, 
-                            color='white',
-                            size=video_size, 
-                            method='label')
+        return mp.TextClip(self.split_subtitles(txt), 
+                       font='Arial', 
+                       fontsize=60, 
+                       color='white',         # Color del texto
+                       stroke_color='black',  # Color del borde
+                       stroke_width=2,        # Grosor del borde
+                       size=video_size, 
+                       method='label')

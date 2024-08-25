@@ -16,6 +16,8 @@ pydub
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
+tiktok-uploader
+
 
 # Dependencias adicionales (no se instalan con pip):
 # - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.

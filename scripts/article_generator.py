@@ -26,7 +26,7 @@ class ArticleGenerator:
             f"{{\n"
             f'  "title": "{topic}",  // El titular de la noticia que te proporcionaré, que quiero que devuelvas taducido\n'
             f'  "description": "",  // Una breve descripción del titular (resumen).\n'
-            f'  "article": "",  // Un artículo completo de entre 500 y 700 palabras, escrito en un tono extremadamente sensacionalista, con giros narrativos y recursos dramáticos que mantengan al lector intrigado hasta el final.\n'
+            f'  "article": "",  // Un artículo completo de entre 200 y 250 palabras, escrito en un tono extremadamente sensacionalista, con giros narrativos y recursos dramáticos que mantengan al lector intrigado hasta el final.\n'
             f'  "image_descriptions": [  // Una lista de 25 descripciones breves y específicas que se puedan usar para encontrar imágenes relacionadas en Pexels.\n'
             f'    "description1",\n'
             f'    "description2",\n'

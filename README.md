@@ -2,6 +2,9 @@
 
 # News to Video Generator
 
+Para insertar una imagen en un archivo README usando Markdown, puedes usar la siguiente sintaxis:
+![Cyberpunk style GitHub repository banner](https://www.bing.com/images/create/cyberpunk-style-github-repository-banner-with-a-ne/1-66cb1ec3f24d4c9d88053afcf4f75322?id=8AD6lB1%2b6DQD8GOCKozo3A%3d%3d&view=detailv2&idpp=genimg&idpclose=1&thId=OIG4.QJJxpMDBlrWO4t0OTO.j&frame=sydedg&skey=pkZd3082J10YyK_n-_bUzjEqI07RvOOHgMqr0GJZqkE&FORM=SYDBIC)
+
 ## Overview
 
 This project generates videos based on trending news articles and uploads them to YouTube Shorts. It utilizes `NewsAPI` to fetch the latest news and uses `gTTS` to create Spanish voiceovers. The video is then created and prepared for YouTube Shorts. The TikTok integration is still under development.
@@ -109,6 +112,9 @@ cd from_news_to_video_uploaded
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Star Histoy
+https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date
+
 ---
 
-For more information, visit the [GitHub repository](https://github.com/your-username/from_news_to_video_uploaded).
+For more information, visit the [GitHub repository](https://github.com/Akumanomi1988/from_news_to_video_uploaded).

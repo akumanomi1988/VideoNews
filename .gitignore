@@ -1,4 +1,4 @@
-settings.config
+
 venv/
 settings.json
 .temp/
@@ -7,3 +7,73 @@ secrets/
 *.log
 *.mp3
 *.mp4
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.db
+*.sqlite3
+*.pyc
+# Environments
+venv/
+ENV/
+env/
+*.env
+
+# Configuración de entornos virtuales y herramientas de Python
+.venv/
+.pip/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Archivos de configuración de IDEs
+.vscode/
+.idea/
+*.suo
+*.sw?
+*.sublime-workspace
+*.sublime-project
+
+# Archivos de logs
+*.log
+
+# Archivos de caché
+*.cache
+*.tmp
+*.bak
+
+# Archivos de base de datos
+*.db
+*.sqlite3
+
+# Archivos generados por moviepy
+*.mp4
+*.avi
+*.mov
+
+# Archivos generados por pydub
+*.wav
+*.mp3
+
+# Archivos de configuración de sistemas de CI/CD
+*.yml
+*.yaml
+
+# Archivos de configuración de Git
+*.gitconfig
+*.gitignore
+
+# Archivos de caché y temporales del sistema
+.DS_Store
+Thumbs.db
+
+# Archivos generados por otras herramientas
+*.log
+*.pid
+*.seed
+
+# Archivos de credenciales
+settings.config
