@@ -1,4 +1,6 @@
 ![Banner](https://img.shields.io/badge/Project%20Status-Active-green) ![Python Version](https://img.shields.io/badge/Python-3.12-blue) ![License](https://img.shields.io/badge/License-MIT-lightgrey)
+</br>
+<a href="https://www.buymeacoffee.com/akumanomi1k"><img src="https://img.buymeacoffee.com/button-api/?text=Fuel my creativity! 💸&emoji=🍺&slug=akumanomi1k&button_colour=FF3737&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=FF3737" /></a>
 
 # News to Video Generator
 
@@ -111,9 +113,9 @@ cd from_news_to_video_uploaded
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Star Histoy
-https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date
+## Star History
 
+[![Star History Chart](https://api.star-history.com/svg?repos=Akumanomi1988/from_news_to_uploaded&type=Date)](https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date)
 ---
 
 For more information, visit the [GitHub repository](https://github.com/Akumanomi1988/from_news_to_video_uploaded).
