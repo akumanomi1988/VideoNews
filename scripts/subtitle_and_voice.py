@@ -1,79 +1,80 @@
-import pyttsx3
 import os
+import pyttsx3
 import configparser
-from moviepy.editor import AudioFileClip  # Usa la clase correcta para manejar archivos de audio
+from moviepy.editor import AudioFileClip
 import whisper
 import re
+from colorama import Fore, Style, init
+
+# Inicializar Colorama
+init(autoreset=True)
 
 class SubtitleAndVoiceGenerator:
-    def __init__(self, text, config_file='settings.config'):
+    def __init__(self, config_file='settings.config'):
         self.config = configparser.ConfigParser()
         self.config.read(config_file)
-        self.text = text
         self.engine = pyttsx3.init()
-        self.whisper_model = whisper.load_model("base")  # Cargar el modelo Whisper
+        self.whisper_model = whisper.load_model("small")  # Load the Whisper model
 
-        # Configuración del motor de texto a voz
+        # Text-to-speech engine configuration
         voices = self.engine.getProperty('voices')
         self.engine.setProperty('voice', voices[0].id)
         self.engine.setProperty('rate', 150)
         self.engine.setProperty('volume', 1.0)
 
-        # Configurar el directorio temporal en el directorio raíz del proyecto
+        # Set up the temporary directory in the project's root directory
         self.temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.temp')
-        self.temp_dir = os.path.abspath(self.temp_dir)  # Asegúrate de obtener una ruta absoluta
+        self.temp_dir = os.path.abspath(self.temp_dir)  # Ensure an absolute path is obtained
         os.makedirs(self.temp_dir, exist_ok=True)
 
-    def generate_voiceover(self):
+    def generate_voiceover(self, text: str):
         """
-        Genera un archivo de voz (mp3) a partir del texto usando pyttsx3.
+        Generates a voice file (mp3) from the text using pyttsx3.
         """
         voiceover_path = os.path.join(self.temp_dir, "voiceover.mp3")
-        print(f"Generating voiceover for: {self.text}")
-        print(f"Voiceover path: {voiceover_path}")
+        print(f"{Fore.GREEN}Voiceover path: {voiceover_path}")
 
-        # Usando pyttsx3 para generar el archivo de audio
-        self.engine.save_to_file(self.text, voiceover_path)
+        # Using pyttsx3 to generate the audio file
+        self.engine.save_to_file(text, voiceover_path)
         self.engine.runAndWait()
 
         self.debug_audio_file_path(voiceover_path)
-        print(voiceover_path)
         return voiceover_path
 
     def get_audio_duration(self, audio_file):
         """
-        Obtiene la duración del archivo de audio en segundos.
+        Gets the duration of the audio file in seconds.
         """
-        # Usa AudioFileClip para abrir el archivo de audio
+        # Use AudioFileClip to open the audio file
         with AudioFileClip(audio_file) as audio:
             return audio.duration
 
     def transcribe_audio(self, audio_file):
         """
-        Usa Whisper para transcribir el archivo de audio y obtener los tiempos de subtítulos.
+        Uses Whisper to transcribe the audio file and obtain subtitle timings.
         """
         self.debug_audio_file_path(audio_file)
         
         try:
-            # Parámetros opcionales: language, task, temperature
+            # Optional parameters: language, task, temperature
             result = self.whisper_model.transcribe(
                 audio_file,
-                language="es",         # Especifica el idioma si es conocido
-                temperature=0.5,        # Ajusta la temperatura si es necesario
-                verbose = True
+                language="es",         # Specify the language if known
+                temperature=0.5,        # Adjust the temperature if needed
+                verbose=True
             )
 
             return result.get('segments', [])
     
         except Exception as e:
-            print(f"Error durante la transcripción: {e}")
+            print(f"{Fore.RED}Error during transcription: {e}")
             return {'segments': []}
 
     def generate_subtitles(self, audio_file):
         """
-        Genera un archivo de subtítulos (.srt) basado en la transcripción del audio.
+        Generates a subtitle file (.srt) based on the audio transcription.
         """
-        print(f"Generating subtitles for audio: {audio_file}")
+        print(f"{Fore.CYAN}Generating subtitles for audio: {audio_file}")
         subtitle_path = os.path.join(self.temp_dir, "subtitles.srt")
         segments = self.transcribe_audio(audio_file)
         
@@ -90,35 +91,34 @@ class SubtitleAndVoiceGenerator:
                 file.write(f"{start_h}:{start_m}:{start_s},000 --> {end_h}:{end_m}:{end_s},000\n")
                 file.write(f"{text}\n\n")
 
+        print(f"{Fore.GREEN}Subtitles saved to {subtitle_path}")
         return subtitle_path
 
     def seconds_to_hms(self, seconds):
         """
-        Convierte segundos en horas, minutos y segundos.
+        Converts seconds into hours, minutes, and seconds.
         """
         h = int(seconds // 3600)
         m = int((seconds % 3600) // 60)
         s = int(seconds % 60)
         return f"{h:02}", f"{m:02}", f"{s:02}"
 
-    def debug_audio_file_path(self,audio_file):
-        print(f"Verificando la existencia del archivo: {audio_file}")
+    def debug_audio_file_path(self, audio_file):
+        print(f"{Fore.YELLOW}Checking for file existence: {audio_file}")
         self.check_file_access(audio_file)
         if os.path.isfile(audio_file):
-            print("El archivo existe.")
+            print(f"{Fore.GREEN}The file exists.")
         else:
-            print("Error: El archivo no se encuentra en la ruta especificada.")
-            # Imprimir la ruta absoluta para verificar
-            print("Ruta absoluta del archivo:", os.path.abspath(audio_file))
+            print(f"{Fore.RED}Error: The file is not found at the specified path.")
+            print(f"{Fore.RED}Absolute file path: {os.path.abspath(audio_file)}")
 
-
-    def check_file_access(audio_file,file_path):
+    def check_file_access(self, file_path):
         if os.path.isfile(file_path):
-            print(f"Archivo encontrado: {file_path}")
+            print(f"{Fore.GREEN}File found: {file_path}")
             try:
                 with open(file_path, 'rb') as f:
-                    print("Acceso al archivo verificado.")
+                    print(f"{Fore.GREEN}File access verified.")
             except IOError as e:
-                print(f"Error al acceder al archivo: {e}")
+                print(f"{Fore.RED}Error accessing the file: {e}")
         else:
-            print(f"El archivo no existe en la ruta: {file_path}")
+            print(f"{Fore.RED}The file does not exist at the path: {file_path}")

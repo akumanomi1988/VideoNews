@@ -44,7 +44,7 @@ build/
 *.cache
 *.tmp
 *.bak
-
+.cache/
 # Archivos de base de datos
 *.db
 *.sqlite3

@@ -1,73 +1,131 @@
-import g4f
-import random
-import configparser
+import os
 import json
 import random
+import requests
+from PIL import Image
+from io import BytesIO
+import g4f
+from g4f.client import Client
+from colorama import Fore, Style, init
+
+# Initialize Colorama
+init(autoreset=True)
 
 class ArticleGenerator:
-    def __init__(self, config_file='settings.config'):
-        self.config = configparser.ConfigParser()
-        self.config.read(config_file)
-        self.language = self.load_language()
-        self.model = self.load_model()
+    def __init__(self, language, model, image_model):
+        """
+        Initializes the ArticleGenerator with the specified language, GPT model, and image generation model.
 
-    def load_language(self):
-        return self.config['LanguageSettings']['LANGUAGE']
-
-    def load_model(self):
-        return self.config['GPTModelSettings']['MODEL']
-
-
+        Parameters:
+            language (str): The language in which to generate the articles.
+            model (str): The GPT model to use for article generation.
+            image_model (str): The model to use for image generation.
+        """
+        self.language = language
+        self.model = model
+        self.image_model = image_model
 
     def generate_article_and_phrases(self, topic):
-        # Construcción del mensaje para la generación
+        """
+        Generates an article and related phrases based on the provided topic.
+
+        Parameters:
+            topic (str): The topic for which the article and phrases should be generated.
+
+        Returns:
+            tuple: A tuple containing the generated article, short phrases, title, description, and tags.
+        """
+        print(Fore.CYAN + f"Generating article and phrases for topic: {topic}")
+        
+        # Construct the prompt for article generation
         prompt_template = (
-            f"Eres un experto redactor de noticias sensacionalistas. A partir del titular que te proporcionaré y el idioma que te indique, genera un resultado en formato JSON con la siguiente estructura:\n\n"
+            f"You are an expert sensationalist news writer. Based on the headline I will provide and the language I will specify, "
+            f"generate a result in JSON format with the following structure:\n\n"
             f"{{\n"
-            f'  "title": "{topic}",  // El titular de la noticia que te proporcionaré, que quiero que devuelvas taducido\n'
-            f'  "description": "",  // Una breve descripción del titular (resumen).\n'
-            f'  "article": "",  // Un artículo completo de entre 200 y 250 palabras, escrito en un tono extremadamente sensacionalista, con giros narrativos y recursos dramáticos que mantengan al lector intrigado hasta el final.\n'
-            f'  "image_descriptions": [  // Una lista de 25 descripciones breves y específicas que se puedan usar para encontrar imágenes relacionadas en Pexels.\n'
+            f'  "title": "{topic}",  // The headline of the news that I will provide, which I want you to return translated\n'
+            f'  "description": "",  // A brief description of the headline (summary).\n'
+            f'  "article": "",  // A full 100-word article written in an extremely sensationalist tone, with narrative twists and dramatic elements that keep the reader intrigued until the end.\n'
+            f'  "image_descriptions": [  // A list of 25 brief and specific descriptions that can be used to find related images on Pexels.\n'
             f'    "description1",\n'
             f'    "description2",\n'
             f'    ...\n'
+            f'  ],\n'
+            f'  "tags": [  // A list of 10 keywords to use for the video\'s SEO'
+            f'    "tag1",\n'
+            f'    "Tag2",\n'
+            f'    ...\n'
             f'  ]\n'
             f'}}\n\n'
-            f"Parámetros:\n"
-            f'- Idioma: "{self.language}"\n'
-            f'- Titular: "{topic}"\n\n'
-            f"Instrucciones adicionales:\n"
-            f"- El idioma del contenido debe ser el que te especifique en el parámetro 'idioma'.\n"
-            f"- El JSON debe estar completamente estructurado y correctamente formateado, sin excepciones. NO DENTRO DE UN BLOQUE DE CODIGO DE MARKDOWN."
-            f"- Si no cumples alguna de estas condiciones SERÁS DESPEDIDO"
+            f"Parameters:\n"
+            f'- Language: "{self.language}"\n'
+            f'- Headline: "{topic}"\n\n'
+            f"Additional Instructions:\n"
+            f"- The content language must be the one specified in the 'language' parameter.\n"
+            f"- The JSON must be fully structured and correctly formatted, with no exceptions. NOT WITHIN A MARKDOWN CODE BLOCK."
+            f"- If you fail to meet any of these conditions, YOU WILL BE FIRED."
         )
 
-        # formatted_prompt = prompt_template.format(idioma=self.language, titular=topic)
         messages = [{"role": "system", "content": prompt_template}]
         
-        # Utiliza g4f con el modelo especificado y el mensaje construido
+        # Use g4f to create a chat completion using the specified model and constructed message
         response = g4f.ChatCompletion.create(model=self.model, messages=messages)
-
-        # Obtener el contenido generado del JSON
-        # content = response['choices'][0]['message']['content']
-        content = response.strip()
+        # Get the generated content from the response
+        content = response.strip().replace('```json', '').replace('```', '')
         try:
-            # Parsear el contenido como JSON
+            # Parse the content as JSON
             content = content.replace('\n', '').replace('\r', '')
             response_json = json.loads(content)
             
-            # Obtener el artículo y las descripciones de imágenes
+            # Retrieve the article and image descriptions
             article = response_json.get('article', '')
             image_descriptions = response_json.get('image_descriptions', [])
             description = response_json.get('description', '')
             title = response_json.get('title', '')
-            # Limitar el número de frases cortas a 10 si hay más
+            tags = response_json.get('tags', [])
+            
+            # Limit the number of short phrases to 10 if there are more
             short_phrases = random.sample(image_descriptions, min(10, len(image_descriptions)))
 
-            return article, short_phrases, title, description
+            print(Fore.GREEN + "Article and phrases generated successfully.")
+            return article, short_phrases, title, description, tags
 
         except json.JSONDecodeError:
-            # Manejo de errores si el contenido no es un JSON válido
-            print("Error: The response is not in valid JSON format.")
-            return None, []
+            # Handle errors if the content is not valid JSON
+            print(Fore.RED + "Error: The response is not in valid JSON format.")
+            print(Fore.RED + content)
+            return None, [], "", "", []
 
+    def generate_image(self, prompt, output_path):
+        """
+        Generates an image based on the provided prompt and saves it to the specified path.
+
+        Parameters:
+            prompt (str): The prompt for the image generation.
+            output_path (str): The path where the generated image will be saved.
+        """
+        print(Fore.CYAN + f"Generating image for prompt: {prompt}")
+        
+        client = Client()
+        response = client.images.generate(
+            model=self.image_model,
+            prompt=prompt,
+            size="1024x1024"  # Adjust size if needed
+        )
+
+        image_url = response.data[0].url
+        
+        try:
+            # Fetch the image from the URL
+            image_response = requests.get(image_url)
+            image_response.raise_for_status()
+            
+            # Open the image and save it as JPEG
+            image = Image.open(BytesIO(image_response.content))
+            image = image.convert('RGB')
+            image.save(output_path, 'JPEG')
+            print(Fore.GREEN + f"Image saved to {output_path}")
+        
+        except requests.exceptions.RequestException as e:
+            print(Fore.RED + f"Failed to fetch image from URL '{image_url}'. Error: {str(e)}")
+        except OSError as e:
+            print(Fore.RED + f"Failed to save image to '{output_path}'. Error: {str(e)}")

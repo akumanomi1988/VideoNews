@@ -1,125 +1,195 @@
 import shutil
 import re
 import os
+import glob
 import configparser
-# from scripts.twitter_trending import get_trending_topics
+from pathlib import Path
+from colorama import Fore, Style, init
 from scripts.article_generator import ArticleGenerator
 from scripts.pexels_media_fetcher import PexelsMediaFetcher
 from scripts.subtitle_and_voice import SubtitleAndVoiceGenerator
 from scripts.video_assembler import VideoAssembler
 from scripts.video_uploader import VideoUploader
-# from scripts.long_video_compiler import LongVideoCompiler
 from scripts.news_api_client import NewsAPIClient
+from scripts.tts_elevenlabs import TextToSpeech  
+import tkinter as tk
+# from presentation.config_editor import ConfigEditorApp
+
+# Initialize Colorama
+init(autoreset=True)
 
 def main():
-    # Cargar configuración
+    # Step 1: Show Configuration Editor
+    print(Fore.CYAN + "Opening Configuration Editor...")
+    # root = tk.Tk()
+    # app = ConfigEditorApp(root)
+    # root.mainloop()
+
+    # Step 2: Load Configuration
+    config_file = 'settings.config'
+    if not os.path.exists(config_file):
+        print(Fore.YELLOW + "Configuration file not found. Please create one using the configuration editor.")
+        return
+    
+    config = load_configuration(config_file)
+    print(Fore.GREEN + "Configuration loaded successfully.")
+
+    # Step 3: Initialize Components
+    print(Fore.CYAN + "Initializing components...")
+    news_client = NewsAPIClient(api_key=config['NewsAPI']['api_key'])
+    article_generator = ArticleGenerator(
+        language=config['ArticleSettings']['LANGUAGE'],
+        model=config['ArticleSettings']['MODEL'],
+        image_model=config['ArticleSettings']['IMAGE_MODEL']
+    )
+    media_fetcher = PexelsMediaFetcher(api_key=config['Pexels']['API_KEY'], temp_dir=config['settings']['temp_dir'])
+    video_files = []
+    temp_dir = config['settings']['temp_dir']
+    stt = SubtitleAndVoiceGenerator()
+    tts = TextToSpeech(
+        api_key=config['ElevenLabs']['API_KEY'],
+        model_id=config['ElevenLabs']['MODEL'],
+        voice_id=config['ElevenLabs']['VOICE']
+    )
+
+    # Step 4: Process Information
+    print(Fore.CYAN + "Processing latest news...")
+    process_latest_news(news_client, config, article_generator, media_fetcher, video_files, temp_dir, tts, stt)
+
+def load_configuration(config_file):
+    """
+    Loads the configuration from the specified config file.
+
+    Parameters:
+        config_file (str): Path to the configuration file.
+
+    Returns:
+        configparser.ConfigParser: The loaded configuration object.
+    """
     config = configparser.ConfigParser()
-    config.read('settings.config')
+    config.read(config_file)
+    return config
 
-    youtube_credentials_file = config['Youtube']['youtube_credentials_file']
-    # tiktok_api_key = config['TikTokAPI']['API_KEY']
-    
-    video_files = []  # Lista para almacenar los archivos de video generados
-     # Obtener la clave de API, país y número de noticias desde el archivo de configuración
-    news_api_key = config.get('NewsAPI', 'api_key')
-    country = config.get('NewsAPI', 'country')
-    page_size = config.getint('NewsAPI', 'page_size')  # Obtener como entero
-    # image_magick_path = config.get('ImageMagick','Path')
-    # os.environ['IMAGEMAGICK_BINARY'] = image_magick_path
-    # Inicializar el cliente de NewsAPI
-    news_client = NewsAPIClient(api_key=news_api_key)
-    
-    # Obtener los titulares de las últimas noticias basados en la configuración
-    latest_news = news_client.get_latest_headlines(country=country, page_size=page_size)
+def process_latest_news(news_client: NewsAPIClient,
+                        config: configparser.ConfigParser,
+                        article_generator: ArticleGenerator,
+                        media_fetcher: PexelsMediaFetcher,
+                        video_files=[],
+                        temp_dir=".temp",
+                        tts: TextToSpeech = None,
+                        stt: SubtitleAndVoiceGenerator=None):
+    """
+    Processes the latest news, generating articles, media, subtitles, and uploading the videos.
 
-    # Procesar las noticias
+    Parameters:
+        news_client (NewsAPIClient): The news API client.
+        config (configparser.ConfigParser): The configuration object.
+        article_generator (ArticleGenerator): The article generator object.
+        media_fetcher (PexelsMediaFetcher): The media fetcher object.
+        video_files (list): List to store paths of generated video files.
+        temp_dir (str): The directory for temporary files.
+        tts (TextToSpeech): The TextToSpeech object for generating audio.
+    """
+    # Get latest news headlines
+    latest_news = news_client.get_latest_headlines(
+        country=config['NewsAPI']['country'],
+        page_size=config.getint('NewsAPI', 'page_size')
+    )
+
     for topic in latest_news:
-        print(f"Title: {topic['title']}")
-        print(f"Description: {topic['description']}")
-        print(f"URL: {topic['url']}")
-        print("-" * 40)
+        print(Fore.MAGENTA + f"Title: {topic['title']}")
+        print(Fore.YELLOW + f"Description: {topic['description']}")
+        print(Fore.BLUE + f"URL: {topic['url']}")
+        print(Style.DIM + "-" * 40)
     
-        generator = ArticleGenerator()
-        article, phrases, title, description = generator.generate_article_and_phrases(topic['title'])
+        # Generate article and phrases
+        article, phrases, title, description, tags = article_generator.generate_article_and_phrases(topic['title'])
 
-     # Obtener medios relacionados
-        media_fetcher = PexelsMediaFetcher()
-        media_files = []
-        for phrase in phrases:
-            media_file = media_fetcher.fetch_and_save_media(phrase)
-            if media_file:
-                media_files.append(media_file)
-            if len(media_files) >= 5:
-                break
+        # Fetch related media
+        media_files = fetch_related_media(media_fetcher, phrases)
         if not media_files:
-            print(f"No media found for topic: {topic}")
+            print(Fore.RED + f"No media found for topic: {topic}")
             continue
 
-        # Generar subtítulos y voz
-        subtitle_and_voice = SubtitleAndVoiceGenerator(article)
-        voiceover_file = subtitle_and_voice.generate_voiceover()
-        subtitle_file = subtitle_and_voice.generate_subtitles(audio_file=voiceover_file)
+        # Generate subtitles and voice using TextToSpeech
+        audio_path = tts.text_to_speech_file(article, temp_dir)
+        subtitle_path = stt.generate_subtitles(audio_path)
 
-    #     # Ensamblar video
-        output_file = f".Temp\\{clean_filename(title)}"
-        video_assembler = VideoAssembler(media_files, subtitle_file, voiceover_file, output_file)
+        # Assemble video
+        output_file = os.path.join(temp_dir, clean_filename(title))
+        video_assembler = VideoAssembler(media_files, subtitle_path, audio_path, output_file)
         video_assembler.assemble_video()
-        
-    #     # Agregar el video a la lista de videos
         video_files.append(output_file)
 
-        # Subir video a YouTube Shorts y TikTok
-        uploader = VideoUploader(
-                client_secrets_file=youtube_credentials_file,
-                channel_description="Welcome to our channel! Here, we share insightful content on technology, programming, and finance. "
-                                    "Subscribe and hit the bell icon to stay updated with our latest videos. Follow us on our journey as we explore the intersection of technology and finance."
-            )
-        # print(f"Uploading video for topic: {topic}")
-        youtube_response = uploader.upload_to_youtube(output_file, 
-            title=f"{title}",
-            description=f"{description}",
-            tags=phrases
+        uploader = VideoUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
+                                 channel_description="")
+
+        # Upload video to YouTube
+        youtube_response = uploader.upload_short_to_youtube(
+            output_file,
+            title=title,
+            description=description,
+            tags=tags
         )
-        print(f"YouTube upload response: {youtube_response}")
+        print(Fore.GREEN + f"YouTube upload response: {youtube_response}")
 
-        cleanup_temp_folder()
-    #     tiktok_response = uploader.upload_to_tiktok(output_file, 
-    #         description=f"Trending Topic: {topic} #Trending"
-    #     )
-    #     print(f"TikTok upload response: {tiktok_response}")
+def fetch_related_media(media_fetcher, phrases, max_items=10):
+    """
+    Fetches related media for the given phrases using the media fetcher.
 
-    # # Finalmente, compilar todos los videos en un solo video largo
-    # if video_files:
-    #     long_video_file = os.path.join(".temp", "Trending_Topics_Compilation.mp4")
-    #     long_video_compiler = LongVideoCompiler(video_files, long_video_file)
-    #     long_video_compiler.compile_video()
+    Parameters:
+        media_fetcher (PexelsMediaFetcher): The media fetcher object.
+        phrases (list): List of phrases to search for media.
 
-    #     # Subir el video largo a YouTube
-    #     print("Uploading long video to YouTube...")
-    #     long_video_response = long_video_compiler.upload_to_youtube(
-    #         title="Trending Topics Compilation",
-    #         description="Compilation of today's trending topics.",
-    #         tags=["Trending", "Compilation"]
-    #     )
-    #     print(f"YouTube long video upload response: {long_video_response}")
+    Returns:
+        list: List of paths to the fetched media files.
+    """
+    media_files = []
+    for phrase in phrases:
+        media_file = media_fetcher.fetch_and_save_media(phrase)
+        if media_file:
+            media_files.append(media_file)
+        if len(media_files) >= max_items:
+            break
+    return media_files
+
 def cleanup_temp_folder():
+    """
+    Cleans up the temporary folder and specific files in the root directory.
+    """
     temp_folder = ".temp"
+    
     if os.path.exists(temp_folder):
         shutil.rmtree(temp_folder)
-        print(f"Deleted {temp_folder} directory.")
+        print(Fore.RED + f"Deleted {temp_folder} directory.")
     else:
-        print(f"{temp_folder} directory does not exist.")
+        print(Fore.YELLOW + f"{temp_folder} directory does not exist.")
+    
+    pattern = '*TEMP_MPY_wvf_snd.mp3'
+    files_to_delete = glob.glob(pattern)
+    
+    for file in files_to_delete:
+        try:
+            os.remove(file)
+            print(Fore.RED + f"Deleted file {file}.")
+        except Exception as e:
+            print(Fore.RED + f"Error deleting file {file}: {e}")
 
 def clean_filename(topic_title, max_length=30):
-    # Reemplaza espacios por guiones bajos
+    """
+    Cleans the topic title for use as a filename.
+
+    Parameters:
+        topic_title (str): The original topic title.
+        max_length (int): The maximum length of the filename.
+
+    Returns:
+        str: The cleaned filename.
+    """
     clean_title = topic_title.replace(' ', '_')
-    
-    # Elimina todos los caracteres especiales, dejando solo letras, números y guiones bajos
     clean_title = re.sub(r'[^a-zA-Z0-9_]', '', clean_title)
-    
-    # Corta el título a max_length caracteres
     clean_title = clean_title[:max_length]
-    
     return f"{clean_title}.mp4"
+
 if __name__ == "__main__":
     main()

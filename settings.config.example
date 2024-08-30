@@ -1,37 +1,27 @@
-[TwitterAPI]
-# Replace these with your actual Twitter API credentials
-API_KEY = YOUR_TWITTER_API_KEY
-API_SECRET_KEY = YOUR_TWITTER_API_SECRET_KEY
-ACCESS_TOKEN = YOUR_TWITTER_ACCESS_TOKEN
-ACCESS_TOKEN_SECRET = YOUR_TWITTER_ACCESS_TOKEN_SECRET
-BEARER_TOKEN = YOUR_TWITTER_BEARER_TOKEN
-COUNTRY_NAME = YOUR_COUNTRY_NAME
+[settings]
+temp_dir = .temp
 
 [Youtube]
-# Replace with the path to your YouTube API credentials file
-youtube_credentials_file = PATH_TO_YOUR_YOUTUBE_CREDENTIALS_FILE.json
+youtube_credentials_file =  # Path to your YouTube credentials file (e.g., C:\path\to\your\client_secret.json)
 
-[PexelsAPI]
-# Replace with your actual Pexels API key
-API_KEY = YOUR_PEXELS_API_KEY
-
-[LanguageSettings]
-# Set your preferred language here example: Spanish
-LANGUAGE = YOUR_LANGUAGE
+[Pexels]
+API_KEY =  # Your Pexels API key
 
 [NewsAPI]
-# Replace with your actual NewsAPI key
-api_key = YOUR_NEWS_API_KEY
-country = YOUR_COUNTRY
-page_size = YOUR_PAGE_SIZE
+api_key =  # Your NewsAPI key
+country =  # Country code (e.g., us) see Api doc
+page_size =  # Number of articles to fetch per request (e.g., 5)
 
-[GPTModelSettings]
-# Specify the GPT model version you want to use example: gpt-4-turbo
-MODEL = YOUR_GPT_MODEL
+[ArticleSettings]
+MODEL =  # The GPT model to use (e.g., gpt-3.5-turbo)
+IMAGE_MODEL =  # The image generation model (e.g., gemini)
+LANGUAGE =  # Language for article generation (e.g., spanish)
 
 [VideoResult]
-# Specify the aspect ratio for your videos (e.g., 9:16 or 16:9)
-aspect_ratio = YOUR_ASPECT_RATIO
-# Path to the background music file (e.g., MP3 file)
-background_music = PATH_TO_YOUR_BACKGROUND_MUSIC_FILE
+aspect_ratio =  # Video aspect ratio (9:16 or 16:9)
+background_music =  # Path to background music file (e.g., C:\path\to\your\music.mp3)
 
+[ElevenLabs]
+API_KEY =  # Your ElevenLabs API key
+MODEL =  # ElevenLabs model to use (e.g., eleven_multilingual_v2)
+VOICE =  # Voice ID to use with ElevenLabs (e.g., gD1IexrzCvsXPHUuT0s3) -> Spanish
