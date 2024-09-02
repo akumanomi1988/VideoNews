@@ -25,7 +25,7 @@ class ArticleGenerator:
         self.model = model
         self.image_model = image_model
 
-    def generate_article_and_phrases(self, topic):
+    def generate_article_and_phrases_short(self, topic):
         """
         Generates an article and related phrases based on the provided topic.
 
@@ -42,15 +42,15 @@ class ArticleGenerator:
             f"You are an expert sensationalist news writer. Based on the headline I will provide and the language I will specify, "
             f"generate a result in JSON format with the following structure:\n\n"
             f"{{\n"
-            f'  "title": "{topic}",  // The headline of the news that I will provide, which I want you to return translated\n'
+            f'  "title": "{topic}",  // The headline of the news that I will provide, which I want you to return translated (MAX 80 chars)\n'
             f'  "description": "",  // A brief description of the headline (summary).\n'
-            f'  "article": "",  // A full 100-word article written in an extremely sensationalist tone, with narrative twists and dramatic elements that keep the reader intrigued until the end.\n'
+            f'  "article": "",  // A full 80-word article written in an extremely sensationalist tone, with narrative twists and dramatic elements that keep the reader intrigued until the end.\n'
             f'  "image_descriptions": [  // A list of 25 brief and specific descriptions that can be used to find related images on Pexels.\n'
             f'    "description1",\n'
             f'    "description2",\n'
             f'    ...\n'
             f'  ],\n'
-            f'  "tags": [  // A list of 10 keywords to use for the video\'s SEO'
+            f'  "tags": [  // A list of 10 keywords to use for the video\'s SEO (only a word)'
             f'    "tag1",\n'
             f'    "Tag2",\n'
             f'    ...\n'
@@ -95,26 +95,46 @@ class ArticleGenerator:
             print(Fore.RED + content)
             return None, [], "", "", []
 
-    def generate_image(self, prompt, output_path):
+    def generate_cover_image(self, prompt, output_path, aspect_ratio):
         """
         Generates an image based on the provided prompt and saves it to the specified path.
 
         Parameters:
-            prompt (str): The prompt for the image generation.
+            prompt (str): The specific topic for the image generation, which will replace the placeholder in the template.
             output_path (str): The path where the generated image will be saved.
+            aspect_ratio (str): The aspect ratio for the generated image (e.g., "16:9").
         """
-        print(Fore.CYAN + f"Generating image for prompt: {prompt}")
-        
-        client = Client()
-        response = client.images.generate(
-            model=self.image_model,
-            prompt=prompt,
-            size="1024x1024"  # Adjust size if needed
+        # Template prompt with a placeholder for the topic
+        base_prompt = (
+            "Create a sensational magazine cover with bold, eye-catching headlines that scream controversy. "
+            "The theme is '{topic}'. Include shocking imagery, dramatic lighting, and vibrant colors. "
+            "The cover should feature a large, aggressive font for the main headline, with phrases like "
+            "'EXPOSED!', 'SHOCKING TRUTH!', or 'MUST READ!'. Ensure the design is over-the-top and demands attention."
         )
 
-        image_url = response.data[0].url
+        # Fill the placeholder with the actual topic provided in the 'prompt' parameter
+        final_prompt = base_prompt.format(topic=prompt)
+        print(Fore.CYAN + f"Generating image for prompt: {final_prompt}")
+        
+        # Determine the size based on the aspect ratio
+        size = "1024x1024"  # Default size
+        if aspect_ratio == "16:9":
+            size = "1920x1080"
+        elif aspect_ratio == "9:16":
+            size = "1080x1920"
         
         try:
+            # Initialize the client and generate the image
+            client = Client()
+            response = client.images.generate(
+                model=self.image_model,
+                prompt=final_prompt,
+                size=size
+            )
+            
+            # Extract the image URL from the response
+            image_url = response.data[0].url
+            
             # Fetch the image from the URL
             image_response = requests.get(image_url)
             image_response.raise_for_status()
@@ -129,3 +149,4 @@ class ArticleGenerator:
             print(Fore.RED + f"Failed to fetch image from URL '{image_url}'. Error: {str(e)}")
         except OSError as e:
             print(Fore.RED + f"Failed to save image to '{output_path}'. Error: {str(e)}")
+

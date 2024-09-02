@@ -3,11 +3,14 @@ import moviepy.editor as mp
 from moviepy.editor import vfx
 from moviepy.video.fx import resize, crop
 from moviepy.video.tools.subtitles import SubtitlesClip
-from moviepy.editor import TextClip
+from moviepy.editor import TextClip,CompositeVideoClip, ImageClip
+from moviepy.editor import *
 import configparser
 import os
 import textwrap
 from colorama import init, Fore
+from PIL import Image, ImageDraw
+import numpy as np
 
 # Initialize colorama
 init(autoreset=True)
@@ -98,7 +101,7 @@ class VideoAssembler:
     def assemble_video(self):
         # Adjust the videos
         adjusted_files = self.adjust_videos()
-        
+        #adjusted_files = self.media_files
         # Verify that adjusted files are not empty
         if not adjusted_files:
             raise ValueError(Fore.RED + "No adjusted video files were created. Please check the input files and settings.")
@@ -125,8 +128,8 @@ class VideoAssembler:
         except Exception as e:
             raise ValueError(Fore.RED + f"Error loading voiceover file: {e}")
         
-        video_duration = audio.duration
-        video = video.set_audio(audio).set_duration(video_duration)
+        audio = audio.audio_fadeout(2)
+        video = video.set_audio(audio)
 
         # Process background music if specified
         if self.background_music:
@@ -137,6 +140,8 @@ class VideoAssembler:
 
                 # Load the converted music file and mix it with the voiceover
                 music_clip = mp.AudioFileClip(temp_music_file).volumex(0.2)
+
+                music_clip = music_clip.subclip(0, audio.duration).audio_fadeout(2)
                 background_audio = mp.CompositeAudioClip([audio, music_clip])
                 video = video.set_audio(background_audio)
             except Exception as e:
@@ -147,48 +152,61 @@ class VideoAssembler:
             try:
                 subtitles = SubtitlesClip(self.subtitle_file, 
                                           lambda txt: self.generate_subtitle(txt, video.size))
-                subtitles = subtitles.set_position(('center', 'center')).set_duration(video_duration)
+                subtitles = subtitles.set_position(('center', 'center'))
                 video = mp.CompositeVideoClip([video, subtitles])
             except Exception as e:
                 raise ValueError(Fore.RED + f"Error adding subtitles: {e}")
         
         # Write the final video file
         try:
+            video = video.subclip(0, audio.duration)
+            video = video.fadeout(2)
             video.write_videofile(self.output_file, write_logfile=True)
         except Exception as e:
             print(Fore.RED + f"Error writing video file: {e}")
 
         print(Fore.GREEN + "Video processing completed successfully.")
+
     def generate_subtitle(self, txt, video_size):
         # Configuración del texto
         subtitle_text = self.split_subtitles(txt)
         text_clip = TextClip(
             subtitle_text,
-            font='Arial-Bold',  # Usa una fuente en negrita o más gruesa
-            fontsize=80,  # Tamaño de fuente aumentado
-            color='white',  # Color del texto
-            stroke_color='black',  # Color del borde
-            stroke_width=3,  # Grosor del borde
-            method='label'
-        )
-
-        # Crear un fondo semitransparente
-        text_bg = TextClip(
-            subtitle_text,
             font='Arial-Bold',
             fontsize=80,
             color='white',
-            size=video_size,  # Tamaño completo del video
+            stroke_color='black',
+            stroke_width=3,
             method='label'
-        ).on_color(
-            color=(0, 0, 0),  # Fondo negro
-            col_opacity=0.6  # Opacidad del fondo (0.0 a 1.0)
         )
 
-        # Ajustar la posición del fondo y del texto
-        text_bg = text_bg.set_position(('center', 'bottom'))  # Posicionar en la parte inferior
-        text_clip = text_clip.set_position(('center', 'bottom')).set_duration(text_bg.duration)
+        # Obtener el tamaño del texto
+        text_width, text_height = text_clip.size
+        padding_x = 20  # Espacio horizontal extra alrededor del texto
+        padding_y = 10  # Espacio vertical extra alrededor del texto
+        box_width = text_width + 2 * padding_x
+        box_height = text_height + 2 * padding_y
 
-        # Combinar el fondo y el texto
-        return mp.CompositeVideoClip([text_bg, text_clip])
+        # Crear un recuadro con bordes redondeados que se ajusta al texto
+        image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        radius = 25  # Radio para bordes redondeados
+        draw.rounded_rectangle(
+            [(0, 0), (box_width, box_height)],
+            radius=radius,
+            fill=(0, 0, 0, int(255 * 0.6))  # Fondo negro con opacidad
+        )
 
+        # Convertir la imagen PIL a un array de NumPy
+        image_np = np.array(image)
+
+        # Crear el ImageClip a partir del array de NumPy
+        image_clip = ImageClip(image_np).set_duration(text_clip.duration)
+
+        # Ajustar la posición del texto en el recuadro
+        text_clip = text_clip.set_position(('center', 'center'))
+
+        # Posicionar el recuadro en la parte inferior del video
+        subtitle_clip = CompositeVideoClip([image_clip, text_clip]).set_position(('center', 'center'))
+
+        return subtitle_clip

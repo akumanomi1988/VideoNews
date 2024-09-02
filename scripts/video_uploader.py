@@ -4,6 +4,9 @@ import googleapiclient.discovery
 import googleapiclient.errors
 from googleapiclient.http import MediaFileUpload
 from colorama import init, Fore, Style
+import time
+from googleapiclient.errors import HttpError
+import ssl
 
 # Initialize colorama
 init(autoreset=True)
@@ -107,8 +110,9 @@ class VideoUploader:
         if not title or len(title.strip()) == 0:
             raise ValueError(Fore.RED + "Video title cannot be empty")
         elif len(title) > 100:
-            raise ValueError(Fore.RED + "Video title cannot be longer than 100 characters")
+            print(Fore.RED + "Video title cannot be longer than 100 characters. it will be truncated")
 
+        title = title[:90]
         # Add # before each tag
         hashtags = [f"#{tag}" for tag in tags]
         
@@ -140,7 +144,19 @@ class VideoUploader:
             },
             media_body=media
         )
-        response = request.execute()
+        attempt = 0
+        max_attempts = 5
+        while attempt < max_attempts:
+            try:
+                response = request.execute()
+                break
+            except (ssl.SSLEOFError, HttpError) as e:
+                print(Fore.RED + f"Error: {e}, retrying {attempt + 1}/{max_attempts}" + Style.RESET_ALL)
+                attempt += 1
+                time.sleep(10)  
+            raise Exception(Fore.RED + "Failed to upload the video after several attempts." + Style.RESET_ALL)
+
+        
 
         # Optionally set the thumbnail if provided
         if thumbnail_path:

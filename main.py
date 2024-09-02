@@ -24,7 +24,7 @@ def main():
     # root = tk.Tk()
     # app = ConfigEditorApp(root)
     # root.mainloop()
-
+    
     # Step 2: Load Configuration
     config_file = 'settings.config'
     if not os.path.exists(config_file):
@@ -45,17 +45,22 @@ def main():
     media_fetcher = PexelsMediaFetcher(api_key=config['Pexels']['API_KEY'], temp_dir=config['settings']['temp_dir'])
     video_files = []
     temp_dir = config['settings']['temp_dir']
+    
     stt = SubtitleAndVoiceGenerator()
     tts = TextToSpeech(
         api_key=config['ElevenLabs']['API_KEY'],
         model_id=config['ElevenLabs']['MODEL'],
         voice_id=config['ElevenLabs']['VOICE']
     )
+    uploader =None# VideoUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
+                  #               channel_description="")
 
     # Step 4: Process Information
     print(Fore.CYAN + "Processing latest news...")
-    process_latest_news(news_client, config, article_generator, media_fetcher, video_files, temp_dir, tts, stt)
+    #article_generator.generate_cover_image(aspect_ratio='16:9',output_path='.temp\\archivo.jpeg',prompt='Casa en ruinas')
+    process_latest_news(news_client, config, article_generator, media_fetcher, video_files, temp_dir, tts, stt,uploader)
 
+    
 def load_configuration(config_file):
     """
     Loads the configuration from the specified config file.
@@ -77,7 +82,8 @@ def process_latest_news(news_client: NewsAPIClient,
                         video_files=[],
                         temp_dir=".temp",
                         tts: TextToSpeech = None,
-                        stt: SubtitleAndVoiceGenerator=None):
+                        stt: SubtitleAndVoiceGenerator=None,
+                        uploader: VideoUploader=None):
     """
     Processes the latest news, generating articles, media, subtitles, and uploading the videos.
 
@@ -90,12 +96,13 @@ def process_latest_news(news_client: NewsAPIClient,
         temp_dir (str): The directory for temporary files.
         tts (TextToSpeech): The TextToSpeech object for generating audio.
     """
-    # Get latest news headlines
+    cleanup_temp_folder()
+    #Get latest news headlines
     latest_news = news_client.get_latest_headlines(
         country=config['NewsAPI']['country'],
         page_size=config.getint('NewsAPI', 'page_size')
     )
-
+    os.makedirs(temp_dir,exist_ok=True)
     for topic in latest_news:
         print(Fore.MAGENTA + f"Title: {topic['title']}")
         print(Fore.YELLOW + f"Description: {topic['description']}")
@@ -103,14 +110,17 @@ def process_latest_news(news_client: NewsAPIClient,
         print(Style.DIM + "-" * 40)
     
         # Generate article and phrases
-        article, phrases, title, description, tags = article_generator.generate_article_and_phrases(topic['title'])
+        article, phrases, title, description, tags = article_generator.generate_article_and_phrases_short(topic['title'])
+        cover = None
+        #cover = article_generator.generate_cover_image(title,temp_dir,aspect_ratio=config['VideoResult']['aspect_ratio'])
 
         # Fetch related media
         media_files = fetch_related_media(media_fetcher, phrases)
         if not media_files:
             print(Fore.RED + f"No media found for topic: {topic}")
             continue
-
+        uploader = VideoUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
+                                 channel_description="")
         # Generate subtitles and voice using TextToSpeech
         audio_path = tts.text_to_speech_file(article, temp_dir)
         subtitle_path = stt.generate_subtitles(audio_path)
@@ -121,17 +131,34 @@ def process_latest_news(news_client: NewsAPIClient,
         video_assembler.assemble_video()
         video_files.append(output_file)
 
-        uploader = VideoUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
-                                 channel_description="")
-
         # Upload video to YouTube
         youtube_response = uploader.upload_short_to_youtube(
             output_file,
             title=title,
+            thumbnail_path=cover,
             description=description,
             tags=tags
         )
         print(Fore.GREEN + f"YouTube upload response: {youtube_response}")
+        
+
+
+    # # # audio_path = '.temp\\c289607c-8047-45bc-a5e6-e09f35566141.mp3'
+    # # # subtitle_path = '.temp\\subtitles.srt'
+    # # # media_files = ['.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
+    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
+    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
+    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
+    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
+    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4'
+    # # #                ]
+    # # # output_file = '.temp\\exampleexit.mp4'
+    # # # video_assembler = VideoAssembler(media_files, subtitle_path, audio_path, output_file)
+    # # # video_assembler.assemble_video()
+
+
+
+
 
 def fetch_related_media(media_fetcher, phrases, max_items=10):
     """
@@ -166,6 +193,15 @@ def cleanup_temp_folder():
         print(Fore.YELLOW + f"{temp_folder} directory does not exist.")
     
     pattern = '*TEMP_MPY_wvf_snd.mp3'
+    files_to_delete = glob.glob(pattern)
+    
+    for file in files_to_delete:
+        try:
+            os.remove(file)
+            print(Fore.RED + f"Deleted file {file}.")
+        except Exception as e:
+            print(Fore.RED + f"Error deleting file {file}: {e}")
+    pattern = '*TEMP_MPY_wvf_snd.log'
     files_to_delete = glob.glob(pattern)
     
     for file in files_to_delete:

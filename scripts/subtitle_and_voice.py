@@ -60,8 +60,7 @@ class SubtitleAndVoiceGenerator:
             result = self.whisper_model.transcribe(
                 audio_file,
                 language="es",         # Specify the language if known
-                temperature=0.5,        # Adjust the temperature if needed
-                verbose=True
+                temperature=0.5
             )
 
             return result.get('segments', [])
