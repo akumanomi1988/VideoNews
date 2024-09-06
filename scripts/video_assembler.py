@@ -11,9 +11,20 @@ import textwrap
 from colorama import init, Fore
 from PIL import Image, ImageDraw
 import numpy as np
+from enum import Enum
 
 # Initialize colorama
 init(autoreset=True)
+
+class Position(Enum):
+    TOP = 'top'
+    MIDDLE = 'middle'
+    BOTTOM = 'bottom'
+
+class Style(Enum):
+    DEFAULT = 'default'
+    BOLD = 'bold'
+    MINIMAL = 'minimal'
 
 class VideoAssembler:
     def __init__(self, media_files, subtitle_file, voiceover_file, output_file):
@@ -166,47 +177,83 @@ class VideoAssembler:
             print(Fore.RED + f"Error writing video file: {e}")
 
         print(Fore.GREEN + "Video processing completed successfully.")
+    
+    def generate_subtitle(self, txt, video_size, 
+                      position=Position.MIDDLE,
+                      style=Style.BOLD,
+                      bg_color=None,
+                      text_color='yellow'):
+        """
+        Genera subtítulos de forma simplificada.
+        """
+        # Asegurarse de que el texto esté en Unicode
+        txt = txt.encode('utf-8').decode('utf-8')
 
-    def generate_subtitle(self, txt, video_size):
-        # Configuración del texto
-        subtitle_text = self.split_subtitles(txt)
+        # Configuración de estilos internos según el estilo general seleccionado
+        if style == Style.BOLD:
+            font = 'Impact'
+            fontsize = 150
+            stroke_color = 'black'
+            stroke_width = 5
+        elif style == Style.MINIMAL:
+            font = 'Arial'
+            fontsize = 100
+            stroke_color = None
+            stroke_width = 0
+            bg_color = None  # Sin fondo en estilo minimalista
+        else:  # Style.DEFAULT
+            font = 'Helvetica'
+            fontsize = 120
+            stroke_color = 'black'
+            stroke_width = 3
+
+        # Configurar el texto del subtítulo
         text_clip = TextClip(
-            subtitle_text,
-            font='Arial-Bold',
-            fontsize=80,
-            color='white',
-            stroke_color='black',
-            stroke_width=3,
-            method='label'
-        )
+            txt,
+            font=font,
+            fontsize=fontsize,
+            color=text_color,
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            method='caption',
+            size=(video_size[0] - 100, None),
+            align='center'
+        ).set_position('center', 'center')
 
         # Obtener el tamaño del texto
         text_width, text_height = text_clip.size
-        padding_x = 20  # Espacio horizontal extra alrededor del texto
-        padding_y = 10  # Espacio vertical extra alrededor del texto
+        padding_x = 20
+        padding_y = 10
         box_width = text_width + 2 * padding_x
         box_height = text_height + 2 * padding_y
 
-        # Crear un recuadro con bordes redondeados que se ajusta al texto
-        image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-        radius = 25  # Radio para bordes redondeados
-        draw.rounded_rectangle(
-            [(0, 0), (box_width, box_height)],
-            radius=radius,
-            fill=(0, 0, 0, int(255 * 0.6))  # Fondo negro con opacidad
-        )
+        # Crear el fondo solo si se especifica un color de fondo
+        if bg_color:
+            image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            radius = 25  # Borde redondeado
+            draw.rounded_rectangle(
+                [(0, 0), (box_width, box_height)],
+                radius=radius,
+                fill=(0, 0, 0, int(255 * 0.6)) if bg_color == 'blue' else bg_color
+            )
+            image_np = np.array(image)
+            image_clip = ImageClip(image_np).set_duration(text_clip.duration)
+        else:
+            image_clip = None
 
-        # Convertir la imagen PIL a un array de NumPy
-        image_np = np.array(image)
+        # Posicionar el subtítulo según el parámetro 'position'
+        if position == Position.TOP:
+            final_position = ('center', 0.1 * video_size[1])
+        elif position == Position.MIDDLE:
+            final_position = ('center', 'center')
+        else:  # Position.BOTTOM
+            final_position = ('center', 0.8 * video_size[1])
 
-        # Crear el ImageClip a partir del array de NumPy
-        image_clip = ImageClip(image_np).set_duration(text_clip.duration)
-
-        # Ajustar la posición del texto en el recuadro
-        text_clip = text_clip.set_position(('center', 'center'))
-
-        # Posicionar el recuadro en la parte inferior del video
-        subtitle_clip = CompositeVideoClip([image_clip, text_clip]).set_position(('center', 'center'))
+        # Combinamos el fondo (si existe) con el texto
+        if image_clip:
+            subtitle_clip = CompositeVideoClip([image_clip, text_clip]).set_position(final_position)
+        else:
+            subtitle_clip = text_clip.set_position(final_position)
 
         return subtitle_clip

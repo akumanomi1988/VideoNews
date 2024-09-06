@@ -44,7 +44,7 @@ class ArticleGenerator:
             f"{{\n"
             f'  "title": "{topic}",  // The headline of the news that I will provide, which I want you to return translated (MAX 80 chars)\n'
             f'  "description": "",  // A brief description of the headline (summary).\n'
-            f'  "article": "",  // A full 80-word article written in an extremely sensationalist tone, with narrative twists and dramatic elements that keep the reader intrigued until the end.\n'
+            f'  "article": "",  // A full 100-word article written in an extremely sensationalist tone, with narrative twists and dramatic elements that keep the reader intrigued until the end.\n'
             f'  "image_descriptions": [  // A list of 25 brief and specific descriptions that can be used to find related images on Pexels.\n'
             f'    "description1",\n'
             f'    "description2",\n'
@@ -129,7 +129,8 @@ class ArticleGenerator:
             response = client.images.generate(
                 model=self.image_model,
                 prompt=final_prompt,
-                size=size
+                size=size,
+                
             )
             
             # Extract the image URL from the response

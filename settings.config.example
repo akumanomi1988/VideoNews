@@ -10,6 +10,7 @@ API_KEY =  # Your Pexels API key
 [NewsAPI]
 api_key =  # Your NewsAPI key
 country =  # Country code (e.g., us) see Api doc
+category= # business entertainment general health science sports technology
 page_size =  # Number of articles to fetch per request (e.g., 5)
 
 [ArticleSettings]

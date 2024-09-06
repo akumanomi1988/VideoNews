@@ -5,6 +5,7 @@ from moviepy.editor import AudioFileClip
 import whisper
 import re
 from colorama import Fore, Style, init
+import time
 
 # Inicializar Colorama
 init(autoreset=True)
@@ -49,26 +50,69 @@ class SubtitleAndVoiceGenerator:
         with AudioFileClip(audio_file) as audio:
             return audio.duration
 
-    def transcribe_audio(self, audio_file):
+    def transcribe_audio(self, audio_file, language="es", temperature=0.5, verbose=False, beam_size=5, best_of=3):
         """
         Uses Whisper to transcribe the audio file and obtain subtitle timings.
+
+        Parameters:
+            audio_file (str): Path to the audio file.
+            language (str): Language of the audio (default is "es" for Spanish).
+            temperature (float): Temperature for transcription (default is 0.5 for balanced creativity/accuracy).
+            verbose (bool): If True, prints detailed transcription progress (default is False).
+            beam_size (int, optional): Beam size for beam search (higher values may improve accuracy).
+            best_of (int, optional): Number of alternative transcriptions to consider (improves robustness).
+
+        Returns:
+            list: A list of transcription segments with timing data.
         """
-        self.debug_audio_file_path(audio_file)
+        self.debug_audio_file_path(audio_file)  # Verifies the audio file path exists and is correct
+        
+        print(f"{Fore.CYAN}Starting transcription for: {audio_file}")
+        print(f"Language: {language}, Temperature: {temperature}, Beam Size: {beam_size}, Best Of: {best_of}")
+        
+        start_time = time.time()
         
         try:
-            # Optional parameters: language, task, temperature
-            result = self.whisper_model.transcribe(
-                audio_file,
-                language="es",         # Specify the language if known
-                temperature=0.5
-            )
+            # Whisper transcription options
+            options = {
+                'language': language,
+                'temperature': temperature
+            }
 
-            return result.get('segments', [])
-    
+            # Add optional parameters if provided
+            if beam_size is not None:
+                options['beam_size'] = beam_size
+            if best_of is not None:
+                options['best_of'] = best_of
+
+            # Transcribe the audio file with Whisper
+            result = self.whisper_model.transcribe(audio_file, **options)
+
+            if verbose:
+                print(f"{Fore.GREEN}Transcription result: {result}")
+
+            segments = result.get('segments', [])
+            
+            if not segments:
+                print(f"{Fore.YELLOW}No segments were returned by the transcription model.")
+            
+            # Report how long the transcription took
+            end_time = time.time()
+            print(f"{Fore.GREEN}Transcription completed in {end_time - start_time:.2f} seconds.")
+            
+            return segments
+
+        except FileNotFoundError:
+            print(f"{Fore.RED}Error: The audio file '{audio_file}' was not found.")
+            return []
+
         except Exception as e:
-            print(f"{Fore.RED}Error during transcription: {e}")
-            return {'segments': []}
-
+            print(f"{Fore.RED}Error during transcription: {str(e)}")
+            
+            # Optionally, log the error to a file for further analysis
+            # log_error(f"Transcription error: {str(e)}")
+            return []
+    
     def generate_subtitles(self, audio_file):
         """
         Generates a subtitle file (.srt) based on the audio transcription.
@@ -93,14 +137,66 @@ class SubtitleAndVoiceGenerator:
         print(f"{Fore.GREEN}Subtitles saved to {subtitle_path}")
         return subtitle_path
 
-    def seconds_to_hms(self, seconds):
+    def generate_word_level_subtitles(self, audio_file):
         """
-        Converts seconds into hours, minutes, and seconds.
+        Generates a subtitle file (.srt) with each word synchronized precisely with the audio.
         """
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        return f"{h:02}", f"{m:02}", f"{s:02}"
+        print(f"{Fore.CYAN}Generating subtitles for audio: {audio_file}")
+        subtitle_path = os.path.join(self.temp_dir, "subtitles.srt")
+        segments = self.transcribe_audio(audio_file)
+        
+        with open(subtitle_path, 'w') as file:
+            subtitle_index = 1
+            
+            for segment in segments:
+                text = segment['text']
+                start_time = segment['start']
+                end_time = segment['end']
+                duration_ms = (end_time - start_time) * 1000
+                total_chars = sum(len(word) for word in re.findall(r'\S+', text)) + text.count(' ')
+                
+                if total_chars == 0:
+                    continue
+                
+                current_time = start_time * 1000  # Convert start time to milliseconds
+                
+                words = re.findall(r'\S+', text)
+                for i, word in enumerate(words):
+                    word_clean = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,;:!?¿¡\"-]', '', word)
+                    word_duration_ms = (len(word) / total_chars) * duration_ms
+                    
+                    # Calculate start and end time for the word
+                    start_time_for_word = current_time
+                    end_time_for_word = start_time_for_word + word_duration_ms
+                    
+                    # Write the subtitle line in SRT format
+                    file.write(f"{subtitle_index}\n")
+                    file.write(f"{self.milis_to_hms(start_time_for_word)} --> {self.milis_to_hms(end_time_for_word)}\n")
+                    file.write(f"{word_clean}\n\n")
+                    
+                    # Increment the subtitle index
+                    subtitle_index += 1
+                    
+                    # Update current time for the next word
+                    current_time = end_time_for_word
+                    
+                    # Add space duration if not the last word
+                    if i < len(words) - 1:
+                        space_duration_ms = (1 / total_chars) * duration_ms
+                        if text[text.index(word) + len(word)] == ',':
+                            space_duration_ms *= 2
+                        current_time += space_duration_ms
+
+        print(f"{Fore.GREEN}Subtitles saved to {subtitle_path}")
+        return subtitle_path
+
+    def milis_to_hms(self, milis):
+        seconds = milis / 1000  # Convert milliseconds to seconds
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        seconds = int(seconds % 60)
+        milliseconds = int(milis % 1000)
+        return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
 
     def debug_audio_file_path(self, audio_file):
         print(f"{Fore.YELLOW}Checking for file existence: {audio_file}")

@@ -9,10 +9,12 @@ from scripts.article_generator import ArticleGenerator
 from scripts.pexels_media_fetcher import PexelsMediaFetcher
 from scripts.subtitle_and_voice import SubtitleAndVoiceGenerator
 from scripts.video_assembler import VideoAssembler
-from scripts.video_uploader import VideoUploader
+from scripts.youtube_uploader import YoutubeUploader
 from scripts.news_api_client import NewsAPIClient
 from scripts.tts_elevenlabs import TextToSpeech  
+from scripts.tiktok_uploader import TikTokUploader
 import tkinter as tk
+from presentation.config_editor import ConfigEditorApp
 # from presentation.config_editor import ConfigEditorApp
 
 # Initialize Colorama
@@ -20,7 +22,7 @@ init(autoreset=True)
 
 def main():
     # Step 1: Show Configuration Editor
-    print(Fore.CYAN + "Opening Configuration Editor...")
+    # print(Fore.CYAN + "Opening Configuration Editor...")
     # root = tk.Tk()
     # app = ConfigEditorApp(root)
     # root.mainloop()
@@ -52,13 +54,14 @@ def main():
         model_id=config['ElevenLabs']['MODEL'],
         voice_id=config['ElevenLabs']['VOICE']
     )
-    uploader =None# VideoUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
-                  #               channel_description="")
+    tiktok_uploader = TikTokUploader(session_id=config['tiktok']['session_id'])
+    youtube_uploader = YoutubeUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
+                                channel_description="")
 
     # Step 4: Process Information
     print(Fore.CYAN + "Processing latest news...")
     #article_generator.generate_cover_image(aspect_ratio='16:9',output_path='.temp\\archivo.jpeg',prompt='Casa en ruinas')
-    process_latest_news(news_client, config, article_generator, media_fetcher, video_files, temp_dir, tts, stt,uploader)
+    process_latest_news(news_client, config, article_generator, media_fetcher, video_files, temp_dir, tts, stt,youtube_uploader,tiktok_uploader)
 
     
 def load_configuration(config_file):
@@ -83,7 +86,8 @@ def process_latest_news(news_client: NewsAPIClient,
                         temp_dir=".temp",
                         tts: TextToSpeech = None,
                         stt: SubtitleAndVoiceGenerator=None,
-                        uploader: VideoUploader=None):
+                        yt_uploader: YoutubeUploader=None,
+                        tk_uploader: TikTokUploader=None):
     """
     Processes the latest news, generating articles, media, subtitles, and uploading the videos.
 
@@ -96,34 +100,45 @@ def process_latest_news(news_client: NewsAPIClient,
         temp_dir (str): The directory for temporary files.
         tts (TextToSpeech): The TextToSpeech object for generating audio.
     """
+    # media_files = ['.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4','.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4','.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4','.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4']
+    # # subtitle_path='.temp\\subtitles.srt'
+    # audio_path ='.temp\\43f92bde-e8bc-4618-8557-fd3c1873e80d.mp3'
+    # output_file = '.temp\\output.mp4'
+    # subtitle_path = stt.generate_word_level_subtitles(audio_path)
+    # video_assembler = VideoAssembler(media_files, subtitle_path, audio_path, output_file)
+    # video_assembler.assemble_video()
+
     cleanup_temp_folder()
     #Get latest news headlines
     latest_news = news_client.get_latest_headlines(
         country=config['NewsAPI']['country'],
-        page_size=config.getint('NewsAPI', 'page_size')
+        page_size=config.getint('NewsAPI', 'page_size'),
+        category=config['NewsAPI']['category']
     )
+    cover = None
     os.makedirs(temp_dir,exist_ok=True)
     for topic in latest_news:
         print(Fore.MAGENTA + f"Title: {topic['title']}")
-        print(Fore.YELLOW + f"Description: {topic['description']}")
-        print(Fore.BLUE + f"URL: {topic['url']}")
-        print(Style.DIM + "-" * 40)
+        # print(Fore.YELLOW + f"Description: {topic['description']}")
+        # print(Fore.BLUE + f"URL: {topic['url']}")
+        print(Style.DIM + "-" * 80)
     
         # Generate article and phrases
+        
         article, phrases, title, description, tags = article_generator.generate_article_and_phrases_short(topic['title'])
-        cover = None
+        if article == None:
+            continue
         #cover = article_generator.generate_cover_image(title,temp_dir,aspect_ratio=config['VideoResult']['aspect_ratio'])
+
+        # Generate subtitles and voice using TextToSpeech
+        audio_path = tts.text_to_speech_file(article, temp_dir)
+        subtitle_path = stt.generate_word_level_subtitles(audio_path)
 
         # Fetch related media
         media_files = fetch_related_media(media_fetcher, phrases)
         if not media_files:
             print(Fore.RED + f"No media found for topic: {topic}")
             continue
-        uploader = VideoUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
-                                 channel_description="")
-        # Generate subtitles and voice using TextToSpeech
-        audio_path = tts.text_to_speech_file(article, temp_dir)
-        subtitle_path = stt.generate_subtitles(audio_path)
 
         # Assemble video
         output_file = os.path.join(temp_dir, clean_filename(title))
@@ -132,31 +147,20 @@ def process_latest_news(news_client: NewsAPIClient,
         video_files.append(output_file)
 
         # Upload video to YouTube
-        youtube_response = uploader.upload_short_to_youtube(
+        youtube_response = yt_uploader.upload_short(
             output_file,
             title=title,
             thumbnail_path=cover,
             description=description,
             tags=tags
         )
+        # tk_uploader.upload_video(
+        #     video_path=output_file,
+        #     description=description,
+        #     tags=tags
+        # )
         print(Fore.GREEN + f"YouTube upload response: {youtube_response}")
-        
-
-
-    # # # audio_path = '.temp\\c289607c-8047-45bc-a5e6-e09f35566141.mp3'
-    # # # subtitle_path = '.temp\\subtitles.srt'
-    # # # media_files = ['.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
-    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
-    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
-    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
-    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4',
-    # # #                '.temp\\adjusted_5d25d33c-b98b-4cd6-b9e8-b8718fffaef7.mp4'
-    # # #                ]
-    # # # output_file = '.temp\\exampleexit.mp4'
-    # # # video_assembler = VideoAssembler(media_files, subtitle_path, audio_path, output_file)
-    # # # video_assembler.assemble_video()
-
-
+        return
 
 
 

@@ -77,3 +77,4 @@ Thumbs.db
 
 # Archivos de credenciales
 settings.config
+.secrets*

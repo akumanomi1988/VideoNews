@@ -37,10 +37,11 @@ class TextToSpeech:
             text=text,
             model_id=self.model_id,
             voice_settings=VoiceSettings(
-                stability=0.0,
-                similarity_boost=1.0,
-                style=0.0,
-                use_speaker_boost=True,
+                stability=0.5,  # Reduce la estabilidad para hacer que la voz sea más dinámica
+                similarity_boost=0.8,  # Reduce un poco la similitud para agregar un toque más humano
+                style=0.8,  # Incrementa el estilo para que la voz tenga más énfasis, lo que la hace sonar más agresiva
+                use_speaker_boost=True,  # Mantén el uso del speaker boost para darle más fuerza a la voz
+                speed_boost=1.7  # Incrementa la velocidad de la voz para que suene más rápida, similar a algunos videos virales
             ),
         )
 
