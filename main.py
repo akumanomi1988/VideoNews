@@ -7,27 +7,20 @@ from pathlib import Path
 from colorama import Fore, Style, init
 from scripts.article_generator import ArticleGenerator
 from scripts.pexels_media_fetcher import PexelsMediaFetcher
-from scripts.subtitle_and_voice import SubtitleAndVoiceGenerator
+from scripts.subtitle_and_voice import stt_whisper
 from scripts.video_assembler import VideoAssembler
 from scripts.youtube_uploader import YoutubeUploader
 from scripts.news_api_client import NewsAPIClient
 from scripts.tts_elevenlabs import TextToSpeech  
-from scripts.tiktok_uploader import TikTokUploader
+from scripts.tiktok_uploader import TikTokVideoUploader
+from scripts.flux_image_generator import FluxImageGenerator,AspectRatio,StylePreset
 import tkinter as tk
 from presentation.config_editor import ConfigEditorApp
-# from presentation.config_editor import ConfigEditorApp
 
 # Initialize Colorama
 init(autoreset=True)
 
 def main():
-    # Step 1: Show Configuration Editor
-    # print(Fore.CYAN + "Opening Configuration Editor...")
-    # root = tk.Tk()
-    # app = ConfigEditorApp(root)
-    # root.mainloop()
-    
-    # Step 2: Load Configuration
     config_file = 'settings.config'
     if not os.path.exists(config_file):
         print(Fore.YELLOW + "Configuration file not found. Please create one using the configuration editor.")
@@ -36,32 +29,28 @@ def main():
     config = load_configuration(config_file)
     print(Fore.GREEN + "Configuration loaded successfully.")
 
-    # Step 3: Initialize Components
     print(Fore.CYAN + "Initializing components...")
+    temp_dir = config['settings']['temp_dir']
     news_client = NewsAPIClient(api_key=config['NewsAPI']['api_key'])
     article_generator = ArticleGenerator(
         language=config['ArticleSettings']['LANGUAGE'],
         model=config['ArticleSettings']['MODEL'],
         image_model=config['ArticleSettings']['IMAGE_MODEL']
     )
-    media_fetcher = PexelsMediaFetcher(api_key=config['Pexels']['API_KEY'], temp_dir=config['settings']['temp_dir'])
+    media_fetcher = PexelsMediaFetcher(api_key=config['Pexels']['API_KEY'], temp_dir=temp_dir)
     video_files = []
-    temp_dir = config['settings']['temp_dir']
-    
-    stt = SubtitleAndVoiceGenerator()
+    stt = stt_whisper()
     tts = TextToSpeech(
-        api_key=config['ElevenLabs']['API_KEY'],
-        model_id=config['ElevenLabs']['MODEL'],
-        voice_id=config['ElevenLabs']['VOICE']
+        credentials_path=config['ElevenLabs']['credentials_path'],
+        quota_min=config.getint('ElevenLabs','quota_min')
     )
-    tiktok_uploader = TikTokUploader(session_id=config['tiktok']['session_id'])
+    tiktok_uploader = TikTokVideoUploader(session_id=config['tiktok']['session_id'])
+    image_generator = FluxImageGenerator(token=config['huggingface']['api_key'], output_dir=temp_dir)
     youtube_uploader = YoutubeUploader(client_secrets_file=config['Youtube']['youtube_credentials_file'],
                                 channel_description="")
-
-    # Step 4: Process Information
+    
     print(Fore.CYAN + "Processing latest news...")
-    #article_generator.generate_cover_image(aspect_ratio='16:9',output_path='.temp\\archivo.jpeg',prompt='Casa en ruinas')
-    process_latest_news(news_client, config, article_generator, media_fetcher, video_files, temp_dir, tts, stt,youtube_uploader,tiktok_uploader)
+    process_latest_news(news_client, config, article_generator, media_fetcher, video_files, temp_dir, tts, stt,youtube_uploader,tiktok_uploader,image_generator)
 
     
 def load_configuration(config_file):
@@ -85,9 +74,10 @@ def process_latest_news(news_client: NewsAPIClient,
                         video_files=[],
                         temp_dir=".temp",
                         tts: TextToSpeech = None,
-                        stt: SubtitleAndVoiceGenerator=None,
+                        stt: stt_whisper=None,
                         yt_uploader: YoutubeUploader=None,
-                        tk_uploader: TikTokUploader=None):
+                        tk_uploader: TikTokVideoUploader=None,
+                        image_generator:FluxImageGenerator = None):
     """
     Processes the latest news, generating articles, media, subtitles, and uploading the videos.
 
@@ -100,13 +90,6 @@ def process_latest_news(news_client: NewsAPIClient,
         temp_dir (str): The directory for temporary files.
         tts (TextToSpeech): The TextToSpeech object for generating audio.
     """
-    # media_files = ['.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4','.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4','.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4','.temp\\adjusted_7f66735e-0b60-435c-bf30-99bea6372cdd.mp4']
-    # # subtitle_path='.temp\\subtitles.srt'
-    # audio_path ='.temp\\43f92bde-e8bc-4618-8557-fd3c1873e80d.mp3'
-    # output_file = '.temp\\output.mp4'
-    # subtitle_path = stt.generate_word_level_subtitles(audio_path)
-    # video_assembler = VideoAssembler(media_files, subtitle_path, audio_path, output_file)
-    # video_assembler.assemble_video()
 
     cleanup_temp_folder()
     #Get latest news headlines
@@ -118,31 +101,42 @@ def process_latest_news(news_client: NewsAPIClient,
     cover = None
     os.makedirs(temp_dir,exist_ok=True)
     for topic in latest_news:
+
         print(Fore.MAGENTA + f"Title: {topic['title']}")
-        # print(Fore.YELLOW + f"Description: {topic['description']}")
-        # print(Fore.BLUE + f"URL: {topic['url']}")
+        print(Fore.BLUE + f"URL: {topic['url']}")
         print(Style.DIM + "-" * 80)
     
         # Generate article and phrases
-        
         article, phrases, title, description, tags = article_generator.generate_article_and_phrases_short(topic['title'])
+
         if article == None:
             continue
-        #cover = article_generator.generate_cover_image(title,temp_dir,aspect_ratio=config['VideoResult']['aspect_ratio'])
+        cover = generate_related_media(image_generator,phrases=title,style=StylePreset.YOUTUBE_THUMBNAIL,max_items=1 )[0] 
 
         # Generate subtitles and voice using TextToSpeech
+        article =  article + " Sígueme para mantenerte informado!."
         audio_path = tts.text_to_speech_file(article, temp_dir)
+        audio_segments = stt.transcribe_audio(audio_file=audio_path)
         subtitle_path = stt.generate_word_level_subtitles(audio_path)
 
         # Fetch related media
-        media_files = fetch_related_media(media_fetcher, phrases)
-        if not media_files:
-            print(Fore.RED + f"No media found for topic: {topic}")
-            continue
+        media_files = None
+        media_images = None
+        image_generator_method = config['settings']['media_from']
+        if image_generator_method == 'huggingface':
+            media_images = generate_related_media(image_generator,phrases=audio_segments,style=StylePreset.PHOTOREALISTIC,max_items=len(audio_segments) )
+            if not media_images:
+                print(Fore.RED + f"No media generated for topic: {topic}")
+                continue
+        elif image_generator_method == 'pexels':
+            media_files = fetch_related_media(media_fetcher, phrases)
+            if not media_files:
+                print(Fore.RED + f"No media found for topic: {topic}")
+                continue
 
         # Assemble video
         output_file = os.path.join(temp_dir, clean_filename(title))
-        video_assembler = VideoAssembler(media_files, subtitle_path, audio_path, output_file)
+        video_assembler = VideoAssembler(media_videos=media_files, subtitle_file=subtitle_path, voiceover_file=audio_path, output_file=output_file,media_images=media_images)
         video_assembler.assemble_video()
         video_files.append(output_file)
 
@@ -151,17 +145,31 @@ def process_latest_news(news_client: NewsAPIClient,
             output_file,
             title=title,
             thumbnail_path=cover,
-            description=description,
+            description=description + '\n' + topic['url'],
             tags=tags
         )
-        # tk_uploader.upload_video(
-        #     video_path=output_file,
-        #     description=description,
-        #     tags=tags
-        # )
+
         print(Fore.GREEN + f"YouTube upload response: {youtube_response}")
         return
 
+def generate_related_media(image_generator: FluxImageGenerator, phrases, style: StylePreset, max_items=10):
+    images = []
+    
+    for phrase in phrases:
+        while len(images) < max_items:
+            try:
+                # Attempt to generate the image
+                media_file = image_generator.generate_image(custom_prompt=phrase, aspect_ratio=AspectRatio.PORTRAIT, style_preset=style)
+                
+                if media_file:
+                    images.append(media_file)
+                    break  # Exit the loop once an image is successfully generated
+                
+            except Exception as e:
+                # If there's an error, print it and retry
+                print(f"Error generating image for phrase '{phrase}': {e}. Retrying...")
+    
+    return images
 
 
 def fetch_related_media(media_fetcher, phrases, max_items=10):
@@ -233,3 +241,4 @@ def clean_filename(topic_title, max_length=30):
 
 if __name__ == "__main__":
     main()
+

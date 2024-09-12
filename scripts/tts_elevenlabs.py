@@ -3,23 +3,21 @@ from pathlib import Path
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
 from colorama import init, Fore, Style
-
+import json
+import random
 # Initialize colorama
 init(autoreset=True)
 
 class TextToSpeech:
-    def __init__(self, api_key: str, model_id: str = "eleven_multilingual_v2", voice_id: str = "gD1IexrzCvsXPHUuT0s3"):
-        """
-        Initializes the class with the API key, model, and voice to use.
-
-        :param api_key: The API key to access Eleven Labs.
-        :param model_id: The TTS model to use, default is 'eleven_multilingual_v2'.
-        :param voice_id: The voice ID to use, default is gD1IexrzCvsXPHUuT0s3.
-        """
-        self.api_key = api_key
-        self.model_id = model_id
-        self.voice_id = voice_id
-        self.client = ElevenLabs(api_key=self.api_key)
+    def __init__(self, credentials_path, quota_min:int):
+        self.credentials_path = Path(credentials_path)
+        self.quota_min = quota_min
+        self.api_key, self.model_id, self.voice_id = self.get_valid_account()
+        
+        if self.api_key:
+            self.client = ElevenLabs(api_key=self.api_key)
+        else:
+            raise ValueError("No se encontró una cuenta válida con suficiente cuota.")
 
     def text_to_speech_file(self, text: str, output_dir: str) -> str:
         """
@@ -62,3 +60,38 @@ class TextToSpeech:
 
         # Return the path of the saved audio file
         return str(output_path)
+            
+    def get_valid_account(self):
+        with open(self.credentials_path, 'r') as f:
+            accounts = json.load(f)
+        
+        valid_accounts = []
+        for account_name, account_data in accounts.items():
+            api_key = account_data['ApiKey']
+            client = ElevenLabs(api_key=api_key)
+            
+            try:
+                user = client.user.get()
+                subscription = user.subscription
+                remaining_characters = subscription.character_limit - subscription.character_count
+                
+                if remaining_characters >= self.quota_min:
+                    print(Fore.GREEN + f"Cuenta {account_name} tiene {remaining_characters} caracteres restantes.")
+                    valid_accounts.append((api_key, account_data))
+                else:
+                    print(Fore.YELLOW + f"Cuenta {account_name} no tiene suficiente cuota ({remaining_characters} caracteres).")
+            except Exception as e:
+                print(Fore.RED + f"Error al verificar la cuenta {account_name}: {str(e)}")
+        
+        if not valid_accounts:
+            return None, None, None
+        
+        # Seleccionar una cuenta aleatoria de las válidas
+        selected_api_key, selected_account = random.choice(valid_accounts)
+        
+        # Seleccionar una voz aleatoria de la cuenta seleccionada
+        selected_voice = random.choice(selected_account['Voices'])
+        
+        print(Fore.GREEN + f"Usando cuenta con API Key: {selected_api_key[:10]}... y voz ID: {selected_voice['ID']}")
+        
+        return selected_api_key, "eleven_multilingual_v2", selected_voice['ID']

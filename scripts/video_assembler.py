@@ -27,8 +27,9 @@ class Style(Enum):
     MINIMAL = 'minimal'
 
 class VideoAssembler:
-    def __init__(self, media_files, subtitle_file, voiceover_file, output_file):
-        self.media_files = media_files
+    def __init__(self, subtitle_file, voiceover_file, output_file, media_videos = None,media_images= None):
+        self.media_videos = media_videos
+        self.media_images = media_images
         self.subtitle_file = subtitle_file
         self.voiceover_file = voiceover_file
         self.output_file = output_file
@@ -70,40 +71,31 @@ class VideoAssembler:
         return video_clip_cropped
 
     def adjust_videos(self):
-        if not self.media_files:
-            raise ValueError(Fore.RED + "No media files provided. Please provide at least one video file.")
+        adjusted_clips = []
 
-        adjusted_files = []
-        if not os.path.exists(".temp"):
-            os.makedirs(".temp")
-            
-        for media_file in self.media_files:
-            try:
-                print(Fore.CYAN + f"Processing file: {media_file}")
-                clip = mp.VideoFileClip(media_file)
-                
-                if not clip:
-                    print(Fore.RED + f"Failed to load video file: {media_file}")
-                    continue
-                
-                adjusted_clip = self.adjust_aspect_ratio(clip)
-                
-                if not adjusted_clip:
-                    print(Fore.RED + f"Failed to adjust aspect ratio for file: {media_file}")
-                    continue
-                
-                adjusted_file = os.path.join(".temp", f"adjusted_{os.path.basename(media_file)}")
-                print(Fore.CYAN + f"Saving adjusted file to: {adjusted_file}")
-                adjusted_clip.write_videofile(adjusted_file)
-                
-                adjusted_files.append(adjusted_file)
-                print(Fore.GREEN + f"File processed and saved: {adjusted_file}")
-            
-            except Exception as e:
-                print(Fore.RED + f"Error processing file {media_file}: {e}")
-        
-        print(Fore.GREEN + f"Adjusted files: {adjusted_files}")
-        return adjusted_files
+        if self.media_videos:
+            for media_file in self.media_videos:
+                try:
+                    print(Fore.CYAN + f"Processing video file: {media_file}")
+                    video_clip = mp.VideoFileClip(media_file)
+                    adjusted_clip = self.adjust_aspect_ratio(video_clip)
+                    adjusted_clips.append(adjusted_clip)
+                except Exception as e:
+                    print(Fore.RED + f"Error processing video file {media_file}: {e}")
+
+        if self.media_images:
+            for image_file in self.media_images:
+                try:
+                    print(Fore.CYAN + f"Processing image file: {image_file}")
+                    audio = mp.AudioFileClip(self.voiceover_file)
+                    image_clip = ImageClip(image_file, duration=audio.duration/len(self.media_images)) # Asignar duración para las imágenes
+                    image_clip.fps = 24
+                    adjusted_clip = self.adjust_aspect_ratio(image_clip)
+                    adjusted_clips.append(adjusted_clip)
+                except Exception as e:
+                    print(Fore.RED + f"Error processing image file {image_file}: {e}")
+
+        return adjusted_clips
 
     def split_subtitles(self, subtitle_text):
         # Split long subtitles into shorter lines
@@ -118,12 +110,17 @@ class VideoAssembler:
             raise ValueError(Fore.RED + "No adjusted video files were created. Please check the input files and settings.")
         
         # Create a list of video clips from adjusted files
+        clips = []
         try:
-            clips = [mp.VideoFileClip(mf) for mf in adjusted_files]
+            for mf in adjusted_files:
+                if isinstance(mf, VideoFileClip) or isinstance(mf, ImageClip):
+                    clips.append(mf)
+                else:
+                    # For video files, load as video clips
+                    video_clip = VideoFileClip(mf)
+                    clips.append(video_clip)
         except Exception as e:
             raise ValueError(Fore.RED + f"Error loading video clips: {e}")
-        
-        # Verify that the list of clips is not empty
         if not clips:
             raise ValueError(Fore.RED + "No video clips could be loaded. Please check the adjusted files.")
         
@@ -257,3 +254,5 @@ class VideoAssembler:
             subtitle_clip = text_clip.set_position(final_position)
 
         return subtitle_clip
+
+

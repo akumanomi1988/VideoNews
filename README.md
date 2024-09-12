@@ -20,7 +20,7 @@ This project generates videos based on trending news articles and uploads them t
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.10+
 - API keys for NewsAPI, YouTube
 
 ## Installation

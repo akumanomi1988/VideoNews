@@ -1,4 +1,6 @@
 import os
+import re
+import uuid
 import json
 import random
 import requests
@@ -36,21 +38,26 @@ class ArticleGenerator:
             tuple: A tuple containing the generated article, short phrases, title, description, and tags.
         """
         print(Fore.CYAN + f"Generating article and phrases for topic: {topic}")
+            # Generar un GUID único
+        file_guid = str(uuid.uuid4())
         
+        # Definir la ruta de la carpeta .temp y el archivo
+        folder_path = '.temp'
+        file_path = os.path.join(folder_path, f'{file_guid}.json')
         # Construct the prompt for article generation
         prompt_template = (
             f"You are an expert sensationalist news writer. Based on the headline I will provide and the language I will specify, "
             f"generate a result in JSON format with the following structure:\n\n"
             f"{{\n"
-            f'  "title": "{topic}",  // The headline of the news that I will provide, which I want you to return translated (MAX 80 chars)\n'
+            f'  "title": "{topic}",  // The headline of the news that I will provide, which I want you to return translated (MAX 50 chars)\n'
             f'  "description": "",  // A brief description of the headline (summary).\n'
-            f'  "article": "",  // A full 100-word article written in an extremely sensationalist tone, with narrative twists and dramatic elements that keep the reader intrigued until the end.\n'
-            f'  "image_descriptions": [  // A list of 25 brief and specific descriptions that can be used to find related images on Pexels.\n'
+            f'  "article": "",  // Write a 100-word summary of this news story, highlighting the key details right from the start, keeping the reader engaged with a clear and concise approach. Make sure the first sentence grabs attention, and the ending delivers an unexpected twist or important fact.\n'
+            f'  "image_descriptions": [  // A list of 10 brief and specific descriptions that can be used to find related images on Pexels.\n'
             f'    "description1",\n'
             f'    "description2",\n'
             f'    ...\n'
             f'  ],\n'
-            f'  "tags": [  // A list of 10 keywords to use for the video\'s SEO (only a word)'
+            f'  "tags": [  // A list of 10 relevant and SEO-optimized hashtags for a YouTube video based on this headline. The hashtags should be tailored to the niche, increase visibility, and help position the video effectively in search results'
             f'    "tag1",\n'
             f'    "Tag2",\n'
             f'    ...\n'
@@ -70,10 +77,13 @@ class ArticleGenerator:
         # Use g4f to create a chat completion using the specified model and constructed message
         response = g4f.ChatCompletion.create(model=self.model, messages=messages)
         # Get the generated content from the response
-        content = response.strip().replace('```json', '').replace('```', '')
+        # Expresión regular para capturar el JSON
         try:
+            start_index = response.find('{')
+            end_index = response.rfind('}')
+            content = response[start_index:end_index+1]
             # Parse the content as JSON
-            content = content.replace('\n', '').replace('\r', '')
+            # content = content.replace('\n', '').replace('\r', '')
             response_json = json.loads(content)
             
             # Retrieve the article and image descriptions
@@ -87,6 +97,14 @@ class ArticleGenerator:
             short_phrases = random.sample(image_descriptions, min(10, len(image_descriptions)))
 
             print(Fore.GREEN + "Article and phrases generated successfully.")
+              # Guardar el JSON en el archivo
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(response_json, f, ensure_ascii=False, indent=4)
+                print(f"JSON guardado correctamente en {file_path}")
+            except Exception as e:
+                print(f"Error al guardar el archivo JSON: {e}")
+
             return article, short_phrases, title, description, tags
 
         except json.JSONDecodeError:
@@ -94,60 +112,3 @@ class ArticleGenerator:
             print(Fore.RED + "Error: The response is not in valid JSON format.")
             print(Fore.RED + content)
             return None, [], "", "", []
-
-    def generate_cover_image(self, prompt, output_path, aspect_ratio):
-        """
-        Generates an image based on the provided prompt and saves it to the specified path.
-
-        Parameters:
-            prompt (str): The specific topic for the image generation, which will replace the placeholder in the template.
-            output_path (str): The path where the generated image will be saved.
-            aspect_ratio (str): The aspect ratio for the generated image (e.g., "16:9").
-        """
-        # Template prompt with a placeholder for the topic
-        base_prompt = (
-            "Create a sensational magazine cover with bold, eye-catching headlines that scream controversy. "
-            "The theme is '{topic}'. Include shocking imagery, dramatic lighting, and vibrant colors. "
-            "The cover should feature a large, aggressive font for the main headline, with phrases like "
-            "'EXPOSED!', 'SHOCKING TRUTH!', or 'MUST READ!'. Ensure the design is over-the-top and demands attention."
-        )
-
-        # Fill the placeholder with the actual topic provided in the 'prompt' parameter
-        final_prompt = base_prompt.format(topic=prompt)
-        print(Fore.CYAN + f"Generating image for prompt: {final_prompt}")
-        
-        # Determine the size based on the aspect ratio
-        size = "1024x1024"  # Default size
-        if aspect_ratio == "16:9":
-            size = "1920x1080"
-        elif aspect_ratio == "9:16":
-            size = "1080x1920"
-        
-        try:
-            # Initialize the client and generate the image
-            client = Client()
-            response = client.images.generate(
-                model=self.image_model,
-                prompt=final_prompt,
-                size=size,
-                
-            )
-            
-            # Extract the image URL from the response
-            image_url = response.data[0].url
-            
-            # Fetch the image from the URL
-            image_response = requests.get(image_url)
-            image_response.raise_for_status()
-            
-            # Open the image and save it as JPEG
-            image = Image.open(BytesIO(image_response.content))
-            image = image.convert('RGB')
-            image.save(output_path, 'JPEG')
-            print(Fore.GREEN + f"Image saved to {output_path}")
-        
-        except requests.exceptions.RequestException as e:
-            print(Fore.RED + f"Failed to fetch image from URL '{image_url}'. Error: {str(e)}")
-        except OSError as e:
-            print(Fore.RED + f"Failed to save image to '{output_path}'. Error: {str(e)}")
-

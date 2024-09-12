@@ -1,4 +1,5 @@
 import os
+
 import pyttsx3
 import configparser
 from moviepy.editor import AudioFileClip
@@ -10,7 +11,7 @@ import time
 # Inicializar Colorama
 init(autoreset=True)
 
-class SubtitleAndVoiceGenerator:
+class stt_whisper:
     def __init__(self, config_file='settings.config'):
         self.config = configparser.ConfigParser()
         self.config.read(config_file)

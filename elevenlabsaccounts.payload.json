@@ -1,0 +1,40 @@
+{
+    "Account1": {
+        "ApiKey": "YOUR_ACCOUNT_API_KEY",
+        "Email": "YOUR_ACCOUNT_EMAIL",
+        "pwd": "YOUR_ACCOUNT_PASSWORD",
+        "Voices": [
+            {
+                "Gender": "Male",
+                "ID": "MALE_VOICE_ID"
+            },
+            {
+                "Gender": "Female",
+                "ID": "FEMALE_VOICE_ID_1"
+            },
+            {
+                "Gender": "Female",
+                "ID": "FEMALE_VOICE_ID_2"
+            }
+        ]
+    },
+    "Account2": {
+        "ApiKey": "YOUR_OTHER_ACCOUNT_API_KEY",
+        "Email": "YOUR_OTHER_ACCOUNT_EMAIL",
+        "pwd": "YOUR_OTHER_ACCOUNT_PASSWORD (OPTIONAL)",
+        "Voices": [
+            {
+                "Gender": "Male",
+                "ID": "MALE_VOICE_ID_1"
+            },
+            {
+                "Gender": "Male",
+                "ID": "MALE_VOICE_ID_2"
+            },
+            {
+                "Gender": "Female",
+                "ID": "FEMALE_VOICE_ID"
+            }
+        ]
+    }
+}
