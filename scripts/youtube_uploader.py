@@ -84,7 +84,7 @@ class YoutubeUploader:
             dict: The response from the YouTube API.
         """
         # Add # before each tag
-        hashtags = [f"#{tag}" for tag in tags]
+        hashtags = [f"{tag}" for tag in tags]
         
         # Concatenate the video description with the channel description and hashtags
         full_description = f"{description}\n\n{self.channel_description}\n\n{' '.join(hashtags)}"
@@ -142,7 +142,7 @@ class YoutubeUploader:
 
         title = title[:90]
         # Add # before each tag
-        hashtags = [f"#{tag}" for tag in tags]
+        hashtags = [f"{tag}" for tag in tags]
         
         # Ensure the Short's description includes the #Shorts hashtag
         full_description = f"{description}\n\n{self.channel_description}\n\n{' '.join(hashtags)}\n\n#Shorts"

@@ -14,7 +14,9 @@ requests
 Pillow
 newsapi-python
 g4f
+tiktokautouploader
 
 
 # Dependencias adicionales (no se instalan con pip):
 # - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.
+# python -m playwright install

@@ -109,14 +109,14 @@ def process_latest_news(news_client: NewsAPIClient,
         # Generate article and phrases
         article, phrases, title, description, tags = article_generator.generate_article_and_phrases_short(topic['title'])
 
-        if article == None:
+        if article == "":
             continue
         cover = generate_related_media(image_generator,phrases=title,style=StylePreset.YOUTUBE_THUMBNAIL,max_items=1 )[0] 
 
         # Generate subtitles and voice using TextToSpeech
         article =  article + " Sígueme para mantenerte informado!."
         audio_path = tts.text_to_speech_file(article, temp_dir)
-        audio_segments = stt.transcribe_audio(audio_file=audio_path)
+        # audio_segments = stt.transcribe_audio(audio_file=audio_path)
         subtitle_path = stt.generate_word_level_subtitles(audio_path)
 
         # Fetch related media
@@ -124,7 +124,7 @@ def process_latest_news(news_client: NewsAPIClient,
         media_images = None
         image_generator_method = config['settings']['media_from']
         if image_generator_method == 'huggingface':
-            media_images = generate_related_media(image_generator,phrases=audio_segments,style=StylePreset.PHOTOREALISTIC,max_items=len(audio_segments) )
+            media_images = generate_related_media(image_generator,phrases=phrases,style=StylePreset.PHOTOREALISTIC,max_items=len(phrases) )
             if not media_images:
                 print(Fore.RED + f"No media generated for topic: {topic}")
                 continue
