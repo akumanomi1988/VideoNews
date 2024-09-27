@@ -49,7 +49,7 @@ class ArticleGenerator:
             'You are a sensationalist news writer. Based on the headline and language I provide, '
             'generate a JSON with the following structure:\n\n'
             '{\n'
-            '  "title": "",  // Translate the headline provided (max 50 chars)\n'
+            '  "title": "",  // write a short headline (max 50 chars)\n'
             '  "description": "",  // Write a short summary of the headline\n'
             '  "article": "",  // Write a 100-word news article that grabs attention immediately, '
             'summarizes the key points, and ends with an unexpected twist or fact.\n'
