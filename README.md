@@ -2,7 +2,7 @@
 </br>
 <a href="https://www.buymeacoffee.com/akumanomi1k"><img src="https://img.buymeacoffee.com/button-api/?text=Fuel my creativity! 💸&emoji=🍺&slug=akumanomi1k&button_colour=FF3737&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=FF3737" /></a>
 
-# from_news_to_video_uploaded
+# Video News
 
 ![banner](https://th.bing.com/th/id/OIG4.QJJxpMDBlrWO4t0OTO.j?w=1024&h=1024&rs=1&pid=ImgDetMain)
 
@@ -205,4 +205,4 @@ If you find this project useful, give it a ⭐ **star** and help spread the word
 [![Star History Chart](https://api.star-history.com/svg?repos=Akumanomi1988/from_news_to_uploaded&type=Date)](https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date)
 ---
 
-For more information, visit the [GitHub repository](https://github.com/Akumanomi1988/from_news_to_video_uploaded).
+For more information, visit the [GitHub repository](https://github.com/Akumanomi1988/VideoNews).
