@@ -8,7 +8,7 @@
 
 ## 📄 Overview
 
-**from_news_to_video_uploaded** is a full-featured automation tool designed to streamline the creation of engaging, high-quality videos from news articles. The tool is particularly useful for content creators, media agencies, and social media marketers who want to transform written news into visually captivating and easily shareable videos for platforms like YouTube, TikTok, and Instagram.
+**fVideo News** is a full-featured automation tool designed to streamline the creation of engaging, high-quality videos from news articles. The tool is particularly useful for content creators, media agencies, and social media marketers who want to transform written news into visually captivating and easily shareable videos for platforms like YouTube, TikTok, and Instagram.
 
 This repository combines cutting-edge AI technologies for text generation, image creation, voice synthesis, and video assembly, allowing users to generate videos with minimal manual intervention. By leveraging APIs and powerful libraries, it offers a modular approach to customize various aspects of video production. Here’s a breakdown of what this project can do:
 
