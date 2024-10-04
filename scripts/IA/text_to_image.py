@@ -15,20 +15,17 @@ class AspectRatio(Enum):
 # Enum for style presets that define the artistic style and look of the image
 class StylePreset(Enum):
     NONE = ""
-    FUTURISTIC_CITY = "NO TEXT.urban futuristic vibe with neon lights, wide-angle shot, deep depth of field"
-    VINTAGE = "NO TEXT.sepia tones, retro cars, grainy effect, shot with 35mm film camera for authenticity"
-    FANTASY_WORLD = "NO TEXT.epic fantasy with castles, dragons, soft lighting, shot with a cinematic lens"
-    CYBERPUNK = "NO TEXT.neon cityscape, dark tones, aerial view, hyper-detailed, shot with wide-angle lens"
-    MINIMALIST = "NO TEXT.clean design, geometric forms, soft pastel tones, high-key lighting, studio shot"
-    NATURE_SCENE = "majestic mountains and serene lakes, DSLR shot, natural lighting, wide dynamic range"
-    ANIME = "NO TEXT.Studio ghibli style, vibrant colors, expressive characters, cell shading, shot in dynamic perspectives"
-    COMIC_STORYTELLER = "NO TEXT.bold lines, vibrant panels, speech bubbles, close-ups, medium shot"
-    PHOTOREALISTIC = "NO TEXT.hyper-realistic, shot on full-frame DSLR, crisp details, balanced lighting"
-    IMPRESSIONIST = "NO TEXT.soft brushstrokes, muted colors, wide landscape, impression of natural light"
-    SURREALIST = "NO TEXT.dreamlike elements, warped shapes, juxtaposed objects, ethereal light, macro lens"
-    ABSTRACT = "NO TEXT.non-representational, vibrant splashes of color, sharp contrasts, close-up, macro shot"
-    REALISM = "NO TEXT.faithful depiction, natural colors, medium shot, balanced light, fine details"
-    YOUTUBE_THUMBNAIL = "High contrast and bold colors dominate the scene. The image captures dramatic lighting with sharp shadows, focusing on intense close-ups of characters, objects, or relevant symbols related to the news topic in dynamic poses. The expressions convey urgency and anticipation. The background features abstract, exaggerated elements (like charts, icons, or imagery tied to the news theme) that create a sense of action and excitement. The overall composition emphasizes curiosity and drama, designed for maximum clickbait-style engagement, without any text, perfect for a YouTube video thumbnail."
+    VINTAGE = "NO TEXT. Sepia tones with retro cars and vintage architecture, enhanced with a grainy effect, shot with a 35mm film camera for an authentic nostalgic feel."
+    MINIMALIST = "NO TEXT. Clean and uncluttered design featuring geometric forms and soft pastel tones, illuminated by high-key lighting in a studio shot that emphasizes simplicity."
+    NATURE_SCENE = "A breathtaking landscape showcasing majestic mountains and serene lakes, captured with a DSLR using natural lighting for a wide dynamic range that highlights the beauty of nature."
+    ANIME = "NO TEXT. Inspired by Studio Ghibli, featuring vibrant colors and expressive characters, with cell shading and dynamic perspectives that bring the scene to life."
+    COMIC_STORYTELLER = "NO TEXT. Bold lines and vibrant panels create a captivating comic book aesthetic, with speech bubbles and close-ups in a medium shot that tell a dynamic visual story."
+    PHOTOREALISTIC = "NO TEXT. Hyper-realistic portrayal captured on a full-frame DSLR, emphasizing crisp details and balanced lighting to create an image that feels lifelike."
+    IMPRESSIONIST = "NO TEXT. Soft brushstrokes and muted colors portray a wide landscape, capturing the impression of natural light to evoke emotion and tranquility."
+    SURREALIST = "NO TEXT. Dreamlike elements with warped shapes and juxtaposed objects, illuminated by ethereal light and captured with a macro lens to enhance surreal qualities."
+    ABSTRACT = "NO TEXT. Non-representational imagery featuring vibrant splashes of color and sharp contrasts, captured in close-up macro shots to create visual intrigue."
+    REALISM = "NO TEXT. Faithful depiction of scenes with natural colors, medium shot, and balanced light that emphasize fine details for an authentic look."
+    YOUTUBE_THUMBNAIL = "An eye-catching composition featuring high contrast and bold colors. The image includes intense close-ups of objects, symbols, or dynamic scenes related to the news topic, designed to evoke curiosity and engagement. The background incorporates abstract elements (like charts or icons) that add a sense of action and excitement. The overall design is tailored for maximum clickbait appeal, ensuring it stands out in feeds without any text or overly dramatic portrayals of individuals."
 
 
 class FluxImageGenerator:
@@ -38,7 +35,11 @@ class FluxImageGenerator:
         # Set output directory, creating it if it doesn't exist
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
-
+        
+    @staticmethod
+    def getImagePresets():
+        return {preset.name: preset.value for preset in StylePreset}
+    
     def generate_image(self, custom_prompt, style_preset, aspect_ratio, model="black-forest-labs/FLUX.1-dev"):
         try:
             # Get the dimensions based on the selected aspect ratio
@@ -46,7 +47,7 @@ class FluxImageGenerator:
             # Build the final prompt by combining the custom user prompt and the style preset
             prompt = f"{custom_prompt}. {style_preset.value}"
 
-            print(Fore.BLUE + f"Image prompt \t ::-> {prompt}.")
+            print(Fore.BLUE + f"Image prompt \t ::-> {prompt}")
             # Generate the image using the Hugging Face API
             image = self.client.text_to_image(
                 prompt,

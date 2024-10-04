@@ -120,7 +120,7 @@ def process_latest_news(news_client: NewsAPIClient,
         media_images = None
         image_generator_method = config['settings']['media_source']
         if image_generator_method == 'huggingface':
-            media_images = generate_related_media(image_generator, phrases=phrases, style=StylePreset.PHOTOREALISTIC, max_items=len(phrases))
+            media_images = generate_related_media(image_generator, phrases=phrases, style=StylePreset.NONE, max_items=len(phrases))
             if not media_images:
                 print(Fore.RED + f"No media generated for topic: {topic}")
                 continue
@@ -148,7 +148,7 @@ def process_latest_news(news_client: NewsAPIClient,
         print(Fore.GREEN + f"YouTube upload response: {youtube_response}")
         return
 
-def generate_related_media(image_generator: FluxImageGenerator, phrases, style: StylePreset, max_items=10):
+def generate_related_media(image_generator: FluxImageGenerator, phrases, style: StylePreset, max_items=3):
     images = []
     for phrase in phrases:
         while len(images) < max_items:

@@ -138,57 +138,113 @@ class stt_whisper:
         print(f"{Fore.GREEN}Subtitles saved to {subtitle_path}")
         return subtitle_path
 
+    # def generate_word_level_subtitles(self, audio_file):
+    #     """
+    #     Generates a subtitle file (.srt) with each word synchronized precisely with the audio.
+    #     """
+    #     print(f"{Fore.CYAN}Generating subtitles for audio: {audio_file}")
+    #     subtitle_path = os.path.join(self.temp_dir, "subtitles.srt")
+    #     segments = self.transcribe_audio(audio_file)
+        
+    #     with open(subtitle_path, 'w') as file:
+    #         subtitle_index = 1
+            
+    #         for segment in segments:
+    #             text = segment['text']
+    #             start_time = segment['start']
+    #             end_time = segment['end']
+    #             duration_ms = (end_time - start_time) * 1000
+    #             total_chars = sum(len(word) for word in re.findall(r'\S+', text)) + text.count(' ')
+                
+    #             if total_chars == 0:
+    #                 continue
+                
+    #             current_time = start_time * 1000  # Convert start time to milliseconds
+                
+    #             words = re.findall(r'\S+', text)
+    #             for i, word in enumerate(words):
+    #                 word_clean = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,;:!?¿¡\"-]', '', word)
+    #                 word_duration_ms = (len(word) / total_chars) * duration_ms
+                    
+    #                 # Calculate start and end time for the word
+    #                 start_time_for_word = current_time
+    #                 end_time_for_word = start_time_for_word + word_duration_ms
+                    
+    #                 # Write the subtitle line in SRT format
+    #                 file.write(f"{subtitle_index}\n")
+    #                 file.write(f"{self.milis_to_hms(start_time_for_word)} --> {self.milis_to_hms(end_time_for_word)}\n")
+    #                 file.write(f"{word_clean}\n\n")
+                    
+    #                 # Increment the subtitle index
+    #                 subtitle_index += 1
+                    
+    #                 # Update current time for the next word
+    #                 current_time = end_time_for_word
+                    
+    #                 # Add space duration if not the last word
+    #                 if i < len(words) - 1:
+    #                     space_duration_ms = (1 / total_chars) * duration_ms
+    #                     if text[text.index(word) + len(word)] == ',':
+    #                         space_duration_ms *= 2
+    #                     current_time += space_duration_ms
+
+    #     print(f"{Fore.GREEN}Subtitles saved to {subtitle_path}")
+    #     return subtitle_path
     def generate_word_level_subtitles(self, audio_file):
         """
         Generates a subtitle file (.srt) with each word synchronized precisely with the audio.
         """
-        print(f"{Fore.CYAN}Generating subtitles for audio: {audio_file}")
-        subtitle_path = os.path.join(self.temp_dir, "subtitles.srt")
+        print(f"{Fore.CYAN}Generating word-level subtitles for audio: {audio_file}")
+        subtitle_path = os.path.join(self.temp_dir, "word_level_subtitles.srt")
         segments = self.transcribe_audio(audio_file)
-        
+
         with open(subtitle_path, 'w') as file:
             subtitle_index = 1
-            
+
+            # Set minimum word duration (in milliseconds)
+            min_word_duration_ms = 300  # Minimum time for a word to display
             for segment in segments:
                 text = segment['text']
                 start_time = segment['start']
                 end_time = segment['end']
-                duration_ms = (end_time - start_time) * 1000
-                total_chars = sum(len(word) for word in re.findall(r'\S+', text)) + text.count(' ')
-                
+                duration_ms = (end_time - start_time) * 1000  # Segment duration in milliseconds
+                words = re.findall(r'\S+', text)
+
+                # Calculate total character length including spaces
+                total_chars = sum(len(word) for word in words) + text.count(' ')
+
                 if total_chars == 0:
                     continue
-                
-                current_time = start_time * 1000  # Convert start time to milliseconds
-                
-                words = re.findall(r'\S+', text)
+
+                # Start time in milliseconds
+                current_time = start_time * 1000  
+
                 for i, word in enumerate(words):
-                    word_clean = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,;:!?¿¡\"-]', '', word)
-                    word_duration_ms = (len(word) / total_chars) * duration_ms
-                    
+                    word_clean = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,;:!?¿¡\'"-]', '', word)
+
+                    # Calculate the word duration proportional to the length of the word
+                    proportional_duration_ms = max((len(word) / total_chars) * duration_ms, min_word_duration_ms)
+
                     # Calculate start and end time for the word
                     start_time_for_word = current_time
-                    end_time_for_word = start_time_for_word + word_duration_ms
-                    
+                    end_time_for_word = start_time_for_word + proportional_duration_ms
+
                     # Write the subtitle line in SRT format
                     file.write(f"{subtitle_index}\n")
                     file.write(f"{self.milis_to_hms(start_time_for_word)} --> {self.milis_to_hms(end_time_for_word)}\n")
                     file.write(f"{word_clean}\n\n")
-                    
+
                     # Increment the subtitle index
                     subtitle_index += 1
-                    
+
                     # Update current time for the next word
                     current_time = end_time_for_word
-                    
-                    # Add space duration if not the last word
-                    if i < len(words) - 1:
-                        space_duration_ms = (1 / total_chars) * duration_ms
-                        if text[text.index(word) + len(word)] == ',':
-                            space_duration_ms *= 2
-                        current_time += space_duration_ms
 
-        print(f"{Fore.GREEN}Subtitles saved to {subtitle_path}")
+                    # Add pause duration if punctuation (increase space for better readability)
+                    if i < len(words) - 1 and text[text.index(word) + len(word)] in [',', '.']:
+                        current_time += proportional_duration_ms * 0.5  # Small pause after punctuation
+
+        print(f"{Fore.GREEN}Word-level subtitles saved to {subtitle_path}")
         return subtitle_path
 
     def milis_to_hms(self, milis):

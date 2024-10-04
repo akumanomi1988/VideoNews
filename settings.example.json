@@ -41,6 +41,9 @@
     },
     "huggingface": {
       "api_key": "Your huggingface API key"
+    },
+    "telegram": {
+      "bot_token": "Your Telegram Bot Token"
     }
   }
   
