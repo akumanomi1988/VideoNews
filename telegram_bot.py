@@ -1,93 +1,249 @@
 import json
-from scripts.IA.text_to_image import StylePreset,FluxImageGenerator
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackContext, CallbackQueryHandler, MessageHandler
-from telegram.ext import filters
-from news_video_processor import NewsVideoProcessor
+import time
 import nest_asyncio
+from scripts.DataFetcher.news_api_client import NewsAPIClient
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackContext,
+    CallbackQueryHandler, MessageHandler, filters
+)
+from news_video_processor import NewsVideoProcessor
 
 nest_asyncio.apply()
 
+# Initialize news cache
+news_cache = {
+    "timestamp": 0,  # Last update time
+    "news": []       # Cached news list
+}
+CACHE_TIMEOUT = 300  # 5 minutes (300 seconds)
 SETTINGS_FILE = 'settings.json'
-# Function to load the current settings
+
+# Configuration functions
 def load_settings():
     with open(SETTINGS_FILE, 'r') as f:
         return json.load(f)
 
-# Function to save the updated settings
 def save_settings(settings):
     with open(SETTINGS_FILE, 'w') as f:
         json.dump(settings, f, indent=4)
 
-# Command to configure a specific setting
+# Command to configure settings
 async def configure_setting(update: Update, context: CallbackContext):
-    if len(context.args) < 3:
-        await update.message.reply_text("Usage: /config [section] [setting] [value]")
-        return
-    
-    section = context.args[0]
-    setting_key = context.args[1]
-    setting_value = context.args[2]
-    
     settings = load_settings()
-    if section in settings and setting_key in settings[section]:
-        settings[section][setting_key] = setting_value
-        save_settings(settings)
-        await update.message.reply_text(f"Setting '{setting_key}' in section '{section}' updated to '{setting_value}'")
-    else:
-        await update.message.reply_text(f"Setting '{setting_key}' not found in section '{section}'.")
+    categories = list(settings.keys())
+    
+    # Create inline keyboard for categories
+    keyboard = [
+        [InlineKeyboardButton(category.capitalize(), callback_data=category)] 
+        for category in categories
+    ]
+    
+    # Add cancel option
+    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel_config')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-async def style_selection_callback(update: Update, context: CallbackContext):
+    # Ask user to select a category
+    await update.message.reply_text(
+        "Please select a category to modify or cancel:",
+        reply_markup=reply_markup
+    )
+
+# Handle category selection
+async def category_selection_handler(update: Update, context: CallbackContext):
     query = update.callback_query
-    query.answer()  # Necesario para cerrar el botón
+    await query.answer()
 
-    selected_style = selected_style = query.data.upper()
-    # Verificar si el estilo seleccionado es válido
-    try:
-        style_enum = StylePreset[selected_style]
-        context.user_data['selected_style'] = style_enum.name  # Guarda el nombre del estilo en el contexto
-        await query.edit_message_text(text=f"Has seleccionado el estilo: {style_enum.name}. Por favor, proporciona un prompt para la generación de la imagen:")
-        context.user_data['awaiting_prompt'] = True
-    except KeyError:
-        await query.edit_message_text(text="Estilo no válido. Por favor, selecciona uno de los estilos predefinidos.")
+    if query.data == 'cancel_config':
+        await query.message.reply_text("Configuration selection cancelled. ✅")
+        return
 
+    selected_category = query.data  # Get selected category
+    settings = load_settings()
+    
+    # Show settings for the selected category
+    category_settings = settings[selected_category]
+    response = f"Configuration for *{selected_category.capitalize()}*:\n"
+    
+    for key in category_settings.keys():
+        response += f"- {key}\n"
 
-async def prompt_handler(update: Update, context: CallbackContext):
-    if context.user_data.get('awaiting_prompt'):
-        user_prompt = update.message.text
-        selected_style_name = context.user_data.get('selected_style', "").upper()  # Asegúrate de obtener el nombre en mayúsculas
+    response += "\nSelect a setting to modify or cancel."
+
+    # Create inline keyboard for settings
+    keyboard = [
+        [InlineKeyboardButton(key, callback_data=f"{selected_category}:{key}")] 
+        for key in category_settings.keys()
+    ]
+    
+    # Add cancel option
+    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel_config')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.message.reply_text(response, reply_markup=reply_markup)
+
+# Handle setting selection
+async def setting_selection_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'cancel_config':
+        await query.message.reply_text("Configuration selection cancelled. ✅")
+        return
+
+    # Split selected data into category and setting
+    selected_category, selected_setting = query.data.split(':')
+    settings = load_settings()
+    
+    # Ask the user for a new value for the selected setting
+    await query.message.reply_text(f"Current value for *{selected_setting}* is *{settings[selected_category][selected_setting]}*.\nPlease enter a new value:")
+
+    # Store context for the next message
+    context.user_data['category'] = selected_category
+    context.user_data['setting'] = selected_setting
+
+# Handle the new value entered
+async def handle_new_value(update: Update, context: CallbackContext):
+    if 'category' in context.user_data and 'setting' in context.user_data:
+        selected_category = context.user_data['category']
+        selected_setting = context.user_data['setting']
         
-        # Obtener el estilo desde StylePreset
-        try:
-            selected_style = StylePreset[selected_style_name]
-        except KeyError:
-            await update.message.reply_text("Estilo no válido. Por favor, selecciona un estilo primero usando /image.")
-            return
+        # Update the setting with the new value
+        settings = load_settings()
+        settings[selected_category][selected_setting] = update.message.text
+        save_settings(settings)
+
+        await update.message.reply_text(f"The setting *{selected_setting}* has been updated to *{update.message.text}* ✅")
         
-        # Generar la imagen usando el prompt y el estilo seleccionado
-        await update.message.reply_text(f"Generando imagen con el prompt: '{user_prompt}' y estilo: '{selected_style.name}'...")
-
-        processor = NewsVideoProcessor(progress_callback=update.message.reply_text)
-
-        # Llamar a fetch_related_media con el estilo correcto
-        media_files = processor.fetch_related_media([user_prompt], style=selected_style,max_items=1)[0]
-
-        # Procesar la respuesta (esto puede necesitar ajustes según cómo manejes los medios)
-        if media_files:
-            await update.message.reply_text("La imagen ha sido generada exitosamente.")
-            await update.message.reply_document(media_files)
-        else:
-            await update.message.reply_text("No se encontraron medios relacionados.")
-
-        # Limpiar el estado
-        context.user_data['awaiting_prompt'] = False
-        context.user_data['selected_style'] = None
+        # Clear user data
+        context.user_data.clear()
     else:
-        await update.message.reply_text("Por favor, selecciona un estilo primero usando /image.")
+        await update.message.reply_text("No setting selected. Please start over with /config. ❌")
 
-# Command to list available settings
+# News functions
+def is_cache_expired():
+    return time.time() - news_cache["timestamp"] > CACHE_TIMEOUT
+
+async def show_category_selection(update: Update, context: CallbackContext):
+    categories = ['business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology']
+    
+    # Build an inline keyboard with each category and the cancel option
+    keyboard = [
+        [InlineKeyboardButton(category.capitalize(), callback_data=category)] 
+        for category in categories
+    ]
+    
+    # Add the cancel option
+    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send message asking the user to select a category
+    await update.message.reply_text(
+        "Please select a news category or cancel:",
+        reply_markup=reply_markup
+    )
+
+async def category_selection_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'cancel':
+        await query.message.reply_text("Category selection cancelled. ✅")
+        return
+
+    selected_category = query.data  # Get the selected category
+    settings = load_settings()
+    news_client = NewsAPIClient(api_key=settings['newsapi']['api_key'])
+    
+    await query.message.reply_text(f"Fetching the latest news in category: {selected_category}... 📰")
+
+    # If the cache has expired or is empty, fetch new news
+    if not news_cache["news"] or is_cache_expired():
+        latest_news = news_client.get_latest_headlines(
+            country=settings['newsapi']['country'],
+            page_size=settings['newsapi']['page_size'],
+            category=selected_category  # Use the selected category
+        )
+
+        news_cache["news"] = latest_news  # Store in cache
+        news_cache["timestamp"] = time.time()  # Update cache timestamp
+        print("News cache updated.")
+    else:
+        latest_news = news_cache["news"]  # Use cached news
+        print("Using cached news.")
+
+    # Build an inline keyboard with each headline and the cancel option
+    keyboard = [
+        [InlineKeyboardButton(news_item['title'], callback_data=str(index))] 
+        for index, news_item in enumerate(latest_news)
+    ]
+    
+    # Add the cancel option
+    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel_selection')])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Send message with the list of news and an inline keyboard
+    await query.message.reply_text(
+        "Select a news item to process or cancel:",
+        reply_markup=reply_markup
+    )
+
+async def news_selection_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'cancel_selection':
+        await query.message.reply_text("News selection cancelled. ✅")
+        return
+
+    # Get the index of the selected news
+    selected_index = int(query.data)
+    
+    # Load cached news
+    latest_news = news_cache["news"]
+    selected_news = latest_news[selected_index]  # The selected news
+
+    # Process the selected news using the existing function
+    processor = NewsVideoProcessor(progress_callback=query.message.reply_text)
+
+    await query.message.reply_text(f"Processing news... ⏳")
+
+    response = processor.process_latest_news_in_short_format(selected_news)  # Pass the selected news
+    
+    await query.message.reply_text(f"News processing completed: {format_youtube_message(response)} ✅")
+    
+def format_youtube_message(response):
+    # Extract relevant data from the response
+    title = response['snippet']['title']
+    description = response['snippet']['description']
+    channel = response['snippet']['channelTitle']
+    published_at = response['snippet']['publishedAt']
+    video_id = response['id']
+    url_video = f"https://www.youtube.com/watch?v={video_id}"
+    thumbnail_url = response['snippet']['thumbnails']['default']['url']
+
+    # Format the message for Telegram
+    message = f"""
+        🛢️ **Title:** {title}
+
+        📄 **Description:** {description}
+
+        📺 **Channel:** {channel}
+
+        📅 **Published At:** {published_at}
+
+        🔗 **Video Link:** [Watch Video]({url_video})
+
+        📸 ![Thumbnail]({thumbnail_url})
+        """
+    return message
+# Function to list available settings
 async def list_settings(update: Update, context: CallbackContext):
-    settings = load_settings()  # Load the settings from the file
+    settings = load_settings()  # Load settings from file
     response = "Available settings:\n\n"
     
     # Iterate through sections and their settings
@@ -99,25 +255,13 @@ async def list_settings(update: Update, context: CallbackContext):
     
     await update.message.reply_text(response)
 
-# Command to show help
-async def show_help(update: Update, context: CallbackContext):
-    await list_settings(update, context)
+async def error_handler(update: Update, context: CallbackContext):
+    # Log the error
+    print(f"Error: {context.error}")
 
-async def process_news(update: Update, context: CallbackContext):
-    processor = NewsVideoProcessor(progress_callback=update.message.reply_text)
-    await update.message.reply_text("Processing latest news...")
-    
-    response = processor.process_latest_news()
-    await update.message.reply_text(f"News processing completed. {response}")
-
-async def image_generation(update: Update, context: CallbackContext):
-    # Mostrar opciones de estilo
-    keyboard = [[InlineKeyboardButton(style.name, callback_data=style.name)] for style in StylePreset]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text('Selecciona un estilo de imagen:', reply_markup=reply_markup)
-
-    # Almacenar el estado del usuario para recibir la opción seleccionada
-    context.user_data['awaiting_style_selection'] = True
+    # Send a message to the user if the error occurs in a message context
+    if update:
+        await update.message.reply_text("An error occurred while processing your request. Please try again later. ❌")
 
 if __name__ == '__main__':
     # Load Telegram bot token from settings.json
@@ -126,27 +270,21 @@ if __name__ == '__main__':
 
     application = ApplicationBuilder().token(telegram_token).build()
 
-    # Command to configure settings
+    # Commands for configuring settings
     application.add_handler(CommandHandler("config", configure_setting))
-
-    # Command to execute the application
-    application.add_handler(CommandHandler("execute", process_news))
+    application.add_handler(CallbackQueryHandler(category_selection_handler, pattern='^(business|entertainment|general|health|science|sports|technology|cancel_config)$'))
+    application.add_handler(CallbackQueryHandler(setting_selection_handler, pattern='^.+:.+$'))  # For selected settings
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_new_value))
 
     # Command to list available settings
     application.add_handler(CommandHandler("list_settings", list_settings))
 
-    # Command to show help
-    application.add_handler(CommandHandler("help", show_help))
+    # Command to show news categories
+    application.add_handler(CommandHandler("shortnews", show_category_selection))
+    application.add_handler(CallbackQueryHandler(news_selection_handler, pattern='^[0-9]+|cancel_selection$'))
 
-    # Command to initiate image generation
-    application.add_handler(CommandHandler("image", image_generation))
-
-    # Handler for style selection
-    application.add_handler(CallbackQueryHandler(style_selection_callback, pattern='|'.join(style.name for style in StylePreset)))
-
-
-    # Handler for prompt input
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, prompt_handler))
+    # Add the error handler
+    application.add_error_handler(error_handler)
 
     # Start the bot
     application.run_polling()
