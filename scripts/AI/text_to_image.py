@@ -40,7 +40,7 @@ class FluxImageGenerator:
     def getImagePresets():
         return {preset.name: preset.value for preset in StylePreset}
     
-    def generate_image(self, custom_prompt, style_preset, aspect_ratio, model="black-forest-labs/FLUX.1-dev"):
+    def generate_image(self, custom_prompt, style_preset, aspect_ratio, model="black-forest-labs/FLUX.1-schnell"):
         try:
             # Get the dimensions based on the selected aspect ratio
             width, height = aspect_ratio.value

@@ -161,19 +161,19 @@ async def category_selection_handler(update: Update, context: CallbackContext):
     await query.message.reply_text(f"Fetching the latest news in category: {selected_category}... 📰")
 
     # If the cache has expired or is empty, fetch new news
-    if not news_cache["news"] or is_cache_expired():
-        latest_news = news_client.get_latest_headlines(
-            country=settings['newsapi']['country'],
-            page_size=settings['newsapi']['page_size'],
-            category=selected_category  # Use the selected category
-        )
+    # if not news_cache["news"] or is_cache_expired():
+    latest_news = news_client.get_latest_headlines(
+        country=settings['newsapi']['country'],
+        page_size=settings['newsapi']['page_size'],
+        category=selected_category  # Use the selected category
+    )
 
-        news_cache["news"] = latest_news  # Store in cache
-        news_cache["timestamp"] = time.time()  # Update cache timestamp
-        print("News cache updated.")
-    else:
-        latest_news = news_cache["news"]  # Use cached news
-        print("Using cached news.")
+    news_cache["news"] = latest_news  # Store in cache
+    news_cache["timestamp"] = time.time()  # Update cache timestamp
+    print("News cache updated.")
+    # # else:
+    #     latest_news = news_cache["news"]  # Use cached news
+    #     print("Using cached news.")
 
     # Build an inline keyboard with each headline and the cancel option
     keyboard = [

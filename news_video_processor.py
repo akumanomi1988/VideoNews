@@ -251,7 +251,7 @@ class NewsVideoProcessor:
         else:
             print(Fore.YELLOW + f"{self.temp_dir} directory does not exist.")
 
-        for pattern in ['*TEMP_MPY_wvf_snd.mp3', '*TEMP_MPY_wvf_snd.log']:
+        for pattern in ['*TEMP_MPY_wvf_snd.mp3.log']:
             for file in glob.glob(pattern):
                 try:
                     os.remove(file)
