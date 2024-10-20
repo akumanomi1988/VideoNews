@@ -127,12 +127,9 @@ class stt_whisper:
                 start_time = segment['start']
                 end_time = segment['end']
                 text = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,;:!?¿¡\'"-]', '', segment['text'])
-                
-                start_h, start_m, start_s = self.seconds_to_hms(start_time)
-                end_h, end_m, end_s = self.seconds_to_hms(end_time)
-                
+             
                 file.write(f"{i + 1}\n")
-                file.write(f"{start_h}:{start_m}:{start_s},000 --> {end_h}:{end_m}:{end_s},000\n")
+                file.write(f"{self.milis_to_hms(start_time)} --> {self.milis_to_hms(end_time)}\n")
                 file.write(f"{text}\n\n")
 
         print(f"{Fore.GREEN}Subtitles saved to {subtitle_path}")

@@ -1,28 +1,21 @@
 from pydub import AudioSegment
+
 import moviepy.editor as mp
 from moviepy.video.tools.subtitles import SubtitlesClip
-from moviepy.editor import vfx, TextClip, CompositeVideoClip, ImageClip, VideoFileClip
+from moviepy.editor import TextClip, CompositeVideoClip, ImageClip, VideoFileClip
 from moviepy.video.fx import resize, crop
+# from scripts.Uploaders.helpers.image_helper import Position,Style
 import os
 import textwrap
 from colorama import init, Fore
 from PIL import Image, ImageDraw
 import numpy as np
-from enum import Enum
+
+from scripts.helpers.media_helper import Position, Style
+
 
 # Initialize colorama
 init(autoreset=True)
-
-# Enums for subtitle position and style
-class Position(Enum):
-    TOP = 'top'
-    MIDDLE = 'middle'
-    BOTTOM = 'bottom'
-
-class Style(Enum):
-    DEFAULT = 'default'
-    BOLD = 'bold'
-    MINIMAL = 'minimal'
 
 class VideoAssembler:
     def __init__(self, subtitle_file, voiceover_file, output_file, media_videos=None, media_images=None, aspect_ratio="9:16", background_music=""):
@@ -89,7 +82,7 @@ class VideoAssembler:
         """Split long subtitles into shorter lines for better readability."""
         return '\n'.join(textwrap.wrap(subtitle_text, width=15))
 
-    def assemble_video(self):
+    def assemble_video(self,style:Style = Style.DEFAULT,position: Position = Position.MIDDLE_CENTER):
         """Assemble and create the final video with subtitles, voiceover, and optional background music."""
         adjusted_clips = self.adjust_media()
 
@@ -129,7 +122,7 @@ class VideoAssembler:
 
         if self.subtitle_file:
             try:
-                subtitles = SubtitlesClip(self.subtitle_file, lambda txt: self.generate_subtitle(txt, video.size))
+                subtitles = SubtitlesClip(self.subtitle_file, lambda txt: self.generate_subtitle(txt, video.size,style=style,position=position))
                 subtitles = subtitles.set_position(('center', 'center'))
                 video = CompositeVideoClip([video, subtitles])
             except Exception as e:
@@ -144,7 +137,7 @@ class VideoAssembler:
             raise ValueError(Fore.RED + f"❌ Error writing final video: {e}")
 
     def generate_subtitle(self, txt, video_size, 
-                      position=Position.MIDDLE,
+                      position=Position.MIDDLE_CENTER,
                       style=Style.BOLD,
                       bg_color=None,
                       text_color='yellow'):
@@ -167,7 +160,7 @@ class VideoAssembler:
             stroke_width = 0
             bg_color = None  # No background in minimalist style
         else:  # Style.DEFAULT
-            font = 'Helvetica'
+            font = 'Impact'
             fontsize = 120
             stroke_color = 'black'
             stroke_width = 3
@@ -214,11 +207,11 @@ class VideoAssembler:
             image_clip = None
 
         # Position the subtitle according to the 'position' parameter
-        if position == Position.TOP:
+        if position == Position.TOP_CENTER:
             final_position = ('center', 0.1 * video_size[1])
-        elif position == Position.MIDDLE:
+        elif position == Position.MIDDLE_CENTER:
             final_position = ('center', 'center')
-        else:  # Position.BOTTOM
+        else:  # Position.BOTTOM_CENTER
             final_position = ('center', 0.8 * video_size[1])
 
         # Combine the background (if it exists) with the text
@@ -229,38 +222,3 @@ class VideoAssembler:
 
         return subtitle_clip
     
-    def reduce_image_size(image_path:str, max_size_kb:int, reduction_percentage:int):
-        """
-        Reduces the size of an image if its weight exceeds the given maximum size.
-
-        :param image_path: Path to the image file.
-        :param max_size_kb: Maximum allowed image size in kilobytes (kB).
-        :param reduction_percentage: Percentage to reduce the image size by on each iteration.
-        """
-        # Get the current image size in kB
-        current_size_kb = os.path.getsize(image_path) / 1024.0
-
-        # Open the image
-        image = Image.open(image_path)
-
-        # Loop to reduce the size until the image is within the allowed size limit
-        while current_size_kb > max_size_kb:
-            # Get the current dimensions of the image
-            width, height = image.size
-            # Calculate the new dimensions
-            new_width = int(width * (reduction_percentage / 100.0))
-            new_height = int(height * (reduction_percentage / 100.0))
-            
-            # Resize the image
-            image = image.resize((new_width, new_height), Image.ADAPTIVE)
-            
-            # Overwrite the original image
-            image.save(image_path, optimize=True, quality=85)
-            
-            # Update the current size in kB
-            current_size_kb = os.path.getsize(image_path) / 1024.0
-            
-            # Display status update with colorama
-            print(f"{Fore.YELLOW}Resized to: {new_width}x{new_height}, weight: {current_size_kb:.2f} kB")
-
-        print(f"{Fore.GREEN}Reduction complete! Image is within the size limit.")

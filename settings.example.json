@@ -49,5 +49,10 @@
   },
   "telegram": {
       "bot_token": "Your Telegram Bot Token"
+  },
+  "meta":{
+    "facebook_page_id":"",
+    "facebook_token":"",
+    "instagram_token":""
   }
 }
