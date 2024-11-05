@@ -21,18 +21,25 @@ class MediaManager:
         self.subtitle_helper = SubtitleHelper()
 
     def adjust_media(self):
-        """Adjusts media clips for the specified aspect ratio."""
+        """Adjusts media clips for the specified aspect ratio and synchronizes image durations with audio."""
         adjusted_clips = []
         
+        # Adjust videos
         for video_path in self.media_videos:
             clip = mp.VideoFileClip(video_path)
             adjusted_clips.append(self.adjust_video(clip))
 
-        for image_path in self.media_images:
-            clip = mp.ImageClip(image_path)
-            adjusted_clips.append(self.adjust_image(clip))
+        # Adjust images and sync with audio duration
+        if self.media_images:
+            audio_duration = mp.AudioFileClip(self.voiceover_file).duration
+            image_duration = audio_duration / len(self.media_images)
+
+            for image_path in self.media_images:
+                clip = mp.ImageClip(image_path, duration=image_duration)
+                adjusted_clips.append(self.adjust_image(clip))
 
         return adjusted_clips
+
 
     def adjust_video(self, clip):
         """Adjusts a video clip for the specified aspect ratio."""
@@ -41,16 +48,29 @@ class MediaManager:
     def adjust_image(self, clip):
         """Adjusts an image clip for the specified aspect ratio."""
         return clip.resize(newsize=(self.get_width(), self.get_height())).set_duration(2)  # Adjust duration as needed
-
+    
     def get_width(self):
-        """Calculates width based on aspect ratio."""
+        """Calculates width based on the specified aspect ratio."""
         ratio = self.aspect_ratio.split(':')
-        return 720 * int(ratio[0]) // int(ratio[1])  # Adjust base width as needed
+        aspect_width, aspect_height = int(ratio[0]), int(ratio[1])
+
+        # Si el aspecto es 9:16, el ancho será 1080 y el alto 1920
+        if aspect_width > aspect_height:  # Ejemplo 16:9
+            return 1920
+        else:  # Ejemplo 9:16
+            return 1080
 
     def get_height(self):
-        """Calculates height based on aspect ratio."""
+        """Calculates height based on the specified aspect ratio."""
         ratio = self.aspect_ratio.split(':')
-        return 720  # Adjust base height as needed
+        aspect_width, aspect_height = int(ratio[0]), int(ratio[1])
+
+        # Si el aspecto es 9:16, el alto será 1920 y el ancho 1080
+        if aspect_width > aspect_height:  # Ejemplo 16:9
+            return 1080
+        else:  # Ejemplo 9:16
+            return 1920
+
 
     def add_subtitles(self, video, style=Style.BOLD, position=Position.MIDDLE_CENTER):
         """Add subtitles to the video based on the provided subtitle file."""
@@ -84,7 +104,7 @@ class MediaManager:
                 final_clip = self.audio_helper.add_background_music(final_clip, self.background_music, final_clip.duration)
 
             # Add subtitles to the final video
-            final_clip = self.add_subtitles(final_clip)
+            final_clip = self.add_subtitles(final_clip,style= Style.BOLD,position=Position.MIDDLE_CENTER)
 
             # Write the final video to the specified output file
             final_clip.write_videofile(self.output_file, fps=24, codec='libx264', audio_codec='aac')

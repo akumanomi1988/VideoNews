@@ -149,21 +149,23 @@ class VideoAssembler:
 
         # Internal style configuration based on the selected general style
         if style == Style.BOLD:
-            font = 'Impact'
-            fontsize = 150
+            font = 'Fonts\sub.ttf'
+            fontsize = 110
             stroke_color = 'black'
             stroke_width = 5
         elif style == Style.MINIMAL:
-            font = 'Arial'
+            font = 'Fonts\sub.ttf'
             fontsize = 100
             stroke_color = None
             stroke_width = 0
             bg_color = None  # No background in minimalist style
         else:  # Style.DEFAULT
-            font = 'Impact'
+            font = 'Fonts\sub.ttf'
             fontsize = 120
-            stroke_color = 'black'
+            stroke_color = 'blue'
+            text_color='white'
             stroke_width = 3
+            bg_color = 'black'
 
         # Configure the subtitle text with 'caption' method
         text_clip = TextClip(
@@ -185,12 +187,14 @@ class VideoAssembler:
         box_width = text_width + 2 * padding_x
         box_height = text_height + 2 * padding_y
 
+
         # Limit the height of the text
         max_height = video_size[1] / 3
         if text_height > max_height:
             scale_factor = max_height / text_height
             text_clip = text_clip.resize(newsize=(int(text_width * scale_factor), int(max_height)))
-
+            box_width = int(text_width * scale_factor) + 2 * padding_x
+            box_height = text_height + 2 * padding_y
         # Create the background only if a background color is specified
         if bg_color:
             image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))

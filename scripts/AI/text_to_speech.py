@@ -89,7 +89,8 @@ class TTSEdge:
 
         # Filter voices to get only those in the requested language
         filtered_voices = {name: short_name for name, short_name in voices_dict.items() if language in name}
-
+        for name, short_name in filtered_voices.items():
+            print(Fore.BLUE + f"- {name} (Short Name: {short_name})")
         # Handle voice selection
         if not filtered_voices:
             raise Exception(Fore.RED + "No voices available for the selected language.")

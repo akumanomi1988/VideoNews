@@ -129,7 +129,7 @@ class YoutubeMediaUploader:
         self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
 
         hashtags = [f"{tag}" for tag in tags]
-        full_description = f"{description}\n\n{self.channel_description}\n\n{' '.join(hashtags)}\n\n#Shorts"
+        full_description = f"{description}\n\n{self.channel_description}\n\n{'#'.join(hashtags)}\n\n#Shorts #news #breakingnews"
         
         print(Fore.CYAN + f"Uploading Short with title: '{title}'...")
         

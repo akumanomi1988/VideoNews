@@ -1,9 +1,10 @@
+from time import sleep
 import uuid
 from enum import Enum
 from huggingface_hub import InferenceClient
 import os
-from colorama import Fore, Style, init
-
+from colorama import Fore, init
+import random
 # Initialize colorama
 init(autoreset=True)
 
@@ -29,10 +30,11 @@ class StylePreset(Enum):
 
     
 class FluxImageGenerator:
-    def __init__(self, token=None, output_dir="output_images"):
+    def __init__(self, token=None, output_dir="output_images",model="black-forest-labs/FLUX.1-schnell"):
         # Initialize the Hugging Face Inference Client with the provided token
         self.client = InferenceClient(token=token)
         # Set output directory, creating it if it doesn't exist
+        self.model = model
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         
@@ -40,7 +42,7 @@ class FluxImageGenerator:
     def getImagePresets():
         return {preset.name: preset.value for preset in StylePreset}
     
-    def generate_image(self, custom_prompt, style_preset:StylePreset, aspect_ratio, model="black-forest-labs/FLUX.1-schnell"):
+    def generate_image(self, custom_prompt, style_preset:StylePreset, aspect_ratio):
         try:
             # Get the dimensions based on the selected aspect ratio
             width, height = aspect_ratio.value
@@ -56,9 +58,10 @@ class FluxImageGenerator:
             # Generate the image using the Hugging Face API
             image = self.client.text_to_image(
                 prompt,
-                model=model,
+                model=self.model,
                 height=height,
-                width=width
+                width=width,
+                seed = random.randint(0, 2**32 - 1)
             )
             # Define the output file path
             output_path = os.path.join(self.output_dir, f"{style_preset.name}_{uuid.uuid4()}.png")
@@ -68,5 +71,6 @@ class FluxImageGenerator:
             return output_path
         except Exception as e:
             print(Fore.RED + f"Error: {e}")
+            sleep(60)
             return None
     
