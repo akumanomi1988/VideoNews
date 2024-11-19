@@ -223,13 +223,19 @@ class ImageHelper:
 
             # Dibujar cada línea de texto en la imagen, sin superponerlas
             for line in lines:
+                # Calcular el ancho de cada línea para centrarla
+                line_width, _ = draw.textsize(line, font=font)
+                centered_x = text_position[0] + (max_text_width - line_width) // 2
+
                 if stroke_width > 0:
-                    draw.text(text_position, line, fill=text_color, 
-                            stroke_fill=stroke_color, stroke_width=stroke_width, font=font)
+                    draw.text((centered_x, text_position[1]), line, fill=text_color, 
+                            stroke_fill=stroke_color, stroke_width=stroke_width, font=font, align='center')
                 else:
-                    draw.text(text_position, line, fill=text_color, font=font)
+                    draw.text((centered_x, text_position[1]), line, fill=text_color, font=font, align='center')
+                
                 # Moverse hacia abajo para la siguiente línea de texto
                 text_position = (text_position[0], text_position[1] + font.size)
+
 
             # Sobrescribir la imagen original
             image.save(image_path)  # Guardar la imagen con el texto agregado
@@ -241,35 +247,43 @@ class ImageHelper:
 # ------------------ SUBTITLE HELPER ------------------
 class SubtitleHelper:
     @staticmethod
-    def calculate_text_position_image(position, img_width, img_height, max_text_width, total_text_height):
-        """Calculate text position based on enum."""
+    def calculate_text_position_image(position, img_width, img_height, max_text_width, text_height):
+        """Calculate text position with a 10% margin."""
+        # Definir los márgenes del 10% de la imagen
+        margin_x = int(0.1 * img_width)
+        margin_y = int(0.1 * img_height)
+
         if position == Position.TOP_LEFT:
-            return (int(0.1 * img_width), int(0.1 * img_height))
+            return (margin_x, margin_y)
         elif position == Position.TOP_CENTER:
-            return ((img_width - max_text_width) // 2, int(0.1 * img_height))
+            return ((img_width - max_text_width) // 2, margin_y)
         elif position == Position.TOP_RIGHT:
-            return (img_width - max_text_width - 20, int(0.1 * img_height))
+            return (img_width - max_text_width - margin_x, margin_y)
         elif position == Position.MIDDLE_LEFT:
-            return (int(0.1 * img_width), (img_height - total_text_height) // 2)
+            return (margin_x, (img_height - text_height) // 2)
         elif position == Position.MIDDLE_CENTER:
-            return ((img_width - max_text_width) // 2, (img_height - total_text_height) // 2)
+            return ((img_width - max_text_width) // 2, (img_height - text_height) // 2)
         elif position == Position.MIDDLE_RIGHT:
-            return (img_width - max_text_width - 20, (img_height - total_text_height) // 2)
+            return (img_width - max_text_width - margin_x, (img_height - text_height) // 2)
         elif position == Position.BOTTOM_LEFT:
-            return (int(0.1 * img_width), img_height - total_text_height - 20)
+            return (margin_x, img_height - text_height - margin_y)
         elif position == Position.BOTTOM_CENTER:
-            return ((img_width - max_text_width) // 2, img_height - total_text_height - 20)
+            return ((img_width - max_text_width) // 2, img_height - text_height - margin_y)
         elif position == Position.BOTTOM_RIGHT:
-            return (img_width - max_text_width - 20, img_height - total_text_height - 20)
+            return (img_width - max_text_width - margin_x, img_height - text_height - margin_y)
+        
     @staticmethod
     def calculate_text_position_video(position, img_width, img_height, max_text_width, total_text_height):
-        """Calculate text position based on enum."""
+        """Calculate text position with a 10% margin, ensuring subtitles do not exceed boundaries."""
+        # Definir el margen vertical del 10%
+        margin_y = 10 #int(0.05 * img_height)
+
         if position == Position.TOP_LEFT:
-            return ('center', 0.1 * img_height)
+            return ('center', margin_y)
         elif position == Position.TOP_CENTER:
-            return ('center', 0.1 * img_height)
+            return ('center', margin_y)
         elif position == Position.TOP_RIGHT:
-            return ('center', 0.1 * img_height)
+            return ('center', margin_y)
         elif position == Position.MIDDLE_LEFT:
             return ('center', 'center')
         elif position == Position.MIDDLE_CENTER:
@@ -277,11 +291,12 @@ class SubtitleHelper:
         elif position == Position.MIDDLE_RIGHT:
             return ('center', 'center')
         elif position == Position.BOTTOM_LEFT:
-            return ('center', 0.8 * img_height)
+            return ('center', img_height - total_text_height - margin_y)
         elif position == Position.BOTTOM_CENTER:
-            return ('center', 0.8 * img_height)
+            return ('center', img_height - total_text_height - margin_y)
         elif position == Position.BOTTOM_RIGHT:
-            return ('center', 0.8 * img_height)
+            return ('center', img_height - total_text_height - margin_y)
+
     @staticmethod
     def split_subtitles(subtitle_text, font, max_width):
         """Split long subtitles into shorter lines for better readability."""
@@ -399,80 +414,115 @@ class SubtitleHelper:
                 'fontsize': 90,
                 'stroke_color': 'black',
                 'stroke_width': 3,
-                'text_color': 'white'
+                'text_color': 'white',
+                'bg_color': None
             },
             Style.BOLD: {
-                'font_path': "Fonts\\sub.otf",
+                'font_path': "Resources\\Fonts\\sub.otf",
                 'fontsize': 100,
-                'stroke_color': 'black',
+                'stroke_color': 'white',
                 'stroke_width': 5,
-                'text_color': 'yellow'
+                'text_color': 'yellow',
+                'bg_color': 'black'
             },
             Style.MINIMAL: {
                 'font_path': "C:\\Windows\\Fonts\\Arial.ttf",
                 'fontsize': 80,
+                'stroke_color': 'black',
+                'stroke_width': 0,
+                'text_color': 'white',
+                'bg_color': None
+            },
+            Style.ELEGANT: {
+                'font_path': "C:\\Windows\\Fonts\\Times.ttf",
+                'fontsize': 95,
+                'stroke_color': 'gray',
+                'stroke_width': 2,
+                'text_color': 'white',
+                'bg_color': 'navy'
+            },
+            Style.VIBRANT: {
+                'font_path': "Resources\\Fonts\\sub.otf",
+                'fontsize': 115,
+                'stroke_color': 'blue',
+                'stroke_width': 6,
+                'text_color': 'red',
+                'bg_color': 'yellow'
+            },
+            Style.CASUAL: {
+                'font_path': "C:\\Windows\\Fonts\\ComicSansMS.ttf",
+                'fontsize': 85,
                 'stroke_color': None,
                 'stroke_width': 0,
-                'text_color': 'white'
+                'text_color': 'orange',
+                'bg_color': None
             },
             Style.SUBTLE: {
-                'font_path': "Fonts\\sub.otf",
-                'fontsize': 100,
+                'font_path': "Resources\\Fonts\\sub.otf",
+                'fontsize': 70,
                 'stroke_color': 'green',
-                'stroke_width': 5,
-                'text_color': 'lightgray'
+                'stroke_width': 2,
+                'text_color': 'green',
+                'bg_color': 'black'
             },
             Style.FORMAL: {
                 'font_path': "C:\\Windows\\Fonts\\Georgia.ttf",
                 'fontsize': 85,
                 'stroke_color': 'darkblue',
                 'stroke_width': 4,
-                'text_color': 'white'
+                'text_color': 'white',
+                'bg_color': None
             },
             Style.DRAMATIC: {
-                'font_path': "Fonts\\dramatic.otf",
+                'font_path': "Resources\\Fonts\\sub.otf",
                 'fontsize': 120,
                 'stroke_color': 'black',
                 'stroke_width': 6,
-                'text_color': 'red'
+                'text_color': 'red',
+                'bg_color': 'darkgray'
             },
+            
             # Estilos para portadas (thumbnail)
             Style.THUMBNAIL_BOLD: {
-                'font_path': "Fonts\\title.otf",
+                'font_path': "Resources\\Fonts\\title.otf",
                 'fontsize': 120,
                 'stroke_color': 'red',
                 'stroke_width': 8,
-                'text_color': 'white'
+                'text_color': 'white',
+                'bg_color': None
             },
             Style.THUMBNAIL_MINIMAL: {
                 'font_path': "C:\\Windows\\Fonts\\Arial.ttf",
                 'fontsize': 80,
                 'stroke_color': None,
                 'stroke_width': 0,
-                'text_color': 'white'
+                'text_color': 'white',
+                'bg_color': None
             },
             Style.THUMBNAIL_ELEGANT: {
                 'font_path': "C:\\Windows\\Fonts\\Times.ttf",
                 'fontsize': 150,
                 'stroke_color': 'gray',
                 'stroke_width': 2,
-                'text_color': 'white'
+                'text_color': 'white',
+                'bg_color': 'darkblue'
             },
             Style.THUMBNAIL_VIBRANT: {
-                'font_path': "Fonts\\vibrant.otf",
+                'font_path': "Resources\\Fonts\\title.otf",
                 'fontsize': 115,
                 'stroke_color': 'blue',
                 'stroke_width': 6,
-                'text_color': 'red'
+                'text_color': 'red',
+                'bg_color': 'yellow'
             },
             Style.THUMBNAIL_CASUAL: {
                 'font_path': "C:\\Windows\\Fonts\\ComicSansMS.ttf",
                 'fontsize': 140,
                 'stroke_color': None,
                 'stroke_width': 0,
-                'text_color': 'orange'
+                'text_color': 'orange',
+                'bg_color': None
             }
         }
-
         # Return the style parameters for the given style
         return styles.get(style, styles[Style.DEFAULT])  # Fallback to DEFAULT if style is not found

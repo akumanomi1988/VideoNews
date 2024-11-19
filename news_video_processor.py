@@ -101,6 +101,7 @@ class NewsVideoProcessor:
                 voiceover_file=audio_path,
                 output_file=output_file,
                 media_images=media_images,
+                background_music=self.config['video_result']['background_music'],
                 aspect_ratio='9:16')
             # Using MediaManager to assemble the video
             video_assembler.assemble_video(Style.BOLD,position=Position.MIDDLE_CENTER)
@@ -122,7 +123,7 @@ class NewsVideoProcessor:
             if 'url' in topic and topic['url']:
                 description += '\n' + topic['url']
 
-            youtube_response = self.youtube_uploader.upload_short(                
+            youtube_response = self.youtube_uploader.upload(                
                 output_file,
                 title=title,
                 thumbnail_path=cover,
@@ -173,7 +174,7 @@ class NewsVideoProcessor:
             media_images = self.fetch_related_media(phrases, StylePreset.NONE, len(phrases),orientation=AspectRatio.LANDSCAPE)
 
             output_file = os.path.join(self.temp_dir, self.clean_filename(title))
-
+            
             video_assembler = VideoAssembler(
                 subtitle_file=subtitle_path,
                 voiceover_file=audio_path,
@@ -200,7 +201,7 @@ class NewsVideoProcessor:
             if 'url' in topic and topic['url']:
                 description += '\n' + topic['url']
 
-            youtube_response = self.youtube_uploader.upload_short(                
+            youtube_response = self.youtube_uploader.upload(                
                 output_file,
                 title=title,
                 thumbnail_path=cover,

@@ -4,14 +4,14 @@ import moviepy.editor as mp
 from moviepy.video.tools.subtitles import SubtitlesClip
 from moviepy.editor import TextClip, CompositeVideoClip, ImageClip, VideoFileClip
 from moviepy.video.fx import resize, crop
-# from scripts.Uploaders.helpers.image_helper import Position,Style
+
 import os
 import textwrap
 from colorama import init, Fore
 from PIL import Image, ImageDraw
 import numpy as np
 
-from scripts.helpers.media_helper import Position, Style
+from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleHelper
 
 
 # Initialize colorama
@@ -103,27 +103,20 @@ class VideoAssembler:
         # Agregar música de fondo si se proporciona
         if self.background_music:
             try:
-                # No usar el 'with' statement aquí
-                music = AudioSegment.from_mp3(self.background_music)
-                
-                # Exportamos la música a un archivo temporal en formato wav
-                temp_music_file = os.path.join(".temp", "temp_music.wav")
-                music.export(temp_music_file, format="wav")
-
-                # Ahora utilizamos 'with' para el manejo del clip de audio del moviepy
-                with mp.AudioFileClip(temp_music_file) as music_clip:
-                    # Ajustamos el volumen y sincronizamos con la duración del audio original
-                    music_clip = music_clip.volumex(0.2).subclip(0, audio.duration).audio_fadeout(2)
-                    composite_audio = mp.CompositeAudioClip([audio, music_clip])
-                    video = video.set_audio(composite_audio)
+                music = mp.AudioFileClip(self.background_music)
+                background_audio = mp.CompositeAudioClip([audio, music.volumex(0.2)])
+                video = video.set_audio(background_audio)
 
             except Exception as e:
                 raise ValueError(Fore.RED + f"❌ Error processing background music: {e}")
 
         if self.subtitle_file:
             try:
+                # Position the subtitle according to the 'position' parameter
+                final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video.size[0],img_height=video.size[1],max_text_width=0.8 * video.size[0],total_text_height=video.size[1]/3)
+                
                 subtitles = SubtitlesClip(self.subtitle_file, lambda txt: self.generate_subtitle(txt, video.size,style=style,position=position))
-                subtitles = subtitles.set_position(('center', 'center'))
+                subtitles = subtitles.set_position(final_position)
                 video = CompositeVideoClip([video, subtitles])
             except Exception as e:
                 raise ValueError(Fore.RED + f"❌ Error adding subtitles: {e}")
@@ -148,25 +141,16 @@ class VideoAssembler:
         txt = txt.encode('utf-8').decode('utf-8')
 
         # Internal style configuration based on the selected general style
-        if style == Style.BOLD:
-            font = 'Fonts\sub.ttf'
-            fontsize = 110
-            stroke_color = 'black'
-            stroke_width = 5
-        elif style == Style.MINIMAL:
-            font = 'Fonts\sub.ttf'
-            fontsize = 100
-            stroke_color = None
-            stroke_width = 0
-            bg_color = None  # No background in minimalist style
-        else:  # Style.DEFAULT
-            font = 'Fonts\sub.ttf'
-            fontsize = 120
-            stroke_color = 'blue'
-            text_color='white'
-            stroke_width = 3
-            bg_color = 'black'
-
+        style_params = SubtitleHelper.get_style_parameters(style)
+        
+        # Asignar los valores obtenidos del estilo
+        font = style_params['font_path']
+        fontsize = style_params['fontsize']
+        stroke_color = style_params['stroke_color']
+        stroke_width = style_params['stroke_width']
+        text_color = style_params['text_color']
+        bg_color = style_params['bg_color']
+   
         # Configure the subtitle text with 'caption' method
         text_clip = TextClip(
             txt,
@@ -176,7 +160,7 @@ class VideoAssembler:
             stroke_color=stroke_color,
             stroke_width=stroke_width,
             method='caption',
-            size=(video_size[0] - 100, None),
+            size=(video_size[0]*0.9, None),
             align='center'
         )
 
@@ -194,7 +178,7 @@ class VideoAssembler:
             scale_factor = max_height / text_height
             text_clip = text_clip.resize(newsize=(int(text_width * scale_factor), int(max_height)))
             box_width = int(text_width * scale_factor) + 2 * padding_x
-            box_height = text_height + 2 * padding_y
+            box_height = int(max_height) + 2 * padding_y
         # Create the background only if a background color is specified
         if bg_color:
             image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
@@ -209,14 +193,16 @@ class VideoAssembler:
             image_clip = ImageClip(image_np).set_duration(text_clip.duration)
         else:
             image_clip = None
-
+        
+        # final_position = SubtitleHelper.calculate_text_position_image(position=position,img_width=video_size[1],img_height=video_size[2],max_text_width=0.8 * video_size[2],total_text_height=max_height)
+        final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video_size[0],img_height=video_size[1],max_text_width=0.8 * video_size[0],total_text_height=max_height)
         # Position the subtitle according to the 'position' parameter
-        if position == Position.TOP_CENTER:
-            final_position = ('center', 0.1 * video_size[1])
-        elif position == Position.MIDDLE_CENTER:
-            final_position = ('center', 'center')
-        else:  # Position.BOTTOM_CENTER
-            final_position = ('center', 0.8 * video_size[1])
+        # if position == Position.TOP_CENTER:
+        #     final_position = ('center', 0.1 * video_size[1])
+        # elif position == Position.MIDDLE_CENTER:
+        #     final_position = ('center', 'center')
+        # else:  # Position.BOTTOM_CENTER
+        #     final_position = ('center', 0.8 * video_size[1])
 
         # Combine the background (if it exists) with the text
         if image_clip:
@@ -226,3 +212,34 @@ class VideoAssembler:
 
         return subtitle_clip
     
+# Parte principal para instanciar y ejecutar la clase
+if __name__ == "__main__":
+    # Definir los parámetros usando archivos de la carpeta .temp
+    ImageHelper.enhance_thumbnail(".temp/NONE_6ffe59f0-6917-48ca-aae1-d960230c69a2.png", 
+                                  "El increible titular está guapísimo para esta noticia impresionante", 
+                                  Position.BOTTOM_CENTER, Style.THUMBNAIL_BOLD, 2000, 95)
+    subtitle_file = "scripts/.temp/subtitles.srt"  # Archivo de subtítulos
+    voiceover_file = ".temp/c6f3db91-5d9a-4db5-8d33-4a22039bb973.mp3"  # Archivo de voz en off
+    output_file = ".temp/Análisis_de_los_Siete_Estados_C2.mp4"  # Archivo de salida
+    media_images = [
+        ".temp/NONE_8f38d792-7e26-4eac-9e39-3476fb47ed30.png",
+        ".temp/NONE_af2e1d86-dffb-4ebe-a193-8aca7d2c51bc.png",
+        ".temp/NONE_058309ef-7531-4093-971c-d65578544e3e.png",
+        ".temp/NONE_2a737ae5-7d13-4835-8cb2-cc318a0f2445.png"
+        # Agregar más imágenes según sea necesario
+    ]
+    media_videos = []  # Lista de videos adicionales, si tienes alguno para incluir
+    background_music = "Resources\Music\SweetBananaMelody.mp3"  # Ruta a la música de fondo, si deseas agregar una
+
+    # Crear instancia de VideoAssembler
+    video_assembler = VideoAssembler(
+        subtitle_file=subtitle_file,
+        voiceover_file=voiceover_file,
+        output_file=output_file,
+        media_images=media_images,
+        media_videos=media_videos,
+        background_music=background_music,
+        aspect_ratio="16:9"
+    )
+    video_assembler.assemble_video(style=Style.BOLD,position=Position.BOTTOM_CENTER)
+

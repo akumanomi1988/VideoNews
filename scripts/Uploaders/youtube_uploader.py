@@ -55,61 +55,61 @@ class YoutubeMediaUploader:
         print(Fore.GREEN + "Authentication successful!")
         return youtube
 
-    def upload_long_video(self, video_path, title, description, tags, thumbnail_path=None, category_id="22", privacy_status="public", location=None, recording_date=None):
-        """
-        Uploads a long video to YouTube.
+    # def upload_long_video(self, video_path, title, description, tags, thumbnail_path=None, category_id="22", privacy_status="public", location=None, recording_date=None):
+    #     """
+    #     Uploads a long video to YouTube.
 
-        Parameters:
-            video_path (str): Path to the video file.
-            title (str): Title of the video.
-            description (str): Description of the video.
-            tags (list): List of tags to include.
-            thumbnail_path (str, optional): Path to the thumbnail image file.
-            category_id (str, optional): The ID of the video category.
-            privacy_status (str, optional): Privacy status of the video.
-            location (str, optional): Location where the video was recorded.
-            recording_date (str, optional): Recording date of the video in YYYY-MM-DD format.
+    #     Parameters:
+    #         video_path (str): Path to the video file.
+    #         title (str): Title of the video.
+    #         description (str): Description of the video.
+    #         tags (list): List of tags to include.
+    #         thumbnail_path (str, optional): Path to the thumbnail image file.
+    #         category_id (str, optional): The ID of the video category.
+    #         privacy_status (str, optional): Privacy status of the video.
+    #         location (str, optional): Location where the video was recorded.
+    #         recording_date (str, optional): Recording date of the video in YYYY-MM-DD format.
 
-        Returns:
-            dict: The response from the YouTube API.
-        """
-        # Validate input parameters
-        self.validate_video_parameters(video_path, title, description, tags, category_id, privacy_status)
+    #     Returns:
+    #         dict: The response from the YouTube API.
+    #     """
+    #     # Validate input parameters
+    #     self.validate_video_parameters(video_path, title, description, tags, category_id, privacy_status)
 
-        hashtags = [f"{tag}" for tag in tags]
-        full_description = f"{description}\n\n{self.channel_description}\n\n{' '.join(hashtags)}"
+    #     hashtags = [f"{tag}" for tag in tags]
+    #     full_description = f"{description}\n\n{self.channel_description}\n\n{' '.join(hashtags)}"
 
-        media = MediaFileUpload(video_path)
-        print(Fore.CYAN + f"Uploading video '{title}'...")
+    #     media = MediaFileUpload(video_path)
+    #     print(Fore.CYAN + f"Uploading video '{title}'...")
         
-        request = self.youtube.videos().insert(
-            part="snippet,status",
-            body={
-                "snippet": {
-                    "title": title,
-                    "description": full_description,
-                    "tags": hashtags,
-                    "categoryId": category_id,
-                    "location": location or None,
-                    "recordingDate": recording_date or None
-                },
-                "status": {
-                    "privacyStatus": privacy_status
-                }
-            },
-            media_body=media
-        )
+    #     request = self.youtube.videos().insert(
+    #         part="snippet,status",
+    #         body={
+    #             "snippet": {
+    #                 "title": title,
+    #                 "description": full_description,
+    #                 "tags": hashtags,
+    #                 "categoryId": category_id,
+    #                 "location": location or None,
+    #                 "recordingDate": recording_date or None
+    #             },
+    #             "status": {
+    #                 "privacyStatus": privacy_status
+    #             }
+    #         },
+    #         media_body=media
+    #     )
         
-        response = self.execute_request_with_retries(request)
+    #     response = self.execute_request_with_retries(request)
 
-        # Optionally set the thumbnail if provided
-        if thumbnail_path:
-            self.set_thumbnail(response['id'], thumbnail_path)
+    #     # Optionally set the thumbnail if provided
+    #     if thumbnail_path:
+    #         self.set_thumbnail(response['id'], thumbnail_path)
 
-        print(Fore.GREEN + f"Video uploaded successfully: {title}")
-        return response
+    #     print(Fore.GREEN + f"Video uploaded successfully: {title}")
+    #     return response
 
-    def upload_short(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='public'):
+    def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='public'):
         """
         Uploads a short video to YouTube.
 
