@@ -1,7 +1,7 @@
 ![Banner](https://img.shields.io/badge/Project%20Status-Active-green) ![Python Version](https://img.shields.io/badge/Python-3.10-blue) ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 </br>
-<a href="https://www.buymeacoffee.com/akumanomi1k"><img src="https://img.buymeacoffee.com/button-api/?text=Fuel my creativity! 💸&emoji=🍺&slug=akumanomi1k&button_colour=FF3737&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=FF3737" /></a>
+<a href="https://www.buymeacoffee.com/akumanomi"><img src="https://img.buymeacoffee.com/button-api/?text=Fuel my creativity! 💸&emoji=🍺&slug=akumanomi&button_colour=FF3737&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=FF3737" /></a>
 
 [🔗 Join the VideoNews Community on Telegram](https://t.me/VideoNewsCommunity)
 
@@ -166,13 +166,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-That's it! Your **VideoNews** README is now designed to be informative, visually appealing, and clear for potential users and contributors. The sections cover everything from setup to project structure, with icons and precise guidance on the technologies used, ensuring a smooth user experience.
-
-If you find this project useful, give it a ⭐ **star** and help spread the word by sharing it with others in the community! Fork the repository and make it your own—let’s collaborate to make this tool even better.
-
 ## Star History ⭐
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Akumanomi1988/from_news_to_uploaded&type=Date)](https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date)
 ---
-
-For more information, visit the [GitHub repository](https://github.com/Akumanomi1988/VideoNews).
