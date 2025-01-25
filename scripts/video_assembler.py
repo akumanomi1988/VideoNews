@@ -113,7 +113,7 @@ class VideoAssembler:
         if self.subtitle_file:
             try:
                 # Position the subtitle according to the 'position' parameter
-                final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video.size[0],img_height=video.size[1],max_text_width=0.8 * video.size[0],total_text_height=video.size[1]/3)
+                final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video.size[0],img_height=video.size[1],max_text_width=0.95 * video.size[0],total_text_height=video.size[1]/3)
                 
                 subtitles = SubtitlesClip(self.subtitle_file, lambda txt: self.generate_subtitle(txt, video.size,style=style,position=position))
                 subtitles = subtitles.set_position(final_position)

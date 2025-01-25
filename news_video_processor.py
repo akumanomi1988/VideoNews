@@ -73,7 +73,7 @@ class NewsVideoProcessor:
                 continue
             self.send_progress(f"📰 Processing: {topic['title']}")
 
-            article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_short(topic['title'])
+            article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_short(topic['url'])
             if article == "":
                 self.send_progress(f"⚠️ Skipped article generation for: {topic['title']}")
                 continue
@@ -104,20 +104,7 @@ class NewsVideoProcessor:
                 background_music=self.config['video_result']['background_music'],
                 aspect_ratio='9:16')
             # Using MediaManager to assemble the video
-            video_assembler.assemble_video(Style.BOLD,position=Position.MIDDLE_CENTER)
-
-            # # media_manager = MediaManager(
-            # #     subtitle_file=subtitle_path,
-            # #     voiceover_file=audio_path,
-            # #     output_file=f"_{output_file}",
-            # #     media_images=media_images,
-            # #     aspect_ratio='9:16'  # Usando la relación de aspecto para videos cortos,
-            # # #     background_music=self.config['video_result']['background_music']
-            # # )
-
-            # # self.send_progress("🎬 Assembling video...")
-            # # media_manager.assemble_video()  # Ensure this method correctly handles file closure
-            # # self.video_files.append(output_file)
+            video_assembler.assemble_video(Style.DEFAULT,position=Position.BOTTOM_CENTER)
 
             self.send_progress("📤 Uploading to YouTube...")
             if 'url' in topic and topic['url']:
@@ -150,9 +137,14 @@ class NewsVideoProcessor:
         for topic in latest_news:
             if topic['title'] == '[Removed]':
                 continue
-            self.send_progress(f"📰 Processing: {topic['title']}")
+            self.send_progress(f"📰 Processing: {topic['title']}") 
+            if 'url' in topic and topic['url']:
+                print("NO URL")
+                article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_long(topic['url'])
+            else:
+                article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_long(topic['title'])
+                topic['url'] = topic['title']
 
-            article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_long(topic['title'])
             if article == "":
                 self.send_progress(f"⚠️ Skipped article generation for: {topic['title']}")
                 continue
@@ -180,22 +172,10 @@ class NewsVideoProcessor:
                 voiceover_file=audio_path,
                 output_file=output_file,
                 media_images=media_images,
+                background_music=self.config['video_result']['background_music'],
                 aspect_ratio='16:9')
             # Using MediaManager to assemble the video
-            video_assembler.assemble_video(Style.SUBTLE,position=Position.BOTTOM_CENTER)
-
-            # # media_manager = MediaManager(
-            # #     subtitle_file=subtitle_path,
-            # #     voiceover_file=audio_path,
-            # #     output_file=f"_{output_file}",
-            # #     media_images=media_images,
-            # #     aspect_ratio='9:16'  # Usando la relación de aspecto para videos cortos,
-            # # #     background_music=self.config['video_result']['background_music']
-            # # )
-
-            # # self.send_progress("🎬 Assembling video...")
-            # # media_manager.assemble_video()  # Ensure this method correctly handles file closure
-            # # self.video_files.append(output_file)
+            video_assembler.assemble_video(Style.DRAMATIC,position=Position.BOTTOM_CENTER)
 
             self.send_progress("📤 Uploading to YouTube...")
             if 'url' in topic and topic['url']:

@@ -276,7 +276,7 @@ class SubtitleHelper:
     def calculate_text_position_video(position, img_width, img_height, max_text_width, total_text_height):
         """Calculate text position with a 10% margin, ensuring subtitles do not exceed boundaries."""
         # Definir el margen vertical del 10%
-        margin_y = 10 #int(0.05 * img_height)
+        margin_y = 50
 
         if position == Position.TOP_LEFT:
             return ('center', margin_y)
@@ -333,7 +333,7 @@ class SubtitleHelper:
         
         # Cargar la fuente con el tamaño máximo
         font = ImageFont.truetype(font_path, max_fontsize)
-        max_text_width = video_size[0] * 0.8  # Permitimos un padding (80% del ancho del video)
+        max_text_width = video_size[0] * 0.95  # Permitimos un padding (80% del ancho del video)
 
         # Dividir los subtítulos largos en líneas más cortas para que se ajusten al ancho del video
         txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)
@@ -474,12 +474,12 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.DRAMATIC: {
-                'font_path': "Resources\\Fonts\\sub.otf",
+                'font_path': "Resources\\Fonts\\Arial.otf",
                 'fontsize': 120,
                 'stroke_color': 'black',
                 'stroke_width': 6,
-                'text_color': 'red',
-                'bg_color': 'darkgray'
+                'text_color': 'yellow',
+                'bg_color': None
             },
             
             # Estilos para portadas (thumbnail)
