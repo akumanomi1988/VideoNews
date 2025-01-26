@@ -6,7 +6,9 @@
       "news_source": "Source for news articles, can be 'newsapi' or 'currentsapi'"
   },
   "tiktok": {
-      "session_id": "Tiktok API session ID, for future feature"
+    "app_id": "APP_ID_from_TIKTOK",
+    "client_secret": "APP_SECRET_from_TIKTOK",
+    "client_id": "client_id_from_TIKTOK"
   },
   "youtube": {
       "credentials_file": "Path to your YouTube credentials file (e.g., C:/path/to/your/client_secret.json)"
@@ -49,5 +51,10 @@
   },
   "telegram": {
       "bot_token": "Your Telegram Bot Token"
+  },
+  "meta":{
+    "facebook_page_id":"",
+    "facebook_token":"",
+    "instagram_token":""
   }
 }

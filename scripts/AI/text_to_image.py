@@ -1,9 +1,10 @@
+from time import sleep
 import uuid
 from enum import Enum
 from huggingface_hub import InferenceClient
 import os
-from colorama import Fore, Style, init
-
+from colorama import Fore, init
+import random
 # Initialize colorama
 init(autoreset=True)
 
@@ -25,14 +26,15 @@ class StylePreset(Enum):
     SURREALIST = "NO TEXT. Dreamlike elements with warped shapes and juxtaposed objects, illuminated by ethereal light and captured with a macro lens to enhance surreal qualities."
     ABSTRACT = "NO TEXT. Non-representational imagery featuring vibrant splashes of color and sharp contrasts, captured in close-up macro shots to create visual intrigue."
     REALISM = "NO TEXT. Faithful depiction of scenes with natural colors, medium shot, and balanced light that emphasize fine details for an authentic look."
-    YOUTUBE_THUMBNAIL = "An eye-catching composition featuring high contrast and bold colors. The image includes intense close-ups of objects, symbols, or dynamic scenes related to the news topic, designed to evoke curiosity and engagement. The background incorporates abstract elements (like charts or icons) that add a sense of action and excitement. The overall design is tailored for maximum clickbait appeal, ensuring it stands out in feeds without any text or overly dramatic portrayals of individuals."
+    YOUTUBE_THUMBNAIL = "An impressively seductive woman with a surprised expression and a slight smile gazes directly at the camera, her enchanting eyes drawing the viewer in. The shot is a half-height close-up, capturing her captivating features and alluring presence. The location is a random, unspecified backdrop that does not distract from her beauty, allowing her charm to take center stage. The focus is on her expression, highlighting the playful yet enticing allure she exudes"
 
-
+    
 class FluxImageGenerator:
-    def __init__(self, token=None, output_dir="output_images"):
+    def __init__(self, token=None, output_dir="output_images",model="black-forest-labs/FLUX.1-schnell"):
         # Initialize the Hugging Face Inference Client with the provided token
         self.client = InferenceClient(token=token)
         # Set output directory, creating it if it doesn't exist
+        self.model = model
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         
@@ -40,20 +42,26 @@ class FluxImageGenerator:
     def getImagePresets():
         return {preset.name: preset.value for preset in StylePreset}
     
-    def generate_image(self, custom_prompt, style_preset, aspect_ratio, model="black-forest-labs/FLUX.1-schnell"):
+    def generate_image(self, custom_prompt, style_preset:StylePreset, aspect_ratio):
         try:
             # Get the dimensions based on the selected aspect ratio
             width, height = aspect_ratio.value
             # Build the final prompt by combining the custom user prompt and the style preset
-            prompt = f"{custom_prompt}. {style_preset.value}"
+            if style_preset == StylePreset.YOUTUBE_THUMBNAIL:
+                prompt =  f"{style_preset.value}"
+            elif style_preset == StylePreset.NONE:
+                prompt = custom_prompt
+            else:
+                prompt = f"{custom_prompt}. with this style -> {style_preset.value}"
 
             print(Fore.BLUE + f"Image prompt \t ::-> {prompt}")
             # Generate the image using the Hugging Face API
             image = self.client.text_to_image(
                 prompt,
-                model=model,
+                model=self.model,
                 height=height,
-                width=width
+                width=width,
+                seed = random.randint(0, 2**32 - 1)
             )
             # Define the output file path
             output_path = os.path.join(self.output_dir, f"{style_preset.name}_{uuid.uuid4()}.png")
@@ -63,4 +71,6 @@ class FluxImageGenerator:
             return output_path
         except Exception as e:
             print(Fore.RED + f"Error: {e}")
+            sleep(60)
             return None
+    

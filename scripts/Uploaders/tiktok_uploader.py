@@ -1,70 +1,108 @@
+import requests
+import json
 import os
-from tiktok_uploader.upload import upload_video
-from tiktok_uploader.auth import AuthBackend
-from colorama import init, Fore, Style
+from flask import Flask, request, redirect
 
-# Initialize colorama
-init(autoreset=True)
+app = Flask(__name__)
 
-class TikTokVideoUploader:
-    def __init__(self, session_id):
-        self.session_id = session_id
-        self.auth = AuthBackend(sessionid=self.session_id)
+class TiktokMediaUploader:
+    def __init__(self, client_id, client_secret, redirect_uri):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.redirect_uri = redirect_uri
+        self.access_token = None
+        self.refresh_token = None
+        self.token_file = 'token.json'
 
-    def upload_video(self, video_path, description, tags):
-        """
-        Uploads a video to TikTok.
+    def load_tokens(self):
+        """Load tokens from a file."""
+        if os.path.exists(self.token_file):
+            with open(self.token_file, 'r') as f:
+                tokens = json.load(f)
+                self.access_token = tokens.get('access_token')
+                self.refresh_token = tokens.get('refresh_token')
 
-        Parameters:
-            video_path (str): Path to the video file.
-            description (str): Description of the video.
-            tags (list): List of tags to include.
+    def save_tokens(self):
+        """Save tokens to a file."""
+        tokens = {
+            'access_token': self.access_token,
+            'refresh_token': self.refresh_token,
+        }
+        with open(self.token_file, 'w') as f:
+            json.dump(tokens, f)
 
-        Returns:
-            dict: The response from the TikTok upload.
-        """
-        print(Fore.CYAN + f"Initiating upload for video: {video_path}")
+    def authenticate(self):
+        """Initiate OAuth 2.0 flow for user authentication."""
+        # Build the authorization URL
+        auth_url = (
+            f"https://open-api.tiktok.com/platform/oauth/connect/"
+            f"?client_key={self.client_id}&response_type=code&scope=user.info.basic,video.upload&redirect_uri={self.redirect_uri}"
+        )
+        print("Please visit the following URL to log in:")
+        print(auth_url)
+        return auth_url
 
-        if not os.path.exists(video_path):
-            print(Fore.RED + f"Error: Video file not found at {video_path}")
-            return None
-
-        try:
-            # Prepare the description with hashtags
-            hashtags = " ".join(f"#{tag}" for tag in tags)
-            full_description = f"{description}\n\n{hashtags}"
-
-            # Attempt to upload the video
-            result = upload_video(video_path, description=full_description, auth=self.auth)
-
-            if result:
-                print(Fore.GREEN + f"Video successfully uploaded to TikTok: {video_path}")
-                return result
+    @app.route('/callback/', methods=['GET'])
+    def callback():
+        """Handle the callback from TikTok after user logs in."""
+        authorization_code = request.args.get('code')
+        if authorization_code:
+            # Exchange authorization code for access token
+            token_url = "https://open-api.tiktok.com/oauth/access_token/"
+            payload = {
+                'client_key': self.client_id,
+                'client_secret': self.client_secret,
+                'code': authorization_code,
+                'grant_type': 'authorization_code',
+                'redirect_uri': self.redirect_uri
+            }
+            response = requests.post(token_url, data=payload)
+            if response.status_code == 200:
+                data = response.json()
+                self.access_token = data['data']['access_token']
+                self.refresh_token = data['data']['refresh_token']
+                self.save_tokens()
+                return "Authentication successful! You can close this window."
             else:
-                print(Fore.RED + "Upload failed. No response received from TikTok.")
-                return None
+                return f"Error: {response.status_code} - {response.text}"
+        else:
+            return "Authorization code not received."
 
-        except Exception as e:
-            print(Fore.RED + f"Error occurred during upload: {str(e)}")
-            return None
+    def refresh_access_token(self):
+        """Refresh the access token using the refresh token."""
+        token_url = "https://open-api.tiktok.com/oauth/refresh_token/"
+        payload = {
+            'client_key': self.client_id,
+            'client_secret': self.client_secret,
+            'refresh_token': self.refresh_token,
+            'grant_type': 'refresh_token'
+        }
+        
+        response = requests.post(token_url, data=payload)
+        if response.status_code == 200:
+            data = response.json()
+            self.access_token = data['data']['access_token']
+            self.refresh_token = data['data']['refresh_token']
+            self.save_tokens()
+        else:
+            print(f"Error refreshing token: {response.status_code} - {response.text}")
 
-    def validate_session(self):
-        """
-        Validates the TikTok session.
-
-        Returns:
-            bool: True if the session is valid, False otherwise.
-        """
-        try:
-            # Attempt to perform a simple operation to check if the session is valid
-            # This could be fetching user info or any other simple API call
-            # For now, we'll just check if the session_id is not empty
-            if self.session_id:
-                print(Fore.GREEN + "TikTok session appears to be valid.")
-                return True
+    def upload_media(self, media_path):
+        """Upload media to TikTok."""
+        if not self.access_token:
+            print("Access token is required to upload media.")
+            return
+        
+        upload_url = "https://open-api.tiktok.com/media/upload/"
+        with open(media_path, 'rb') as media_file:
+            files = {'file': media_file}
+            headers = {
+                'Authorization': f'Bearer {self.access_token}'
+            }
+            response = requests.post(upload_url, headers=headers, files=files)
+            
+            if response.status_code == 200:
+                print("Media uploaded successfully!")
+                print(response.json())
             else:
-                print(Fore.RED + "TikTok session is not set or invalid.")
-                return False
-        except Exception as e:
-            print(Fore.RED + f"Error validating TikTok session: {str(e)}")
-            return False
+                print(f"Error uploading media: {response.status_code} - {response.text}")

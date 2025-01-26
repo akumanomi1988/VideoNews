@@ -146,6 +146,7 @@ async def show_category_selection(update: Update, context: CallbackContext):
         reply_markup=reply_markup
     )
 
+
 async def category_selection_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
@@ -200,22 +201,29 @@ async def news_selection_handler(update: Update, context: CallbackContext):
         await query.message.reply_text("News selection cancelled. ✅")
         return
 
-    # Get the index of the selected news
+    # Obtener el índice de la noticia seleccionada
     selected_index = int(query.data)
     
-    # Load cached news
+    # Cargar las noticias cacheadas
     latest_news = news_cache["news"]
-    selected_news = latest_news[selected_index]  # The selected news
+    selected_news = latest_news[selected_index]  # La noticia seleccionada
 
-    # Process the selected news using the existing function
-    processor = NewsVideoProcessor(progress_callback=query.message.reply_text)
+    # Procesar la noticia según el tipo seleccionado (corta o larga)
+    processor = NewsVideoProcessor(callback_query=query)
 
-    await query.message.reply_text(f"Processing news... ⏳")
+    if context.user_data.get('news_type') == 'long':
+        await query.message.reply_text(f"Processing long news... ⏳")
+        response = processor.process_latest_news_in_long_format(selected_news)  # Procesar como noticia larga
+    else:
+        await query.message.reply_text(f"Processing short news... ⏳")
+        response = processor.process_latest_news_in_short_format(selected_news)  # Procesar como noticia corta
 
-    response = processor.process_latest_news_in_short_format(selected_news)  # Pass the selected news
-    
     await query.message.reply_text(f"News processing completed: {format_youtube_message(response)} ✅")
-    
+
+    # Limpiar el tipo de noticia del contexto
+    context.user_data.pop('news_type', None)
+
+
 def format_youtube_message(response):
     # Extract relevant data from the response
     title = response['snippet']['title']
@@ -262,26 +270,70 @@ async def error_handler(update: Update, context: CallbackContext):
     # Send a message to the user if the error occurs in a message context
     if update:
         await update.message.reply_text("An error occurred while processing your request. Please try again later. ❌")
+# Procesa noticia corta a partir de un tema
+async def short_news_topic(update: Update, context: CallbackContext):
+    if context.args:
+        headline = " ".join(context.args)  # Unir el argumento en caso de que sea un titular largo
+        await update.message.reply_text(f"Processing short news with headline: {headline}... 📰")
 
+        # Procesar el titular directamente como noticia corta
+        processor = NewsVideoProcessor(callback_query=None)
+        response = processor.process_latest_news_in_short_format({"title": headline, "description": ""})
+        
+        await update.message.reply_text(f"News processing completed: {format_youtube_message(response)} ✅")
+    else:
+        await update.message.reply_text("Please provide a headline/topic after the command.")
+
+# Procesa noticia larga a partir de un tema
+async def long_news_topic(update: Update, context: CallbackContext):
+    if context.args:
+        headline = " ".join(context.args)  # Unir el argumento en caso de que sea un titular largo
+        await update.message.reply_text(f"Processing long news with headline: {headline}... ⏳")
+
+        # Procesar el titular directamente como noticia larga
+        processor = NewsVideoProcessor(callback_query=None)
+        response = processor.process_latest_news_in_long_format({"title": headline, "description": ""})
+        
+        await update.message.reply_text(f"Long news processing completed: {format_youtube_message(response)} ✅")
+    else:
+        await update.message.reply_text("Please provide a headline/topic after the command.")
+
+# Procesa noticia larga seleccionando una categoría (flujo original)
+async def long_news(update: Update, context: CallbackContext):
+    # Almacenar en el contexto que se está buscando una noticia larga
+    context.user_data['news_type'] = 'long'
+    await show_category_selection(update, context)
+
+
+# Añadir los comandos a la aplicación
 if __name__ == '__main__':
-    # Load Telegram bot token from settings.json
+
     settings = load_settings()
     telegram_token = settings['telegram']['bot_token']
 
     application = ApplicationBuilder().token(telegram_token).build()
 
     # Commands for configuring settings
-    application.add_handler(CommandHandler("config", configure_setting))
+    application.add_handler(CommandHandler("settings", configure_setting))
     application.add_handler(CallbackQueryHandler(category_selection_handler, pattern='^(business|entertainment|general|health|science|sports|technology|cancel_config)$'))
     application.add_handler(CallbackQueryHandler(setting_selection_handler, pattern='^.+:.+$'))  # For selected settings
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_new_value))
 
     # Command to list available settings
-    application.add_handler(CommandHandler("list_settings", list_settings))
+    application.add_handler(CommandHandler("show_settings", list_settings))
 
-    # Command to show news categories
-    application.add_handler(CommandHandler("shortnews", show_category_selection))
+    # Command to show news categories for short news
+    application.add_handler(CommandHandler("news_category", show_category_selection))
     application.add_handler(CallbackQueryHandler(news_selection_handler, pattern='^[0-9]+|cancel_selection$'))
+
+    # Command to show short news from a custom topic
+    application.add_handler(CommandHandler("topic_shortnews", short_news_topic))
+
+    # Command to show news categories for long news
+    application.add_handler(CommandHandler("detailed_news", long_news))
+
+    # Command to show long news from a custom topic
+    application.add_handler(CommandHandler("topic_longnews", long_news_topic))
 
     # Add the error handler
     application.add_error_handler(error_handler)
