@@ -189,7 +189,7 @@ class ImageHelper:
             text_color = style_params['text_color']
 
             # Cargar la fuente según el estilo
-            font = ImageFont.truetype(font_path, font_size)
+            font = ImageFont.truetype(font_path, round(font_size))
 
             img_width, img_height = image.size
             max_text_width = img_width * 0.6  # Permitimos que el texto ocupe hasta el 80% del ancho
@@ -219,7 +219,7 @@ class ImageHelper:
             # Controlar el tamaño del texto en relación con el ancho de la imagen
             if text_size > 0:
                 font_size = int(font_size * (text_size / 100))
-                font = ImageFont.truetype(font_path, font_size)
+                font = ImageFont.truetype(font_path, round(font_size))
 
             # Dibujar cada línea de texto en la imagen, sin superponerlas
             for line in lines:
@@ -271,31 +271,30 @@ class SubtitleHelper:
             return ((img_width - max_text_width) // 2, img_height - text_height - margin_y)
         elif position == Position.BOTTOM_RIGHT:
             return (img_width - max_text_width - margin_x, img_height - text_height - margin_y)
-        
+            
     @staticmethod
     def calculate_text_position_video(position, img_width, img_height, max_text_width, total_text_height):
-        """Calculate text position with a 10% margin, ensuring subtitles do not exceed boundaries."""
-        # Definir el margen vertical del 10%
-        margin_y = 50
+        """Calcula posición con márgenes dinámicos y asegura máximo 25% de altura"""
+        # Margen vertical del 5% de la altura del video
+        margin_y = img_height * 0.05
+        max_height = img_height * 0.25  # Máximo 25% de la altura
 
-        if position == Position.TOP_LEFT:
-            return ('center', margin_y)
-        elif position == Position.TOP_CENTER:
-            return ('center', margin_y)
-        elif position == Position.TOP_RIGHT:
-            return ('center', margin_y)
-        elif position == Position.MIDDLE_LEFT:
-            return ('center', 'center')
-        elif position == Position.MIDDLE_CENTER:
-            return ('center', 'center')
-        elif position == Position.MIDDLE_RIGHT:
-            return ('center', 'center')
-        elif position == Position.BOTTOM_LEFT:
-            return ('center', img_height - total_text_height - margin_y)
-        elif position == Position.BOTTOM_CENTER:
-            return ('center', img_height - total_text_height - margin_y)
-        elif position == Position.BOTTOM_RIGHT:
-            return ('center', img_height - total_text_height - margin_y)
+        # Ajustar altura si supera el máximo
+        total_text_height = min(total_text_height, max_height)
+
+        positions = {
+            Position.TOP_LEFT: (0.05 * img_width, margin_y),
+            Position.TOP_CENTER: ('center', margin_y),
+            Position.TOP_RIGHT: (0.95 * img_width - max_text_width, margin_y),
+            Position.MIDDLE_LEFT: (0.05 * img_width, (img_height - total_text_height)/2),
+            Position.MIDDLE_CENTER: ('center', (img_height - total_text_height)/2),
+            Position.MIDDLE_RIGHT: (0.95 * img_width - max_text_width, (img_height - total_text_height)/2),
+            Position.BOTTOM_LEFT: (0.05 * img_width, img_height - total_text_height - margin_y),
+            Position.BOTTOM_CENTER: ('center', img_height - total_text_height - margin_y),
+            Position.BOTTOM_RIGHT: (0.95 * img_width - max_text_width, img_height - total_text_height - margin_y)
+        }
+        
+        return positions.get(position, ('center', 'center'))
 
     @staticmethod
     def split_subtitles(subtitle_text, font, max_width):
@@ -312,85 +311,68 @@ class SubtitleHelper:
         if current_line:
             wrapped_lines.append(current_line)
         return '\n'.join(wrapped_lines)
-
+    
     @staticmethod
-    def generate_subtitle(txt, video_size, 
-                        position=Position.MIDDLE_CENTER,
-                        style=Style.BOLD,
-                        bg_color=None):
-        """
-        Generate subtitles with customizable styles and positioning.
-        """
-        # Obtener parámetros del estilo utilizando StyleHelper
+    def generate_subtitle(self, txt, video_size, position=Position.BOTTOM_CENTER, style=Style.DEFAULT):
+        """Genera subtítulos con fondo semitransparente y texto responsive"""
+        # Configuración de estilo
         style_params = SubtitleHelper.get_style_parameters(style)
         
-        # Asignar los valores obtenidos del estilo
-        font_path = style_params['font_path']
-        max_fontsize = style_params['fontsize']
-        stroke_color = style_params['stroke_color']
-        stroke_width = style_params['stroke_width']
-        text_color = style_params['text_color']
+        # Parámetros dinámicos basados en resolución
+        base_fontsize = int(min(video_size) * 0.045)  # 4.5% del lado más pequeño
+        max_width = video_size[0] * 0.9  # 90% del ancho del video
+        max_height = video_size[1] * 0.25  # Máximo 25% de altura
         
-        # Cargar la fuente con el tamaño máximo
-        font = ImageFont.truetype(font_path, max_fontsize)
-        max_text_width = video_size[0] * 0.95  # Permitimos un padding (80% del ancho del video)
-
-        # Dividir los subtítulos largos en líneas más cortas para que se ajusten al ancho del video
-        txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)
-
-        # Reducir dinámicamente el tamaño de la fuente en un 5% hasta que el texto quepa dentro del límite
-        while font.getsize_multiline(txt)[0] > max_text_width and max_fontsize > 50:
-            max_fontsize = int(max_fontsize * 0.95)  # Reducir el tamaño de la fuente en un 5%
-            font = ImageFont.truetype(font_path, max_fontsize)
-            txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)  # Volver a dividir el texto
-
-        # Calcular el tamaño del texto basado en las líneas divididas
-        text_width, text_height = font.getsize_multiline(txt)
-
-        # Generar el clip de texto con el nuevo tamaño de fuente
+        # Crear texto con wrappers dinámicos
+        wrapper = textwrap.TextWrapper(width=int(max_width / (base_fontsize * 0.6)), break_long_words=False)
+        wrapped_text = '\n'.join(wrapper.wrap(txt))
+        
+        # Crear clip de texto
         text_clip = TextClip(
-            txt,
-            font=font_path,
-            fontsize=max_fontsize,
-            color=text_color,
-            stroke_color=stroke_color,
-            stroke_width=stroke_width,
-            size=(max_text_width, None),  # Limitar el ancho
+            wrapped_text,
+            font=style_params['font_path'],
+            fontsize=base_fontsize,
+            color=style_params['text_color'],
+            stroke_color=style_params['stroke_color'],
+            stroke_width=style_params['stroke_width'],
             align='center',
-            method='caption'
+            method='pango',  # Mejor manejo de texto multilínea
+            size=(max_width, None)
         )
-
-        # Calcular la posición del texto basada en el valor del enum `Position`
+        
+        # Ajustar tamaño automáticamente
+        text_clip = text_clip.resize(lambda t: min(1 + t * 0.005, 1.1))  # Efecto de escala suave
+        
+        # Crear fondo semitransparente
+        bg_color = style_params.get('bg_color', (0, 0, 0, 178))  # Negro semitransparente por defecto
+        if not isinstance(bg_color, tuple):
+            bg_color = (0, 0, 0, 178)  # Fallback a negro semitransparente
+            
+        # Crear fondo con borde redondeado
+        text_size = text_clip.size
+        padding = base_fontsize * 0.5
+        background = (
+            ImageClip(np.zeros((int(text_size[1] + padding*2), int(text_size[0] + padding*2), 4), dtype=np.uint8))
+            .set_opacity(bg_color[3]/255)
+            .set_duration(text_clip.duration)
+        )
+        
+        # Combinar elementos
+        subtitle = CompositeVideoClip([
+            background.set_position(('center', 'center')),
+            text_clip.set_position(('center', 'center'))
+        ])
+        
+        # Posicionamiento final
         final_position = SubtitleHelper.calculate_text_position_video(
-            position, 
-            video_size[0], video_size[1], 
-            text_width, 
-            text_height
+            position=position,
+            img_width=video_size[0],
+            img_height=video_size[1],
+            max_text_width=max_width,
+            total_text_height=text_size[1] + padding*2
         )
-
-        # Si se especifica un color de fondo, añadir una caja de fondo
-        if bg_color:
-            padding_x = 20
-            padding_y = 10
-            box_width = text_width + 2 * padding_x
-            box_height = text_height + 2 * padding_y
-
-            image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(image)
-            radius = 25
-            draw.rounded_rectangle(
-                [(0, 0), (box_width, box_height)],
-                radius=radius,
-                fill=(0, 0, 0, int(255 * 0.6)) if bg_color == 'blue' else bg_color
-            )
-            image_np = np.array(image)
-            image_clip = ImageClip(image_np).set_duration(text_clip.duration)
-            subtitle_clip = CompositeVideoClip([image_clip, text_clip]).set_position(final_position)
-        else:
-            subtitle_clip = text_clip.set_position(final_position)
-
-        return subtitle_clip
-
+        
+        return subtitle.set_position(final_position)
 
     @staticmethod
     def add_subtitles(video, subtitle_file, style=Style.DEFAULT, position=Position.MIDDLE_CENTER):
@@ -404,125 +386,174 @@ class SubtitleHelper:
     @staticmethod
     def get_style_parameters(style: Style):
         """
-        Returns the style parameters (font, size, colors, stroke) for different styles.
-        The styles cover both 'thumbnail' and 'subtitle' use cases.
+        Devuelve parámetros de estilo mejorados con:
+        - Fuentes relativas a proyecto (no absolutas)
+        - Tamaños responsive (% de altura de video)
+        - Fondos semitransparentes (RGBA)
+        - Stroke proporcional al tamaño
         """
+        base_config = {
+            "font_dir": "fonts/",  # Directorio relativo para fuentes
+            "base_size_ratio": 0.1,  # 4% de la altura del video
+            "thumbnail_size_ratio": 0.2  # 6% para thumbnails
+        }
+
         styles = {
-            # Estilos para subtítulos
+            # ESTILOS PARA SUBTÍTULOS -----------------------------------------------
             Style.DEFAULT: {
-                'font_path': "C:\\Windows\\Fonts\\Helvetica.ttf",
-                'fontsize': 90,
-                'stroke_color': 'black',
-                'stroke_width': 3,
-                'text_color': 'white',
-                'bg_color': None
-            },
-            Style.BOLD: {
-                'font_path': "Resources\\Fonts\\sub.otf",
-                'fontsize': 100,
-                'stroke_color': 'white',
-                'stroke_width': 5,
-                'text_color': 'yellow',
-                'bg_color': 'black'
-            },
-            Style.MINIMAL: {
-                'font_path': "C:\\Windows\\Fonts\\Arial.ttf",
-                'fontsize': 80,
-                'stroke_color': 'black',
-                'stroke_width': 0,
-                'text_color': 'white',
-                'bg_color': None
-            },
-            Style.ELEGANT: {
-                'font_path': "C:\\Windows\\Fonts\\Times.ttf",
-                'fontsize': 95,
-                'stroke_color': 'gray',
-                'stroke_width': 2,
-                'text_color': 'white',
-                'bg_color': 'navy'
-            },
-            Style.VIBRANT: {
-                'font_path': "Resources\\Fonts\\sub.otf",
-                'fontsize': 115,
-                'stroke_color': 'blue',
-                'stroke_width': 6,
-                'text_color': 'red',
-                'bg_color': 'yellow'
-            },
-            Style.CASUAL: {
-                'font_path': "C:\\Windows\\Fonts\\ComicSansMS.ttf",
-                'fontsize': 85,
-                'stroke_color': None,
-                'stroke_width': 0,
-                'text_color': 'orange',
-                'bg_color': None
-            },
-            Style.SUBTLE: {
-                'font_path': "Resources\\Fonts\\sub.otf",
-                'fontsize': 70,
-                'stroke_color': 'green',
-                'stroke_width': 2,
-                'text_color': 'green',
-                'bg_color': 'black'
-            },
-            Style.FORMAL: {
-                'font_path': "C:\\Windows\\Fonts\\Georgia.ttf",
-                'fontsize': 85,
-                'stroke_color': 'darkblue',
-                'stroke_width': 4,
-                'text_color': 'white',
-                'bg_color': None
-            },
-            Style.DRAMATIC: {
-                'font_path': "Resources\\Fonts\\Arial.otf",
-                'fontsize': 120,
-                'stroke_color': 'black',
-                'stroke_width': 6,
-                'text_color': 'yellow',
-                'bg_color': None
+                'font': "Roboto-Medium.ttf",
+                'text_color': '#FFFFFF',
+                'stroke_color': '#000000',
+                'stroke_width': 1.5,
+                'bg_color': (0, 0, 0, 178),  # Negro 70% opacidad
+                'fontsize_ratio': 1.0,
+                'max_lines': 3
             },
             
-            # Estilos para portadas (thumbnail)
+            Style.BOLD: {
+                'font': "Impact.ttf",
+                'text_color': '#FFD700',
+                'stroke_color': '#000000',
+                'stroke_width': 3.0,
+                'bg_color': (0, 0, 0, 200),
+                'fontsize_ratio': 1.1,
+                'max_lines': 2
+            },
+            
+            Style.MINIMAL: {
+                'font': "Roboto-Light.ttf",
+                'text_color': '#FFFFFF',
+                'stroke_color': None,
+                'stroke_width': 0,
+                'bg_color': (255, 255, 255, 50),
+                'fontsize_ratio': 0.9,
+                'max_lines': 3
+            },
+            
+            Style.ELEGANT: {
+                'font': "PlayfairDisplay-Regular.ttf",
+                'text_color': '#E6E6FA',
+                'stroke_color': '#2A2A2A',
+                'stroke_width': 1.2,
+                'bg_color': (25, 25, 112, 150),  # Azul noche
+                'fontsize_ratio': 1.05,
+                'max_lines': 2
+            },
+            
+            Style.VIBRANT: {
+                'font': "BebasNeue-Regular.ttf",
+                'text_color': '#FFFF00',
+                'stroke_color': '#9400D3',
+                'stroke_width': 2.5,
+                'bg_color': (75, 0, 130, 160),  # Índigo
+                'fontsize_ratio': 1.2,
+                'max_lines': 2
+            },
+            
+            Style.CASUAL: {
+                'font': "Quicksand-Medium.ttf",
+                'text_color': '#FFA500',
+                'stroke_color': None,
+                'stroke_width': 0,
+                'bg_color': (255, 255, 255, 30),
+                'fontsize_ratio': 0.95,
+                'max_lines': 3
+            },
+            
+            Style.SUBTLE: {
+                'font': "OpenSans-Regular.ttf",
+                'text_color': '#90EE90',
+                'stroke_color': '#006400',
+                'stroke_width': 1.0,
+                'bg_color': (0, 0, 0, 100),
+                'fontsize_ratio': 0.85,
+                'max_lines': 3
+            },
+            
+            Style.FORMAL: {
+                'font': "TimesNewRoman.ttf",
+                'text_color': '#FFFFFF',
+                'stroke_color': '#00008B',
+                'stroke_width': 2.0,
+                'bg_color': (25, 25, 112, 180),
+                'fontsize_ratio': 1.0,
+                'max_lines': 2
+            },
+            
+            Style.DRAMATIC: {
+                'font': "AlfaSlabOne-Regular.ttf",
+                'text_color': '#FF0000',
+                'stroke_color': '#000000',
+                'stroke_width': 4.0,
+                'bg_color': (0, 0, 0, 220),
+                'fontsize_ratio': 1.3,
+                'max_lines': 2
+            },
+            
+            # ESTILOS PARA THUMBNAILS -----------------------------------------------
             Style.THUMBNAIL_BOLD: {
-                'font_path': "Resources\\Fonts\\title.otf",
-                'fontsize': 120,
-                'stroke_color': 'red',
-                'stroke_width': 8,
-                'text_color': 'white',
-                'bg_color': None
+                'font': "title.otf",
+                'text_color': '#FFFFFF',
+                'stroke_color': '#FF0000',
+                'stroke_width': 4.0,
+                'bg_color': (0, 0, 0, 150),
+                'fontsize_ratio': 1.5,
+                'max_lines': 2
             },
+            
             Style.THUMBNAIL_MINIMAL: {
-                'font_path': "C:\\Windows\\Fonts\\Arial.ttf",
-                'fontsize': 80,
+                'font': "Raleway-ExtraLight.ttf",
+                'text_color': '#FFFFFF',
                 'stroke_color': None,
                 'stroke_width': 0,
-                'text_color': 'white',
-                'bg_color': None
+                'bg_color': (255, 255, 255, 30),
+                'fontsize_ratio': 1.8,
+                'max_lines': 1
             },
+            
             Style.THUMBNAIL_ELEGANT: {
-                'font_path': "C:\\Windows\\Fonts\\Times.ttf",
-                'fontsize': 150,
-                'stroke_color': 'gray',
-                'stroke_width': 2,
-                'text_color': 'white',
-                'bg_color': 'darkblue'
+                'font': "GreatVibes-Regular.ttf",
+                'text_color': '#FFFFFF',
+                'stroke_color': '#000000',
+                'stroke_width': 1.5,
+                'bg_color': (139, 0, 0, 160),  # Rojo oscuro
+                'fontsize_ratio': 2.0,
+                'max_lines': 1
             },
+            
             Style.THUMBNAIL_VIBRANT: {
-                'font_path': "Resources\\Fonts\\title.otf",
-                'fontsize': 115,
-                'stroke_color': 'blue',
-                'stroke_width': 6,
-                'text_color': 'red',
-                'bg_color': 'yellow'
+                'font': "Lobster-Regular.ttf",
+                'text_color': '#FF0000',
+                'stroke_color': '#FFFF00',
+                'stroke_width': 3.0,
+                'bg_color': (0, 0, 255, 140),
+                'fontsize_ratio': 1.7,
+                'max_lines': 2
             },
+            
             Style.THUMBNAIL_CASUAL: {
-                'font_path': "C:\\Windows\\Fonts\\ComicSansMS.ttf",
-                'fontsize': 140,
-                'stroke_color': None,
-                'stroke_width': 0,
-                'text_color': 'orange',
-                'bg_color': None
+                'font': "Pacifico-Regular.ttf",
+                'text_color': '#FF69B4',
+                'stroke_color': '#FFFFFF',
+                'stroke_width': 2.0,
+                'bg_color': (255, 255, 255, 50),
+                'fontsize_ratio': 1.6,
+                'max_lines': 2
             }
         }
-        # Return the style parameters for the given style
-        return styles.get(style, styles[Style.DEFAULT])  # Fallback to DEFAULT if style is not found
+
+        # Merge config base + estilo específico
+        style_params = {**base_config, **styles.get(style, styles[Style.DEFAULT])}
+        
+        # Resolver path completo de la fuente
+        style_params['font_path'] = os.path.join(
+            style_params['font_dir'], 
+            style_params['font']
+        )
+        
+        # Calcular tamaño de fuente responsive
+        is_thumbnail = "THUMBNAIL" in style.name
+        size_ratio = style_params['thumbnail_size_ratio'] if is_thumbnail else style_params['base_size_ratio']
+        style_params['fontsize'] = size_ratio * style_params['fontsize_ratio']
+        
+        return style_params
