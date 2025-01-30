@@ -4,7 +4,7 @@ import moviepy.editor as mp
 from moviepy.video.tools.subtitles import SubtitlesClip
 from moviepy.editor import TextClip, CompositeVideoClip, ImageClip, VideoFileClip
 from moviepy.video.fx import resize, crop
-from moviepy.video.fx import fadein, fadeout
+
 import os
 import textwrap
 from colorama import init, Fore
@@ -18,10 +18,7 @@ from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleH
 init(autoreset=True)
 
 class VideoAssembler:
-    def __init__(self, subtitle_file, voiceover_file, output_file, media_videos=None, media_images=None, aspect_ratio="9:16", background_music="", transition_type="crossfade",  # Nuevo: tipo de transición
-                 transition_duration=1,        # Duración de transición en segundos
-                 image_effect="pan",           # Nuevo: efecto para imágenes
-                 effect_direction="left"):     # Dirección del efecto):
+    def __init__(self, subtitle_file, voiceover_file, output_file, media_videos=None, media_images=None, aspect_ratio="9:16", background_music=""):
         self.subtitle_file = subtitle_file
         self.voiceover_file = voiceover_file
         self.output_file = output_file
@@ -29,36 +26,7 @@ class VideoAssembler:
         self.media_images = media_images or []
         self.aspect_ratio = aspect_ratio
         self.background_music = background_music
-        self.transition_type = transition_type
-        self.transition_duration = transition_duration
-        self.image_effect = image_effect
-        self.effect_direction = effect_direction
-    def apply_image_effect(self, image_clip):
-        """Aplica efectos de movimiento a las imágenes estáticas."""
-        if self.image_effect == "pan":
-            return self._apply_pan_effect(image_clip)
-        elif self.image_effect == "zoom":
-            return self._apply_zoom_effect(image_clip)
-        # Añadir más efectos aquí
-        return image_clip
-
-    def _apply_pan_effect(self, clip):
-        """Efecto de paneo horizontal o vertical."""
-        w, h = clip.size
-        target_w, target_h = self.get_target_dimensions()
-        
-        if self.effect_direction in ["left", "right"]:
-            x_speed = (w - target_w)/clip.duration
-            return clip.crop(x1=lambda t: x_speed*t if self.effect_direction == "right" else w - target_w - x_speed*t,
-                            y1=0, x2=lambda t: target_w + x_speed*t, y2=target_h)
-        else:  # up/down
-            y_speed = (h - target_h)/clip.duration
-            return clip.crop(y1=lambda t: y_speed*t if self.effect_direction == "down" else h - target_h - y_speed*t,
-                            x1=0, y2=lambda t: target_h + y_speed*t, x2=target_w)
-
-    def _apply_zoom_effect(self, clip):
-        """Efecto de zoom gradual."""
-        return clip.resize(lambda t: 1 + 0.2*t/clip.duration)
+    
     def get_target_dimensions(self):
         """Return target dimensions based on the specified aspect ratio."""
         if self.aspect_ratio == '9:16':
@@ -83,27 +51,7 @@ class VideoAssembler:
         cropped_clip = crop.crop(resized_clip, width=target_w, height=target_h, 
                                  x_center=resized_clip.w // 2, y_center=resized_clip.h // 2)
         return cropped_clip
-    def concatenate_with_transitions(self, clips):
-        """Concatena clips con transiciones personalizadas."""
-        if self.transition_type == "crossfade":
-            return mp.concatenate_videoclips(
-                clips,
-                method="compose",
-                transition=self._crossfade_transition,
-                transition_duration=self.transition_duration
-            )
-        elif self.transition_type == "slide":
-            return mp.concatenate_videoclips(
-                clips,
-                padding=-self.transition_duration,
-                method="compose"
-            )
-        # Añadir más tipos de transiciones aquí
-        return mp.concatenate_videoclips(clips)
 
-    def _crossfade_transition(self, clipA, clipB):
-        """Transición de fundido cruzado personalizado."""
-        return clipA.crossfadeout(self.transition_duration).crossfadein(self.transition_duration)
     def adjust_media(self):
         """Process and adjust media files (videos and images) to match the aspect ratio."""
         adjusted_clips = []
@@ -123,29 +71,13 @@ class VideoAssembler:
             try:
                 print(Fore.CYAN + f"🖼️ Processing image: {image_file}")
                 image_clip = ImageClip(image_file, duration=audio_duration / len(self.media_images))
-                image_clip = self.adjust_aspect_ratio(image_clip)
-                image_clip = self.apply_image_effect(image_clip)  # Aplicar efecto
-                adjusted_clips.append(image_clip)
-                # image_clip = ImageClip(image_file, duration=audio_duration / len(self.media_images))
-                # image_clip.fps = 24
-                # adjusted_clips.append(self.adjust_aspect_ratio(image_clip))
+                image_clip.fps = 24
+                adjusted_clips.append(self.adjust_aspect_ratio(image_clip))
             except Exception as e:
                 print(Fore.RED + f"❌ Error processing image {image_file}: {e}")
 
         return adjusted_clips
 
-    def _slide_transition(self, clipA, clipB):
-        """Transición de deslizamiento lateral."""
-        return clipB.set_position(lambda t: (min(t/self.transition_duration, 1) * clipA.w, 0))
-
-    def add_transition(clip1, clip2, transition_duration=1):
-        """
-        Agrega una transición de fundido entre dos clips.
-        """
-        clip1 = clip1.crossfadeout(transition_duration)
-        clip2 = clip2.crossfadein(transition_duration)
-
-        return mp.concatenate_videoclips([clip1, clip2], padding=-transition_duration)
     def split_subtitles(self, subtitle_text):
         """Split long subtitles into shorter lines for better readability."""
         return '\n'.join(textwrap.wrap(subtitle_text, width=15))
@@ -158,8 +90,7 @@ class VideoAssembler:
             raise ValueError(Fore.RED + "🚨 No media files could be adjusted. Check your inputs.")
 
         try:
-            # video = mp.concatenate_videoclips(adjusted_clips)
-            video = self.concatenate_with_transitions(adjusted_clips)
+            video = mp.concatenate_videoclips(adjusted_clips)
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error concatenating video clips: {e}")
 
@@ -181,110 +112,105 @@ class VideoAssembler:
 
         if self.subtitle_file:
             try:
-                subtitles = SubtitlesClip(
-                self.subtitle_file, 
-                lambda txt: self.generate_subtitle(txt, video.size, style=style, position=position)
-            )
-                subtitles = (
-                subtitles.set_duration(video.duration)
-                .set_fps(video.fps)
-                .precompute()  # Pre-renderizado
-            )
-                final_position = SubtitleHelper.calculate_text_position_video(
-                position=position,
-                img_width=video.size[0],
-                img_height=video.size[1],
-                max_text_width=0.95 * video.size[0],
-                total_text_height=video.size[1]/3
-            )
+                # Position the subtitle according to the 'position' parameter
+                final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video.size[0],img_height=video.size[1],max_text_width=0.95 * video.size[0],total_text_height=video.size[1]/3)
                 
+                subtitles = SubtitlesClip(self.subtitle_file, lambda txt: self.generate_subtitle(txt, video.size,style=style,position=position))
                 subtitles = subtitles.set_position(final_position)
-
                 video = CompositeVideoClip([video, subtitles])
-                # # Position the subtitle according to the 'position' parameter
-                # final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video.size[0],img_height=video.size[1],max_text_width=0.95 * video.size[0],total_text_height=video.size[1]/3)
-                
-                # subtitles = SubtitlesClip(self.subtitle_file, lambda txt: self.generate_subtitle(txt, video.size,style=style,position=position))
-                # subtitles = subtitles.set_position(final_position)
-                # video = CompositeVideoClip([video, subtitles])
             except Exception as e:
                 raise ValueError(Fore.RED + f"❌ Error adding subtitles: {e}")
 
         # Escribir el archivo de video final
         try:
             video = video.subclip(0, audio.duration).fadeout(2)
-            video.write_videofile(
-                self.output_file,
-                codec='libx264',
-                audio_codec='aac',
-                threads=4,
-                preset='slow',
-                ffmpeg_params=['-crf', '22']
-            )
+            video.write_videofile(self.output_file, write_logfile=True)
             print(Fore.GREEN + "✅ Video processing completed successfully.")
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error writing final video: {e}")
-        
-    def generate_subtitle(self, txt, video_size, position=Position.BOTTOM_CENTER, style=Style.DEFAULT):
-        """Genera subtítulos con fondo semitransparente y texto responsive"""
-        # Configuración de estilo
+
+    def generate_subtitle(self, txt, video_size, 
+                      position=Position.MIDDLE_CENTER,
+                      style=Style.BOLD,
+                      bg_color=None,
+                      text_color='yellow'):
+        """
+        Generate subtitles in a simplified way.
+        """
+        # Ensure the text is in Unicode
+        txt = txt.encode('utf-8').decode('utf-8')
+
+        # Internal style configuration based on the selected general style
         style_params = SubtitleHelper.get_style_parameters(style)
         
-        # Parámetros dinámicos basados en resolución
-        base_fontsize = int(min(video_size) * 0.045)  # 4.5% del lado más pequeño
-        max_width = video_size[0] * 0.9  # 90% del ancho del video
-        max_height = video_size[1] * 0.25  # Máximo 25% de altura
-        
-        # Crear texto con wrappers dinámicos
-        wrapper = textwrap.TextWrapper(width=int(max_width / (base_fontsize * 0.6)), break_long_words=False)
-        wrapped_text = '\n'.join(wrapper.wrap(txt))
-        
-        # Crear clip de texto
+        # Asignar los valores obtenidos del estilo
+        font = style_params['font_path']
+        fontsize = style_params['fontsize']
+        stroke_color = style_params['stroke_color']
+        stroke_width = style_params['stroke_width']
+        text_color = style_params['text_color']
+        bg_color = style_params['bg_color']
+   
+        # Configure the subtitle text with 'caption' method
         text_clip = TextClip(
-            wrapped_text,
-            font=style_params['font_path'],
-            fontsize=base_fontsize,
-            color=style_params['text_color'],
-            stroke_color=style_params['stroke_color'],
-            stroke_width=style_params['stroke_width'],
-            align='center',
-            method='pango',  # Mejor manejo de texto multilínea
-            size=(max_width, None)
+            txt,
+            font=font,
+            fontsize=fontsize,
+            color=text_color,
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            method='caption',
+            size=(video_size[0]*0.9, None),
+            align='center'
         )
+
+        # Get the size of the text
+        text_width, text_height = text_clip.size
+        padding_x = 20
+        padding_y = 10
+        box_width = text_width + 2 * padding_x
+        box_height = text_height + 2 * padding_y
+
+
+        # Limit the height of the text
+        max_height = video_size[1] / 3
+        if text_height > max_height:
+            scale_factor = max_height / text_height
+            text_clip = text_clip.resize(newsize=(int(text_width * scale_factor), int(max_height)))
+            box_width = int(text_width * scale_factor) + 2 * padding_x
+            box_height = int(max_height) + 2 * padding_y
+        # Create the background only if a background color is specified
+        if bg_color:
+            image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            radius = 25  # Rounded corners
+            draw.rounded_rectangle(
+                [(0, 0), (box_width, box_height)],
+                radius=radius,
+                fill=(0, 0, 0, int(255 * 0.6)) if bg_color == 'blue' else bg_color
+            )
+            image_np = np.array(image)
+            image_clip = ImageClip(image_np).set_duration(text_clip.duration)
+        else:
+            image_clip = None
         
-        # Ajustar tamaño automáticamente
-        text_clip = text_clip.resize(lambda t: min(1 + t * 0.005, 1.1))  # Efecto de escala suave
-        
-        # Crear fondo semitransparente
-        bg_color = style_params.get('bg_color', (0, 0, 0, 178))  # Negro semitransparente por defecto
-        if not isinstance(bg_color, tuple):
-            bg_color = (0, 0, 0, 178)  # Fallback a negro semitransparente
-            
-        # Crear fondo con borde redondeado
-        text_size = text_clip.size
-        padding = base_fontsize * 0.5
-        background = (
-            ImageClip(np.zeros((int(text_size[1] + padding*2), int(text_size[0] + padding*2), 4), dtype=np.uint8))
-            .set_opacity(bg_color[3]/255)
-            .set_duration(text_clip.duration)
-        )
-        
-        # Combinar elementos
-        subtitle = CompositeVideoClip([
-            background.set_position(('center', 'center')),
-            text_clip.set_position(('center', 'center'))
-        ])
-        
-        # Posicionamiento final
-        final_position = SubtitleHelper.calculate_text_position_video(
-            position=position,
-            img_width=video_size[0],
-            img_height=video_size[1],
-            max_text_width=max_width,
-            total_text_height=text_size[1] + padding*2
-        )
-        
-        return subtitle.set_position(final_position)
+        # final_position = SubtitleHelper.calculate_text_position_image(position=position,img_width=video_size[1],img_height=video_size[2],max_text_width=0.8 * video_size[2],total_text_height=max_height)
+        final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video_size[0],img_height=video_size[1],max_text_width=0.8 * video_size[0],total_text_height=max_height)
+        # Position the subtitle according to the 'position' parameter
+        # if position == Position.TOP_CENTER:
+        #     final_position = ('center', 0.1 * video_size[1])
+        # elif position == Position.MIDDLE_CENTER:
+        #     final_position = ('center', 'center')
+        # else:  # Position.BOTTOM_CENTER
+        #     final_position = ('center', 0.8 * video_size[1])
+
+        # Combine the background (if it exists) with the text
+        if image_clip:
+            subtitle_clip = CompositeVideoClip([image_clip, text_clip]).set_position(final_position)
+        else:
+            subtitle_clip = text_clip.set_position(final_position)
+
+        return subtitle_clip
     
 # Parte principal para instanciar y ejecutar la clase
 if __name__ == "__main__":

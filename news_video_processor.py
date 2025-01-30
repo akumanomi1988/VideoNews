@@ -102,12 +102,7 @@ class NewsVideoProcessor:
                 output_file=output_file,
                 media_images=media_images,
                 background_music=self.config['video_result']['background_music'],
-                aspect_ratio='9:16',
-                transition_type="crossfade",  # Opciones: crossfade, slide, etc.
-                transition_duration=0.5,      # Duración en segundos
-                image_effect="pan",           # Efecto para imágenes: pan/zoom
-                effect_direction="right"      # Dirección del efecto: left/right/up/down
-            )
+                aspect_ratio='9:16')
             # Using MediaManager to assemble the video
             video_assembler.assemble_video(Style.DEFAULT,position=Position.BOTTOM_CENTER)
 
@@ -178,12 +173,7 @@ class NewsVideoProcessor:
                 output_file=output_file,
                 media_images=media_images,
                 background_music=self.config['video_result']['background_music'],
-                aspect_ratio='16:9',
-                transition_type="crossfade",  # Opciones: crossfade, slide, etc.
-                transition_duration=1,      # Duración en segundos
-                image_effect="pan",           # Efecto para imágenes: pan/zoom
-                effect_direction="right"      # Dirección del efecto: left/right/up/down
-            )
+                aspect_ratio='16:9')
             # Using MediaManager to assemble the video
             video_assembler.assemble_video(Style.DRAMATIC,position=Position.BOTTOM_CENTER)
 
