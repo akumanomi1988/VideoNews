@@ -193,7 +193,7 @@ class Chatbot:
         intro_prompt = (
             "Generate a fully structured JSON object with the following format:\n"
             "{\n"
-            '  "article": "" // Craft a 30-50 word video introduction that includes: '
+            f'  "article": "" // Craft a 30-50 word video introduction in {self.language} that includes: '
             "1) A provocative hook starting with 'Did you know...?' or a similar phrase; "
             "2) A scandalous teaser using conspiratorial language; "
             "3) A rhetorical question hinting at systemic implications; "
@@ -245,6 +245,7 @@ class Chatbot:
             "- All numerical values written as words\n"
             "- Maintain serious tone with journalistic gravity\n"
             "- Avoid explicit section headers\n"
+            "- The text must be an interpretation of the provided content; you need to change it enough to avoid copyright infringement.\n"
             f"- Ideological Perspective: {self.ideology}\n\n"
             "Parameters:\n"
             f"- Language: {self.language}\n"
