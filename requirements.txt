@@ -19,6 +19,8 @@ python-telegram-bot==20.0
 nest_asyncio
 flask
 newspaper3k
+opencv-python
+psutil
 
 # Dependencias adicionales (no se instalan con pip):
 # - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.

@@ -4,6 +4,7 @@ import os
 import glob
 import json
 import time
+import psutil
 from colorama import Fore,  init
 from telegram import CallbackQuery
 from scripts.AI.natural_language_generation import Chatbot
@@ -72,8 +73,14 @@ class NewsVideoProcessor:
             if topic['title'] == '[Removed]':
                 continue
             self.send_progress(f"📰 Processing: {topic['title']}")
+            if 'url' in topic and topic['url']:
+                print("NO URL")
+                article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_short(topic['url'])
+            else:
+                article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_short(topic['title'])
+                topic['url'] = topic['title']
 
-            article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_short(topic['url'])
+            # article, phrases, title, description, tags, cover_text,cover_image = self.article_generator.generate_article_and_phrases_short(topic['url'])
             if article == "":
                 self.send_progress(f"⚠️ Skipped article generation for: {topic['title']}")
                 continue
@@ -234,6 +241,7 @@ class NewsVideoProcessor:
 
         return media_files
 
+
     def cleanup_temp_folder(self):
         """Cleanup the temporary folder by deleting it and its contents."""
         if os.path.exists(self.temp_dir):
@@ -245,10 +253,30 @@ class NewsVideoProcessor:
         for pattern in ['*TEMP_MPY_wvf_snd.mp3.log']:
             for file in glob.glob(pattern):
                 try:
+                    # Intenta eliminar el archivo directamente
                     os.remove(file)
                     print(Fore.RED + f"Deleted file {file}.")
                 except Exception as e:
-                    print(Fore.RED + f"Error deleting file {file}: {e}")
+                    print(Fore.YELLOW + f"Error deleting file {file}: {e}. Attempting to kill processes using the file...")
+                    
+                    # Encuentra los procesos que están usando el archivo
+                    for proc in psutil.process_iter(['pid', 'open_files']):
+                        try:
+                            for open_file in proc.info['open_files']:
+                                if open_file.path == os.path.abspath(file):
+                                    print(Fore.YELLOW + f"Killing process {proc.info['pid']} using file {file}...")
+                                    proc.kill()
+                                    print(Fore.RED + f"Process {proc.info['pid']} killed.")
+                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                            continue
+                    
+                    # Intenta eliminar el archivo nuevamente después de matar los procesos
+                    try:
+                        os.remove(file)
+                        print(Fore.RED + f"Deleted file {file} after killing processes.")
+                    except Exception as e:
+                        print(Fore.YELLOW + f"Could not delete file {file} even after killing processes: {e}. Skipping...")
+
 
     def clean_filename(self, topic_title, max_length=30):
         """Clean and return a valid filename based on the topic title."""

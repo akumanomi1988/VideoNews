@@ -1,3 +1,7 @@
+import cv2
+from AkumaImageEffect.effect_engine import AkumaEngine, EffectConfig
+import AkumaImageEffect.effects.core_effects  # Automatically imports and registers effects
+
 from pydub import AudioSegment
 
 import moviepy.editor as mp
@@ -67,12 +71,44 @@ class VideoAssembler:
 
         # Process image files
         audio_duration = mp.AudioFileClip(self.voiceover_file).duration
+        # Process image files
+        audio_duration = mp.AudioFileClip(self.voiceover_file).duration
+        config = EffectConfig(
+            background_color=(255, 255, 255),  # White background
+            interpolation=cv2.INTER_CUBIC  # High-quality interpolation
+        )
         for image_file in self.media_images:
             try:
-                print(Fore.CYAN + f"🖼️ Processing image: {image_file}")
-                image_clip = ImageClip(image_file, duration=audio_duration / len(self.media_images))
-                image_clip.fps = 24
-                adjusted_clips.append(self.adjust_aspect_ratio(image_clip))
+                
+                # print(Fore.CYAN + f"🖼️ Processing image: {image_file}")
+                # image_clip = ImageClip(image_file, duration=audio_duration / len(self.media_images))
+                # image_clip = self.adjust_aspect_ratio(image_clip)
+                # image_clip = self.apply_image_effect(image_clip)  # Aplicar efecto
+                # adjusted_clips.append(image_clip)
+                engine = AkumaEngine(config)
+                # Video parameters
+                image_src = image_file  # Path to the input image
+                output_path = os.path.splitext(image_file)[0] + ".mp4"  # Path for the output video
+                effect = "akuma_zoom_in"  # Effect to be applied
+                duration = audio_duration / len(self.media_images)  # Duration of the video in seconds
+                fps = 30  # Frames per second
+
+                # Generate the video
+                try:
+                    engine.generate_video(
+                        image_src=image_src,
+                        effect=effect,
+                        duration=duration,
+                        output_path=output_path,
+                        fps=fps
+                    )
+                    print(f"Video successfully generated: {output_path}")
+                except Exception as e:
+                    print(f"Error generating video: {e}")
+                # image_clip = ImageClip(image_file, duration=audio_duration / len(self.media_images))
+                # image_clip.fps = 24
+                video_clip = VideoFileClip(output_path)
+                adjusted_clips.append(self.adjust_aspect_ratio(video_clip))
             except Exception as e:
                 print(Fore.RED + f"❌ Error processing image {image_file}: {e}")
 
