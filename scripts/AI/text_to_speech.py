@@ -9,6 +9,19 @@ import asyncio
 import tempfile
 from pathlib import Path
 from colorama import init, Fore, Style
+from bark import SAMPLE_RATE, generate_audio, preload_models
+from scipy.io.wavfile import write as write_wav
+import uuid
+import os
+from pathlib import Path
+from colorama import Fore
+import os
+from pathlib import Path
+from uuid import uuid4
+from pydub import AudioSegment
+from colorama import Fore
+from bark import generate_audio, preload_models, SAMPLE_RATE
+import re
 # Initialize colorama
 init(autoreset=True)
 
@@ -196,3 +209,197 @@ class TTSElevenlabs:
         print(Fore.GREEN + f"Usando cuenta con API Key: {selected_api_key[:10]}... y voz ID: {selected_voice['ID']}")
         
         return selected_api_key, "eleven_multilingual_v2", selected_voice['ID']
+import os
+from pathlib import Path
+from uuid import uuid4
+from scipy.io.wavfile import write as write_wav
+from colorama import Fore
+from bark import generate_audio, preload_models, SAMPLE_RATE
+
+class TTSBark:
+    def __init__(self, output_dir="output_audio", optimize_for_low_vram=False):
+        """
+        Inicializa el objeto TTSBark con el directorio donde se guardarán los archivos de audio.
+        
+        :param output_dir: Directorio donde se guardarán los archivos de audio.
+        :param optimize_for_low_vram: Si es True, activa optimizaciones para sistemas con VRAM limitada.
+        """
+        self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        if optimize_for_low_vram:
+            print(Fore.YELLOW + "Optimizing Bark for low VRAM usage...")
+            os.environ["SUNO_OFFLOAD_CPU"] = "True"
+            os.environ["SUNO_USE_SMALL_MODELS"] = "True"
+        
+        preload_models()
+
+    def _split_text_into_segments(self, text: str, max_length=100) -> list:
+        """
+        Divide el texto de entrada en segmentos basados en límites de oraciones y longitud máxima.
+        
+        :param text: Texto a dividir.
+        :param max_length: Longitud máxima de cada segmento (en caracteres).
+        :return: Lista de segmentos de texto.
+        """
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        segments = []
+        current_segment = ""
+        
+        for sentence in sentences:
+            candidate = f"{current_segment} {sentence}".strip() if current_segment else sentence
+            if len(candidate) <= max_length:
+                current_segment = candidate
+            else:
+                if current_segment:
+                    segments.append(current_segment.strip())
+                current_segment = sentence
+        if current_segment:
+            segments.append(current_segment.strip())
+        return segments
+
+    def _combine_audio_segments(self, audio_segments: list) -> AudioSegment:
+        """
+        Combina múltiples objetos AudioSegment en uno solo.
+        
+        :param audio_segments: Lista de AudioSegment.
+        :return: AudioSegment combinado.
+        """
+        combined = AudioSegment.empty()
+        for segment in audio_segments:
+            combined += segment
+        return combined
+
+    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'v2/es_speaker_3') -> str:
+        """
+        Genera audio TTS usando Bark y retorna la ruta del archivo de audio generado.
+        
+        :param text: Texto a convertir en audio.
+        :param language: Idioma para la voz (por ejemplo, 'es' para inglés).
+        :param voice: Voz preferida para la conversión TTS.
+        :return: Ruta del archivo de audio.
+        """
+        try:
+            if not text.strip():
+                raise ValueError("Input text is empty.")
+            if not voice:
+                raise ValueError("No voice selected.")
+            
+            segments = self._split_text_into_segments(text)
+            print(Fore.CYAN + f"Text split into {len(segments)} segments.")
+            
+            audio_segments = []
+            for i, segment in enumerate(segments):
+                audio_array = generate_audio(segment, history_prompt=voice)
+                # Convertir el array de audio a un objeto AudioSegment sin escribir en disco.
+                audio_segment = AudioSegment(
+                    data=audio_array.tobytes(),
+                    sample_width=audio_array.dtype.itemsize,
+                    frame_rate=SAMPLE_RATE,
+                    channels=1
+                )
+                audio_segments.append(audio_segment)
+                print(Fore.GREEN + f"Generated audio for segment {i+1}/{len(segments)}.")
+            
+            combined_audio = self._combine_audio_segments(audio_segments)
+            output_file_name = f"{uuid4()}.wav"
+            output_path = Path(self.output_dir) / output_file_name
+            combined_audio.export(output_path, format="wav")
+            
+            print(Fore.GREEN + f"A new combined audio file was saved successfully at {output_path}")
+            return str(output_path)
+        
+        except Exception as e:
+            print(Fore.RED + f"Error during TTS generation: {str(e)}")
+            return None
+        
+    def get_voices(self) -> dict:
+        """
+        Get all available voices in Bark.
+        
+        :return: A dictionary of voice names mapped to their identifiers.
+        """
+        # List of all available voices in Bark
+        voices = {
+            "English Speaker 0": "v2/en_speaker_0",
+            "English Speaker 1": "v2/en_speaker_1",
+            "English Speaker 2": "v2/en_speaker_2",
+            "English Speaker 3": "v2/en_speaker_3",
+            "English Speaker 4": "v2/en_speaker_4",
+            "English Speaker 5": "v2/en_speaker_5",
+            "English Speaker 6": "v2/en_speaker_6",
+            "English Speaker 7": "v2/en_speaker_7",
+            "English Speaker 8": "v2/en_speaker_8",
+            "English Speaker 9": "v2/en_speaker_9",
+            "Spanish Speaker 0": "v2/es_speaker_0",
+            "Spanish Speaker 1": "v2/es_speaker_1",
+            "Spanish Speaker 2": "v2/es_speaker_2",
+            "Spanish Speaker 3": "v2/es_speaker_3",
+            "Spanish Speaker 4": "v2/es_speaker_4",
+            "Spanish Speaker 5": "v2/es_speaker_5",
+            "Spanish Speaker 6": "v2/es_speaker_6",
+            "Spanish Speaker 7": "v2/es_speaker_7",
+            "Spanish Speaker 8": "v2/es_speaker_8",
+            "Spanish Speaker 9": "v2/es_speaker_9",
+            "French Speaker 0": "v2/fr_speaker_0",
+            "French Speaker 1": "v2/fr_speaker_1",
+            "French Speaker 2": "v2/fr_speaker_2",
+            "French Speaker 3": "v2/fr_speaker_3",
+            "French Speaker 4": "v2/fr_speaker_4",
+            "French Speaker 5": "v2/fr_speaker_5",
+            "French Speaker 6": "v2/fr_speaker_6",
+            "French Speaker 7": "v2/fr_speaker_7",
+            "French Speaker 8": "v2/fr_speaker_8",
+            "French Speaker 9": "v2/fr_speaker_9",
+            "German Speaker 0": "v2/de_speaker_0",
+            "German Speaker 1": "v2/de_speaker_1",
+            "German Speaker 2": "v2/de_speaker_2",
+            "German Speaker 3": "v2/de_speaker_3",
+            "German Speaker 4": "v2/de_speaker_4",
+            "German Speaker 5": "v2/de_speaker_5",
+            "German Speaker 6": "v2/de_speaker_6",
+            "German Speaker 7": "v2/de_speaker_7",
+            "German Speaker 8": "v2/de_speaker_8",
+            "German Speaker 9": "v2/de_speaker_9",
+            "Italian Speaker 0": "v2/it_speaker_0",
+            "Italian Speaker 1": "v2/it_speaker_1",
+            "Italian Speaker 2": "v2/it_speaker_2",
+            "Italian Speaker 3": "v2/it_speaker_3",
+            "Italian Speaker 4": "v2/it_speaker_4",
+            "Italian Speaker 5": "v2/it_speaker_5",
+            "Italian Speaker 6": "v2/it_speaker_6",
+            "Italian Speaker 7": "v2/it_speaker_7",
+            "Italian Speaker 8": "v2/it_speaker_8",
+            "Italian Speaker 9": "v2/it_speaker_9",
+            "Portuguese Speaker 0": "v2/pt_speaker_0",
+            "Portuguese Speaker 1": "v2/pt_speaker_1",
+            "Portuguese Speaker 2": "v2/pt_speaker_2",
+            "Portuguese Speaker 3": "v2/pt_speaker_3",
+            "Portuguese Speaker 4": "v2/pt_speaker_4",
+            "Portuguese Speaker 5": "v2/pt_speaker_5",
+            "Portuguese Speaker 6": "v2/pt_speaker_6",
+            "Portuguese Speaker 7": "v2/pt_speaker_7",
+            "Portuguese Speaker 8": "v2/pt_speaker_8",
+            "Portuguese Speaker 9": "v2/pt_speaker_9",
+            "Polish Speaker 0": "v2/pl_speaker_0",
+            "Polish Speaker 1": "v2/pl_speaker_1",
+            "Polish Speaker 2": "v2/pl_speaker_2",
+            "Polish Speaker 3": "v2/pl_speaker_3",
+            "Polish Speaker 4": "v2/pl_speaker_4",
+            "Polish Speaker 5": "v2/pl_speaker_5",
+            "Polish Speaker 6": "v2/pl_speaker_6",
+            "Polish Speaker 7": "v2/pl_speaker_7",
+            "Polish Speaker 8": "v2/pl_speaker_8",
+            "Polish Speaker 9": "v2/pl_speaker_9",
+            "Turkish Speaker 0": "v2/tr_speaker_0",
+            "Turkish Speaker 1": "v2/tr_speaker_1",
+            "Turkish Speaker 2": "v2/tr_speaker_2",
+            "Turkish Speaker 3": "v2/tr_speaker_3",
+            "Turkish Speaker 4": "v2/tr_speaker_4",
+            "Turkish Speaker 5": "v2/tr_speaker_5",
+            "Turkish Speaker 6": "v2/tr_speaker_6",
+            "Turkish Speaker 7": "v2/tr_speaker_7",
+            "Turkish Speaker 8": "v2/tr_speaker_8",
+            "Turkish Speaker 9": "v2/tr_speaker_9",
+        }
+        return voices

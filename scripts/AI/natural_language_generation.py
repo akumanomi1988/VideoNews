@@ -3,8 +3,6 @@ import os
 import uuid
 import json
 import random
-from PIL import Image
-import g4f
 from colorama import Fore, Style, init
 import time
 from g4f.client import Client
@@ -28,15 +26,15 @@ class Chatbot:
         self.standard_rules = ('Your output must be a properly formatted JSON object, using double quotes for keys and single quotes for values. Ensure proper nesting, avoid trailing commas, and escape special characters when necessary.'
                                'Ensure everything you say is factual and accurate, including years, numbers, and names.'
                                )
-        self.ideology = 'Highlight systemic inequalities, corporate power abuses, and marginalized group impacts.'
-        self.tone = 'Serious but with a *controlled conspiratorial undertone*—raise questions about hidden interests without direct accusations.'
+        self.ideology = 'Advocating for the transformation of existing structures toward a more just and equitable system'
+        self.tone = 'Adapt the tone of the narration based on the nature of the news: if it is serious or tragic, use a somber, reflective style with a dramatic touch to heighten the impact. If the news is light or has humorous potential, adopt a colloquial, street-style, or even profane tone to make it more entertaining and relatable. For topics involving elites, scandals, or high-society situations, use a sarcastic or posh tone to emphasize the irony. If the news carries a mysterious vibe, employ a conspiratorial style with subtle insinuations and unexpected twists to sow controlled doubts.'
 
     def generate_title(self, topic):
         title_prompt = (
             'generate a response that must be a fully structured JSON object with the following format:\n'
             '{'
             '  "title": ""  //Create a highly engaging and SEO-optimized YouTube title that incorporates relevant keywords to attract viewers and boost search rankings.'
-                            ' The title should be a maximum of 60 characters, capitalize the most important words, and include relevant emojis.'
+                            ' The title should be a maximum of 80 characters,without url, capitalize the most important words, and include relevant emojis.'
             '}'
             f'{self.standard_rules}'
             f'Parameters:\n'
@@ -64,7 +62,7 @@ class Chatbot:
         description_json = self._generate_json_element(description_prompt)
         return description_json.get('description', '')
 
-    def generate_short_article(self, topic, length=100):
+    def generate_short_article(self, topic, length=50, accept_labels =False):
         def is_url(string):
             # Simple regex to check if the string is a URL
             return re.match(r'^(?:http|ftp)s?://', string) is not None
@@ -73,18 +71,23 @@ class Chatbot:
             # If the topic is a URL, use NewsExtractor to extract the article text
             extractor = NewsExtractor()
             article_text = extractor.extract_article(topic)
+            if article_text == None:
+                raise Exception('No article text')
             article_prompt = (
-                'generate a response that must be a fully structured JSON object with the following format:\n'
+                'Generate a response that must be a fully structured JSON object with the following format:\n'
                 '{\n'
                 '  "article": "" // Write a factual and informative summary of the following news article in ' + self.language + ' with a serious and professional tone.'
-                                    ' As a narrator text.'
-                                    ' Present the key details of the event clearly and concisely, ensuring the summary is around ' + str(length) + ' words long.'
+                                            ' As a narrator text.'
+                                            ' Present the key details of the event clearly and concisely, ensuring the summary is around ' + str(length) + ' words long.'
+                                            ' Include a call-to-action at the end encouraging readers to visit the channel to watch the full video for more details and insights.\n'
                 '}\n'
-                f'{self.standard_rules}'
-                f'- Ideological framing: {self.ideology}'
-                f'- Tone: {self.tone}'
-                f'Parameters:'
-                f'- **Languageof the article must be: [{self.language}]**\n'
+                f'{self.standard_rules}\n'
+                f'- Ideological framing: {self.ideology}\n'
+                f'- Tone: {self.tone}\n'
+                f'Parameters:\n'
+                f'- **Language of the article must be: [{self.language}]**\n'
+                f'- **Word count: Approximately {str(length)} words**\n'
+                f'- **Call-to-action: Include a clear and engaging invitation to watch the full video on the channel**\n'
                 f'- Article Text: [{article_text}]'
             )
         else:
@@ -104,6 +107,8 @@ class Chatbot:
 
         print(Fore.BLUE + f'article')
         article_json = self._generate_json_element(article_prompt)
+        if accept_labels:
+            return self.add_labels_to_text(article_json.get('article', ''))
         return article_json.get('article', '')
     
     def generate_introduction(self, topic):
@@ -170,14 +175,49 @@ class Chatbot:
         conclusion_json = self._generate_json_element(conclusion_prompt)
         return conclusion_json.get('article', '')
 
+    def add_labels_to_text(self, text):
+        label_prompt = (
+            "Generate a fully structured JSON object with the following format:\n"
+            "{\n"
+            '  "text_with_labels": "" // Rewrite the input text by adding specific tags in brackets (`[ ]`) '
+            "to control emotions, style, speed, pauses, and other elements based on the following rules:\n"
+            "1. **Emotions and Style**: Add tags like `[happy]`, `[sad]`, `[angry]`, `[formal]`, `[informal]`, or `[sarcastic]` "
+            "where relevant to reflect the tone of the text.\n"
+            "2. **Speed**: Use `[slow]` or `[fast]` to adjust the speaking speed in specific parts.\n"
+            "3. **Pauses and Silences**: Insert `[short_pause]`, `[long_pause]`, or `[silence:Xseconds]` to mark natural or dramatic pauses.\n"
+            "4. **Voice Change**: If there are multiple characters, use identifiers like `[v2/en_speaker_0]` or `[v2/es_speaker_9]` "
+            "to dynamically change the voice.\n"
+            "5. **Background Noise/Effects**: Add `[noise:crowd]`, `[sound:thunder]`, or similar effects to enhance the narration.\n"
+            "6. **Language**: If the text changes language, use `[language:es]` or `[language:en]`.\n"
+            "7. **Combination of Instructions**: Combine multiple tags if necessary (e.g., `[happy][slow] This is wonderful.`).\n"
+            "Your goal is to improve the narration by making it more expressive, dynamic, and suitable for audio conversion using these tags. "
+            "Keep the original text intact but add the necessary tags to maximize emotional and stylistic impact.\n"
+            "}\n"
+            f'{self.standard_rules}'
+            f'- Ideological framing: {self.ideology}\n'
+            f'- Tone: {self.tone}\n'
+            'Rules:\n'
+            '- Ensure the output is coherent and contextually appropriate.\n'
+            '- Use proper grammar and punctuation.\n'
+            '- Avoid unnecessary complexity.\n'
+            '- Maintain the original meaning of the text.\n'
+            f'Parameters:\n'
+            f'- Language of text must be: [{self.language}]\n'
+            f'- Input Text: [{text}]\n'
+        )
+        print(Fore.BLUE + f'Text: Adding Labels')
+        labeled_json = self._generate_json_element(label_prompt)
+        return labeled_json.get('text_with_labels', '')
 
-    def generate_full_article(self, topic):
+    def generate_full_article(self, topic, accept_label=False):
         def is_url(string):
             return re.match(r'^(?:http|ftp)s?://', string) is not None
 
         if is_url(topic):
             extractor = NewsExtractor()
             article_text = extractor.extract_article(topic)
+            if article_text == None:
+                raise Exception('No article text')
             intro = self.generate_introduction_from_text(article_text)
             development = self.generate_development_from_text(article_text)
             conclusion = self.generate_conclusion_from_text(article_text)
@@ -185,8 +225,11 @@ class Chatbot:
             intro = self.generate_introduction(topic)
             development = self.generate_development(topic)
             conclusion = self.generate_conclusion(topic)
-        
+
         full_article = intro + " " + development + " " + conclusion
+
+        if accept_label:
+            self.add_labels_to_text(full_article)
         return full_article , intro
     
     def generate_introduction_from_text(self, article_text):
@@ -296,6 +339,7 @@ class Chatbot:
         print(Fore.BLUE + f'image descriptions')
         image_descriptions_json = self._generate_json_element(image_descriptions_prompt,False)
         return image_descriptions_json.get('image_descriptions', [])
+
     def summarize_news_from_url(self, url):
         extractor = NewsExtractor()
         article_text = extractor.extract_article(url)
@@ -336,9 +380,8 @@ class Chatbot:
             'You are a creative and engaging news writer. Based on the headline and language I provide, '
             'generate a response that must be a fully structured JSON object with the following format:\n'
             '{\n'
-            '  "cover": "" // Generate a short, attention-grabbing phrase in ' + self.language + ', focusing on the main character or affected person. It must contain a **maximum of 5 words** and evoke curiosity.\n'
+            '  "cover": "" // Generate a short, attention-grabbing phrase in ' + self.language + ', focusing on the main character or affected person. It must contain a **maximum of 5 words** of clic bait words about the topic.\n'
             '}\n'
-            f"{self.standard_rules}\n"
             f'Parameters:\n'
             f'- Language: [{self.language}]\n'
             f'- Headline: [{topic}]\n'
@@ -370,13 +413,13 @@ class Chatbot:
         """
         Helper function to generate a single JSON element based on the provided prompt.
         """
-        retries = 10  # Número máximo de reintentos
+        retries = 50  # Número máximo de reintentos
         for attempt in range(retries):
             try:
                 # Nueva solicitud a GPT en cada intento
                 client = Client()
                 response = client.chat.completions.create(
-                    model="gpt-4o",
+                    model="gpt-4o-mini",
                     messages=[{"role": "assistant", "content": prompt_template}],
                     response_format="json",
                 )

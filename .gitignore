@@ -79,3 +79,6 @@ Thumbs.db
 settings.config
 .secrets*
 har_and_cookies*
+config.json
+viral_news.json
+test*.py

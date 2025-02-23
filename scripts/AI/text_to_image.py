@@ -56,14 +56,12 @@ class FluxImageGenerator:
         # Sistema de reintentos con fallback
         while True:
             # Intentar con Hugging Face 3 veces
-            for _ in range(3):
+            for _ in range(10):
                 image_path = self._generate_with_huggingface(final_prompt, width, height)
                 if image_path:
                     return image_path
                 sleep(10)  # Esperar entre intentos
-
-            # Fallback a g4f si Hugging Face falla
-            image_path = self._generate_with_g4f(final_prompt)
+            image_path = self._generate_with_g4f(final_prompt, width, height)
             if image_path:
                 return image_path
             sleep(10)  # Esperar antes de reiniciar el ciclo
@@ -89,12 +87,14 @@ class FluxImageGenerator:
             print(Fore.RED + f"Hugging Face Error: {str(e)}")
             return None
 
-    def _generate_with_g4f(self, prompt):
+    def _generate_with_g4f(self, prompt, width, height):
         try:
             response = self.g4f_client.images.generate(
                 model="flux",
                 prompt=prompt,
-                response_format="url"
+                response_format="url",
+                width = width,
+                height = height
             )
             
             if not response.data:
