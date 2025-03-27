@@ -7,7 +7,7 @@ from colorama import Fore, Style, init
 import time
 from g4f.client import Client
 
-from scripts.DataFetcher.news_extractor import NewsExtractor
+from scripts.DataFetcher.news_extractor import NewsExtractor,ArticleData
 # Initialize Colorama
 init(autoreset=True)
 
@@ -31,20 +31,25 @@ class Chatbot:
 
     def generate_title(self, topic):
         title_prompt = (
-            'generate a response that must be a fully structured JSON object with the following format:\n'
+            'Generate a response that must be a fully structured JSON object with the following format:\n'
             '{'
-            '  "title": ""  //Create a highly engaging and SEO-optimized YouTube title that incorporates relevant keywords to attract viewers and boost search rankings.'
-                            ' The title should be a maximum of 80 characters,without url, capitalize the most important words, and include relevant emojis.'
+            '  "title": ""  // Create a highly engaging and SEO-optimized YouTube news title '
+            'that incorporates relevant keywords to attract viewers and boost search rankings. '
+            'The title should be highly clickable, a maximum of 80 characters, avoid URLs, capitalize the most important words, '
+            'and include relevant emojis to increase engagement.'
+            ' It should clearly indicate that the content is news-related, '
+            'either by specifying the topic (e.g., Economy, Politics, Tech) or using words like "Breaking," "Latest," or "Report".'
             '}'
             f'{self.standard_rules}'
             f'Parameters:\n'
-            f'- **Language of the article must be: [{self.language}]**\n'
+            f'- **Language of the title must be: [{self.language}]**\n'
             f'- Headline: [{topic}]\n'
         )
-        print(Fore.BLUE + f'title')
+
+        print(Fore.BLUE + 'Generating Title...')
         title_json = self._generate_json_element(title_prompt)
         return title_json.get('title', '')
-
+    
     def generate_description(self, topic):
         description_prompt = (
             'You are a creative and engaging news writer. Based on the headline and language I provide, '
@@ -88,7 +93,7 @@ class Chatbot:
                 f'- **Language of the article must be: [{self.language}]**\n'
                 f'- **Word count: Approximately {str(length)} words**\n'
                 f'- **Call-to-action: Include a clear and engaging invitation to watch the full video on the channel**\n'
-                f'- Article Text: [{article_text}]'
+                f'- Article Text: [{article_text.text}]'
             )
         else:
             # If the topic is not a URL, proceed with the original prompt
@@ -215,36 +220,36 @@ class Chatbot:
 
         if is_url(topic):
             extractor = NewsExtractor()
-            article_text = extractor.extract_article(topic)
-            if article_text == None:
+            article = extractor.extract_article(topic)
+            if article == None:
                 raise Exception('No article text')
-            intro = self.generate_introduction_from_text(article_text)
-            development = self.generate_development_from_text(article_text)
-            conclusion = self.generate_conclusion_from_text(article_text)
+            intro = self.generate_introduction_from_text(article.text)
+            development = self.generate_development_from_text(article.text)
+            conclusion = self.generate_conclusion_from_text(article.text)
         else:
             intro = self.generate_introduction(topic)
             development = self.generate_development(topic)
             conclusion = self.generate_conclusion(topic)
 
         full_article = intro + " " + development + " " + conclusion
-
+        full_article = self.generate_youtube_narration(full_article)
+        
         if accept_label:
             self.add_labels_to_text(full_article)
         return full_article , intro
     
-    def generate_introduction_from_text(self, article_text):
+    def generate_introduction_from_text(self, article_text) -> str:
         intro_prompt = (
             "Generate a fully structured JSON object with the following format:\n"
             "{\n"
             f'  "article": "" // Craft a 30-50 word video introduction in {self.language} that includes: '
             "1) A provocative hook starting with 'Did you know...?' or a similar phrase; "
-            "2) A scandalous teaser using conspiratorial language; "
-            "3) A rhetorical question hinting at systemic implications; "
-            "4) A compelling call to action. "
-            "5) Don't use emojis."
+            "2) A rhetorical question hinting at systemic implications; "
+            "3) A compelling call to action. "
+            "4) Don't use emojis."
             "Incorporate urgency markers (exclamation points), write numbers in words, and imply hidden truths. "
             "Structure the introduction as follows: [SHOCKING HOOK] + [ALLURING TEASER] + [SUSPENSEFUL PAUSE] + [ENGAGEMENT COMMAND]. "
-            "Example: 'What if I told you that...? [X revelation] Who else is involved? Don't miss the full investigation!'\n"
+            "Example: 'What if I told you that...? [X revelation]'\n"
             "}\n"
             f'{self.standard_rules}'
             f'- Ideological framing: {self.ideology}'
@@ -253,7 +258,6 @@ class Chatbot:
             '- Start with question-like structure\n'
             '- Use 2-3 short sentences max\n'
             '- Include 1 emoji (context-appropriate) if language allows\n'
-            '- End with platform-specific CTA: "Suscríbete/Dale like" (ES) or "Smash subscribe" (EN)\n'
             f'Parameters:\n'
             f'- Language of article must be : [{self.language}]\n'
             f'- Article Text: [{article_text}]\n'
@@ -262,7 +266,7 @@ class Chatbot:
         intro_json = self._generate_json_element(intro_prompt)
         return intro_json.get('article', '')
 
-    def generate_development_from_text(self, article_text):
+    def generate_development_from_text(self, article_text) -> str:
         development_prompt = (
             "Generate a fully structured JSON object with the following format:\n"
             "{\n"
@@ -298,7 +302,25 @@ class Chatbot:
         print(Fore.BLUE + f'Article: Body')
         development_json = self._generate_json_element(development_prompt)
         return development_json.get('article', '')
-
+    
+    def generate_youtube_narration(self, complete_text) -> str:
+        narration_prompt = f"""
+        Transform the following news article text into a dynamic and engaging narration suitable for a YouTube news video. The narration should:
+        - Start with a strong hook in the first 5 seconds to capture the viewer's attention, previewing what we will see in the video.
+        - Maintain the tone and language of the original text, but make it more continuous and fluid as a narration script.
+        - Include calls to action, such as asking viewers to like the video, subscribe to the channel, or leave comments, integrated naturally.
+        - Maintain a similar duration to the original text.
+        - Be written in a way that sounds natural when spoken aloud.
+        - Be in {self.language}.
+        {self.standard_rules}
+        The result should be a JSON object with a single key "article" containing the complete narration text.
+        Original text:
+        {complete_text}
+        """
+        print(Fore.BLUE + 'Generating YouTube narration')
+        narration_json = self._generate_json_element(narration_prompt)
+        return narration_json.get('article', '')
+    
     def generate_conclusion_from_text(self, article_text):
         conclusion_prompt = (
             "Generate a fully structured JSON object with the following format:\n"
@@ -326,25 +348,39 @@ class Chatbot:
         conclusion_json = self._generate_json_element(conclusion_prompt)
         return conclusion_json.get('article', '')
 
-    def generate_image_descriptions(self, topic, count=10):
+    def generate_image_descriptions(self, text, count=10):
+        """
+        Genera descripciones de imágenes basadas en un texto narrativo.
+        
+        Args:
+            text (str): Texto narrativo del que extraer las imágenes (cuento, noticia, biografía, etc.).
+            count (int): Número de descripciones de imágenes a generar.
+            
+        Returns:
+            list: Lista de descripciones breves y concretas.
+        """
         image_descriptions_prompt = (
-            'You are a creative writer. Based on the headline I provide, generate a response that must be a fully structured JSON object with the following format: '
-            '{'
-            '  "image_descriptions": ["","",""...]  // Write ' + str(count) + ' detailed image descriptions in English, closely related to the scenes and key points discussed in the article. Each description should be one sentence long and provide enough vivid detail to help the audience visualize the moment clearly, as if it were a scene from a graphic novel. Each scene should reflect elements of mystery, suspense, or cosmic intrigue to engage the readers imagination.'
-            '}'
-            f"{self.standard_rules}\n"
-            f'Parameters:\n'
-            f'- Headline: [{topic}]'
+            'You are a visual storyteller. Based on the given narrative, extract the most relevant elements '
+            'such as people, locations, objects, and key moments. Generate a structured JSON object in the '
+            'following format:\n'
+            '{\n'
+            '  "image_descriptions": ["", "", "..."]  // Generate ' + str(count) + ' image descriptions. '
+            'Each description should be concise, describing what is seen in the image as if it were a real photograph. '
+            'Focus on who or what appears, where they are, and what they are doing. Avoid unnecessary details or artistic interpretations.\n'
+            '}\n\n'
+            'Parameters:\n'
+            '- Narrative text: """' + text + '"""'
         )
-        print(Fore.BLUE + f'image descriptions')
-        image_descriptions_json = self._generate_json_element(image_descriptions_prompt,False)
+
+        print(Fore.BLUE + 'Generating image descriptions...')
+        image_descriptions_json = self._generate_json_element(image_descriptions_prompt, False)
         return image_descriptions_json.get('image_descriptions', [])
 
     def summarize_news_from_url(self, url):
         extractor = NewsExtractor()
-        article_text = extractor.extract_article(url)
+        article = extractor.extract_article(url)
         
-        if article_text is None:
+        if article is None:
             return []
 
         summary_prompt = (
@@ -354,7 +390,7 @@ class Chatbot:
             '}'
             f"{self.standard_rules}\n"
             f'Parameters:\n'
-            f'- Article Text: [{article_text}]'
+            f'- Article Text: [{article.text}]'
         )
         print(Fore.BLUE + f'Summary')
         summary_json = self._generate_json_element(summary_prompt)
@@ -377,20 +413,42 @@ class Chatbot:
 
     def generate_cover(self, topic):
         cover_prompt = (
-            'You are a creative and engaging news writer. Based on the headline and language I provide, '
-            'generate a response that must be a fully structured JSON object with the following format:\n'
-            '{\n'
-            '  "cover": "" // Generate a short, attention-grabbing phrase in ' + self.language + ', focusing on the main character or affected person. It must contain a **maximum of 5 words** of clic bait words about the topic.\n'
-            '}\n'
-            f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
-            f'- Headline: [{topic}]\n'
+            "You are an expert headline writer with a focus on clarity, precision, and SEO for news covers. "
+            "Your task is to create a **very brief (max 5-6 words), clear, and informative** phrase "
+            "based on the provided headline and language. Avoid generic or vague expressions. "
+            "Prioritize delivering **the core information or main impact** of the topic without exaggeration.\n"
+            "The output must be a **fully structured JSON object** in the following format:\n"
+            "{\n"
+            '  "cover": ""  // A specific, concise, and descriptive phrase in ' + self.language + ' that captures the key subject or event.\n'
+            "}\n"
+            f"Parameters:\n"
+            f"- Language: [{self.language}]\n"
+            f"- Headline: [{topic}]\n"
+            "Avoid filler words, drama, or ambiguity. Focus on **accuracy and direct value**."
         )
+
         print(Fore.BLUE + f'cover')
         cover_json = self._generate_json_element(cover_prompt)
         return cover_json.get('cover', '')
     
-    
+    def enhance_prompt(self, topic):
+        cover_prompt = (
+            "You are a professional clickbait headline writer specializing in news covers. "
+            "Your task is to generate a **highly engaging, curiosity-inducing, and dramatic** short phrase, "
+            "based on the headline and language provided. The phrase should feel like a **movie title** and be **no longer than 5 words**.\n"
+            "The output must be a **fully structured JSON object** in the following format:\n"
+            "{\n"
+            '  "cover": ""  // A gripping, clickbait phrase in ' + self.language + ', focusing on the main person or impact of the event.\n'
+            "}\n"
+            f"Parameters:\n"
+            f"- Language: [{self.language}]\n"
+            f"- Headline: [{topic}]\n"
+            "Make it **bold, shocking, and impossible to ignore**."
+        )
+
+        print(Fore.BLUE + f'cover')
+        cover_json = self._generate_json_element(cover_prompt)
+        return cover_json.get('cover', '')
 
     def generate_cover_image(self, topic):
         cover_image_prompt = (
@@ -496,6 +554,7 @@ class Chatbot:
             return json_dict
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON after cleaning: {e}\n{json_string}")
+        
     def save_json(self, file_path, data):
         """Saves JSON data to a file."""
         try:
@@ -526,13 +585,13 @@ class Chatbot:
         article = self.generate_short_article(topic)  # Specify article length here
         title = self.generate_title(article)
         description = self.generate_description(article)
-        image_descriptions = self.generate_image_descriptions(article, count=10)  # Specify number of image descriptions here
+        image_descriptions = self.generate_image_descriptions(article, count=20)  # Specify number of image descriptions here
         tags = self.generate_tags(article)
         cover = self.generate_cover(article)
         cover_image = self.generate_cover_image(article)
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(10, len(image_descriptions)))
+        short_phrases = random.sample(image_descriptions, min(20, len(image_descriptions)))
 
         print(Fore.GREEN + "Article and phrases generated successfully.")
 
@@ -572,13 +631,13 @@ class Chatbot:
         article , short = self.generate_full_article(topic)
         title = self.generate_title(short)
         description = self.generate_description(short)
-        image_descriptions = self.generate_image_descriptions(short, count=20)  # Specify number of image descriptions here
+        image_descriptions = self.generate_image_descriptions(short, count=40)  # Specify number of image descriptions here
         tags = self.generate_tags(short)
         cover = self.generate_cover(short)
         cover_image = self.generate_cover_image(short)
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(20, len(image_descriptions)))
+        short_phrases = random.sample(image_descriptions, min(40, len(image_descriptions)))
 
         print(Fore.GREEN + "Long article and phrases generated successfully.")
 

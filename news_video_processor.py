@@ -8,10 +8,11 @@ from colorama import Fore, init
 from telegram import CallbackQuery
 from scripts.AI.natural_language_generation import Chatbot
 from scripts.AI.speech_to_text import stt_whisper
-from scripts.AI.text_to_speech import TTSBark, TTSEdge
+from scripts.AI.text_to_speech import TTSFactory, TTSProvider
 from scripts.AI.text_to_image import FluxImageGenerator, AspectRatio, StylePreset
 from scripts.DataFetcher.pexels_media_fetcher import PexelsMediaFetcher
 from scripts.DataFetcher.news_api_client import NewsAPIClient
+from scripts.MediaManagers.SRT_Processor import SRTProcessor
 from scripts.video_assembler import VideoAssembler
 from scripts.helpers.media_helper import ImageHelper, Position, Style
 from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
@@ -34,7 +35,9 @@ class NewsVideoProcessor:
         self.media_fetcher = PexelsMediaFetcher(api_key=self.config['pexels']['api_key'], temp_dir=self.temp_dir)
         self.stt = stt_whisper()
         # self.tts = TTSBark(output_dir=self.temp_dir,optimize_for_low_vram=True)
-        self.tts = TTSEdge(output_dir=self.temp_dir)
+        #self.tts = TTSElevenlabs(credentials_path=self.config['elevenlabs']['credentials_path'], quota_min=100)
+        # self.tts = TTSEdge(output_dir=self.temp_dir)
+        self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
         self.image_generator = FluxImageGenerator(token=self.config['huggingface']['api_key'], output_dir=self.temp_dir)
         self.youtube_uploader = YoutubeMediaUploader(client_secrets_file=self.config['youtube']['credentials_file'], channel_description="")
         # self.tiktok_uploader = TikTokMediaUploader(app_id=self.config['tiktok']['app_id'], access_token=self.config['tiktok'][''], app_secret="")
@@ -150,11 +153,11 @@ class NewsVideoProcessor:
                 self.image_generator.model = "black-forest-labs/FLUX.1-dev"
                 cover = self.fetch_related_media(phrases=cover_image, style=StylePreset.REALISM, max_items=1)[0]
                 ImageHelper.enhance_thumbnail(cover, cover_text, Position.BOTTOM_CENTER, Style.THUMBNAIL_BOLD, 2000, 95)
-                article += " Suscríbete y dale like para mantenerte informado!."
+                # article += " Suscríbete y dale like para mantenerte informado!."
                 self.send_progress("🎤 Generating voiceover...")
-                audio_path = self.tts.text_to_speech_file(article)
+                audio_path = self.tts.text_to_speech_file(article,voice=self.config['tts_edge']['voice'],language=self.config['tts_edge']['language'],srt_path= self.temp_dir + '/subtitles.srt')
                 self.send_progress("📝 Generating subtitles...")
-                subtitle_path = self.stt.generate_word_level_subtitles(audio_path)
+                subtitle_path = self.temp_dir + '/subtitles.srt'
                 self.send_progress("📹 Fetching related media...")
                 self.image_generator.model = "black-forest-labs/FLUX.1-schnell"
                 media_images = self.fetch_related_media(phrases, StylePreset.NONE, len(phrases))
@@ -201,12 +204,17 @@ class NewsVideoProcessor:
                 self.send_progress("🎨 Generating cover image...")
                 self.image_generator.model = "black-forest-labs/FLUX.1-dev"
                 cover = self.fetch_related_media(phrases=cover_image, style=StylePreset.NONE, max_items=1, orientation=AspectRatio.LANDSCAPE)[0]
-                ImageHelper.enhance_thumbnail(cover, cover_text, Position.BOTTOM_CENTER, Style.THUMBNAIL_BOLD, 2000, 95)
-                article += " Suscríbete y dale like para mantenerte informado!."
+                ImageHelper.enhance_thumbnail(cover, 'NEWSPHERE', Position.TOP_LEFT, Style.THUMBNAIL_CARTOON, 2000, 95)
+                ImageHelper.enhance_thumbnail(cover, cover_text, Position.BOTTOM_CENTER, Style.THUMBNAIL_INTENSA, 2000, 95)
+                # article += " Suscríbete y dale like para mantenerte informado!."
                 self.send_progress("🎤 Generating voiceover...")
-                audio_path = self.tts.text_to_speech_file(article)
+                audio_path = self.tts.text_to_speech_file(article,voice=self.config['tts_edge']['voice'],language=self.config['tts_edge']['language'],srt_path= self.temp_dir + '/subtitles.srt')
                 self.send_progress("📝 Generating subtitles...")
-                subtitle_path = self.stt.generate_sentences_subtitles(audio_path)
+                # subtitle_path = self.stt.generate_sentences_subtitles(audio_path)
+                subtitle_path = self.temp_dir + '/subtitles.srt'
+                processor = SRTProcessor(subtitle_path, max_duration=2.0, max_words=5, pause_threshold=0.3)
+                processor.process()
+                # subtitle_path = self.stt.generate_word_level_subtitles(audio_path)
                 self.send_progress("📹 Fetching related media...")
                 self.image_generator.model = "black-forest-labs/FLUX.1-schnell"
                 media_images = self.fetch_related_media(phrases, StylePreset.NONE, len(phrases), orientation=AspectRatio.LANDSCAPE)
@@ -219,7 +227,7 @@ class NewsVideoProcessor:
                     background_music=self.config['video_result']['background_music'],
                     aspect_ratio='16:9'
                 )
-                video_assembler.assemble_video(Style.DRAMATIC, position=Position.BOTTOM_CENTER)
+                video_assembler.assemble_video(Style.FORMAL, position=Position.BOTTOM_CENTER)
                 self.send_progress("📤 Uploading to YouTube...")
                 description += '\n' + topic['title']
                 youtube_response = self.youtube_uploader.upload(

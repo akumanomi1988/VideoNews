@@ -16,7 +16,7 @@ class AspectRatio(Enum):
     PORTRAIT = (1080, 1920)
 
 class StylePreset(Enum):
-    NONE = ""
+    NONE = "NO TEXT."
     VINTAGE = "NO TEXT. Sepia tones with retro cars and vintage architecture, enhanced with a grainy effect, shot with a 35mm film camera for an authentic nostalgic feel."
     MINIMALIST = "NO TEXT. Clean and uncluttered design featuring geometric forms and soft pastel tones, illuminated by high-key lighting in a studio shot that emphasizes simplicity."
     NATURE_SCENE = "A breathtaking landscape showcasing majestic mountains and serene lakes, captured with a DSLR using natural lighting for a wide dynamic range that highlights the beauty of nature."
@@ -27,7 +27,7 @@ class StylePreset(Enum):
     SURREALIST = "NO TEXT. Dreamlike elements with warped shapes and juxtaposed objects, illuminated by ethereal light and captured with a macro lens to enhance surreal qualities."
     ABSTRACT = "NO TEXT. Non-representational imagery featuring vibrant splashes of color and sharp contrasts, captured in close-up macro shots to create visual intrigue."
     REALISM = "NO TEXT. Faithful depiction of scenes with natural colors, medium shot, and balanced light that emphasize fine details for an authentic look."
-    YOUTUBE_THUMBNAIL = "An impressively seductive woman with a surprised expression and a slight smile gazes directly at the camera, her enchanting eyes drawing the viewer in. The shot is a half-height close-up, capturing her captivating features and alluring presence. The location is a random, unspecified backdrop that does not distract from her beauty, allowing her charm to take center stage. The focus is on her expression, highlighting the playful yet enticing allure she exudes"
+    YOUTUBE_THUMBNAIL = "Image without text. High-contrast, vibrant colors with a clean and focused composition. Sharp HD quality, ensuring crystal-clear details. A strikingly seductive woman with an expressive, engaging gaze, her slightly parted lips hinting at playful intrigue. Her captivating eyes lock onto the viewer, radiating confidence and allure. The shot is a half-height close-up, perfectly framing her elegant features. The background is softly blurred and neutral, ensuring no distractions while emphasizing her charm. Balanced lighting enhances her beauty, creating depth and warmth. The overall aesthetic is eye-catching, sophisticated, and irresistibly captivating."
 
 class FluxImageGenerator:
     def __init__(self, token=None, output_dir="output_images", model="black-forest-labs/FLUX.1-schnell"):
@@ -57,11 +57,11 @@ class FluxImageGenerator:
         while True:
             # Intentar con Hugging Face 3 veces
             for _ in range(10):
-                image_path = self._generate_with_huggingface(final_prompt, width, height)
+                image_path = self._generate_with_g4f(final_prompt, width, height)
+                # image_path = self._generate_with_huggingface(final_prompt, width, height)
                 if image_path:
                     return image_path
                 sleep(10)  # Esperar entre intentos
-            image_path = self._generate_with_g4f(final_prompt, width, height)
             if image_path:
                 return image_path
             sleep(10)  # Esperar antes de reiniciar el ciclo

@@ -51,7 +51,7 @@ class stt_whisper:
         with AudioFileClip(audio_file) as audio:
             return audio.duration
 
-    def transcribe_audio(self, audio_file, language="es", temperature=0.5, verbose=False, beam_size=5, best_of=3):
+    def transcribe_audio(self, audio_file, language="en", temperature=0.5, verbose=False, beam_size=5, best_of=3):
         """
         Uses Whisper to transcribe the audio file and obtain subtitle timings.
 

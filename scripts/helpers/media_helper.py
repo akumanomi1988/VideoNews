@@ -49,6 +49,9 @@ class Style(Enum):
     THUMBNAIL_ELEGANT = 'thumbnail_elegant'
     THUMBNAIL_VIBRANT = 'thumbnail_vibrant'
     THUMBNAIL_CASUAL = 'thumbnail_casual'
+    THUMBNAIL_CARTOON = 'thumbnail_cartoon'
+    THUMBNAIL_INTENSA = 'thumbnail_intensa'
+
 
 # ------------------ VIDEO HELPER ------------------
 class VideoHelper:
@@ -274,28 +277,31 @@ class SubtitleHelper:
         
     @staticmethod
     def calculate_text_position_video(position, img_width, img_height, max_text_width, total_text_height):
-        """Calculate text position with a 10% margin, ensuring subtitles do not exceed boundaries."""
-        # Definir el margen vertical del 10%
-        margin_y = 50
+        """Calcula la posición del texto asegurando que no exceda los límites del video y mantenga un margen adecuado."""
+        # Definir márgenes
+        margin_x = int(0.1 * img_width)  # 10% del ancho de la imagen
+        margin_y = int(0.05 * img_height)  # 5% del alto de la imagen
 
+        # Posicionamiento en base a la opción seleccionada
         if position == Position.TOP_LEFT:
-            return ('center', margin_y)
+            return (margin_x, margin_y)
         elif position == Position.TOP_CENTER:
-            return ('center', margin_y)
+            return ((img_width - max_text_width) // 2, margin_y)
         elif position == Position.TOP_RIGHT:
-            return ('center', margin_y)
+            return (img_width - max_text_width - margin_x, margin_y)
         elif position == Position.MIDDLE_LEFT:
-            return ('center', 'center')
+            return (margin_x, (img_height - total_text_height) // 2)
         elif position == Position.MIDDLE_CENTER:
-            return ('center', 'center')
+            return ((img_width - max_text_width) // 2, (img_height - total_text_height) // 2)
         elif position == Position.MIDDLE_RIGHT:
-            return ('center', 'center')
+            return (img_width - max_text_width - margin_x, (img_height - total_text_height) // 2)
         elif position == Position.BOTTOM_LEFT:
-            return ('center', img_height - total_text_height - margin_y)
+            return (margin_x, img_height - total_text_height - margin_y)
         elif position == Position.BOTTOM_CENTER:
-            return ('center', img_height - total_text_height - margin_y)
+            return ((img_width - max_text_width) // 2, img_height - total_text_height - margin_y)
         elif position == Position.BOTTOM_RIGHT:
-            return ('center', img_height - total_text_height - margin_y)
+            return (img_width - max_text_width - margin_x, img_height - total_text_height - margin_y)
+
 
     @staticmethod
     def split_subtitles(subtitle_text, font, max_width):
@@ -467,11 +473,11 @@ class SubtitleHelper:
             },
             Style.FORMAL: {
                 'font_path': "C:\\Windows\\Fonts\\Georgia.ttf",
-                'fontsize': 85,
+                'fontsize': 100,
                 'stroke_color': 'darkblue',
-                'stroke_width': 4,
+                'stroke_width': 6,
                 'text_color': 'white',
-                'bg_color': None
+                'bg_color': 'white'
             },
             Style.DRAMATIC: {
                 'font_path': "Resources\\Fonts\\Arial.otf",
@@ -492,10 +498,18 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.THUMBNAIL_MINIMAL: {
-                'font_path': "C:\\Windows\\Fonts\\Arial.ttf",
-                'fontsize': 80,
+                'font_path': "Resources\\Fonts\\Intensa.ttf",
+                'fontsize': 100,
                 'stroke_color': None,
                 'stroke_width': 0,
+                'text_color': 'white',
+                'bg_color': None
+            },
+            Style.THUMBNAIL_INTENSA: {
+                'font_path': "Resources\\Fonts\\Intensa.ttf",
+                'fontsize': 100,
+                'stroke_color': 'red',
+                'stroke_width': 8,
                 'text_color': 'white',
                 'bg_color': None
             },
@@ -516,11 +530,19 @@ class SubtitleHelper:
                 'bg_color': 'yellow'
             },
             Style.THUMBNAIL_CASUAL: {
-                'font_path': "C:\\Windows\\Fonts\\ComicSansMS.ttf",
-                'fontsize': 140,
-                'stroke_color': None,
-                'stroke_width': 0,
-                'text_color': 'orange',
+                'font_path': "Resources\\Fonts\\Cartoon.ttf",
+                'fontsize': 180,
+                'stroke_color': 'white',
+                'stroke_width': 8,
+                'text_color': 'red',
+                'bg_color': None
+            },
+            Style.THUMBNAIL_CARTOON: {
+                'font_path': "Resources\\Fonts\\Cartoon.ttf",
+                'fontsize': 180,
+                'stroke_color': 'white',
+                'stroke_width': 8,
+                'text_color': 'red',
                 'bg_color': None
             }
         }

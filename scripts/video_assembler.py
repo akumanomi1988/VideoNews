@@ -160,7 +160,7 @@ class VideoAssembler:
         # Escribir el archivo de video final
         try:
             video = video.subclip(0, audio.duration).fadeout(2)
-            video.write_videofile(self.output_file, write_logfile=True)
+            video.write_videofile(self.output_file, write_logfile=False)
             print(Fore.GREEN + "✅ Video processing completed successfully.")
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error writing final video: {e}")
@@ -197,7 +197,8 @@ class VideoAssembler:
             stroke_width=stroke_width,
             method='caption',
             size=(video_size[0]*0.9, None),
-            align='center'
+            align='center',
+            
         )
 
         # Get the size of the text

@@ -54,7 +54,7 @@ class NewsProcessor:
         newsapi_client = NewsAPIClient(self._config['newsapi_key'])
         print(Fore.CYAN + "Processing news from NewsAPI")
         countries = ['es', 'us', 'gb', 'fr', 'ru']
-        newsapi_news = newsapi_client.get_latest_headlines(countries=countries, category=None, page_size=20)
+        newsapi_news = newsapi_client.get_latest_headlines(countries=countries, category='business', page_size=20)
         recent_newsapi_news = [news for news in newsapi_news if self._is_recent(news.get('publishedAt'))]
         all_news.extend(recent_newsapi_news)
 
@@ -63,7 +63,7 @@ class NewsProcessor:
         print(Fore.CYAN + "Processing news from CurrentsAPI")
         languages = ['es', 'en', 'fr', 'ru']
         for language in languages:
-            currents_news = currents_client.get_latest_headlines(country='', category=None, language=language, limit=20)
+            currents_news = currents_client.get_latest_headlines(country='', category='business', language=language, limit=20)
             recent_currents_news = [news for news in currents_news if self._is_recent(news.get('published_at'))]
             all_news.extend(recent_currents_news)
 

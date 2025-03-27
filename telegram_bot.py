@@ -1,9 +1,7 @@
 import asyncio
 import json
 import os
-import sys
 import time
-import psutil
 import nest_asyncio
 from scripts.DataFetcher.news_api_client import NewsAPIClient
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -312,8 +310,8 @@ async def headless(update: Update, context: CallbackContext):
 
             try:
                 # Procesar noticias en formato largo y corto
-                long_response = video_processor.process_latest_news_in_long_format({"title": url, "description": ""})
-                await update.message.reply_text(f"News processing completed: {format_youtube_message(long_response)} ✅")
+                #long_response = video_processor.process_latest_news_in_long_format({"title": url, "description": ""})
+                #await update.message.reply_text(f"News processing completed: {format_youtube_message(long_response)} ✅")
                 
                 short_response = video_processor.process_latest_news_in_short_format({"title": url, "description": ""})
                 await update.message.reply_text(f"Short format created: {format_youtube_message(short_response)} ✅")
