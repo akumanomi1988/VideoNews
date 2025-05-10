@@ -31,6 +31,39 @@ vaderSentiment
 textstat
 bark
 python-dateutil
+streamlit>=1.24.0
+plotly>=5.14.0
+pandas>=2.0.0
+moviepy>=1.0.3
+python-telegram-bot>=20.0
+colorama>=0.4.6
+requests>=2.28.0
+python-dotenv>=1.0.0
+fake-useragent>=1.1.1
+newspaper3k>=0.2.8
+vaderSentiment>=3.3.2
+google-api-python-client>=2.86.0
+google-auth-oauthlib>=1.0.0
+edge-tts>=6.1.0
+pydub>=0.25.1
+Pillow>=9.5.0
+opencv-python>=4.7.0
+psutil>=5.9.0
+SpeechRecognition>=3.10.0
+pysrt>=1.1.2
+google-cloud-speech>=2.21.0
 
-# Dependencias adicionales (no se instalan con pip):
-# - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.
+# For media processing
+ffmpeg-python>=0.2.0
+
+# For AI/ML features
+torch>=2.0.0
+transformers>=4.30.0
+nltk>=3.8.1
+
+# For audio processing
+scipy>=1.10.0
+librosa>=0.10.0
+
+# Additional dependencies that need manual installation:
+# - ffmpeg: Required for video/audio processing. Install from https://ffmpeg.org/download.html

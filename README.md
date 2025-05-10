@@ -1,3 +1,5 @@
+# 📺 VideoNews 📰
+
 ![Banner](https://img.shields.io/badge/Project%20Status-Active-green) ![Python Version](https://img.shields.io/badge/Python-3.10-blue) ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 </br>
@@ -5,174 +7,159 @@
 
 [🔗 Join the VideoNews Community on Telegram](https://t.me/VideoNewsCommunity)
 
+## 🎯 Overview
 
-# 📺 **VideoNews** 📰
+VideoNews is an advanced automation framework that transforms news articles into engaging video content using a sophisticated multi-stage pipeline architecture. Perfect for content creators, media agencies, and digital marketers who want to automate their video content production.
 
-![banner](https://th.bing.com/th/id/OIG4.QJJxpMDBlrWO4t0OTO.j?w=1024&h=1024&rs=1&pid=ImgDetMain)
+## 📚 Documentation
 
-## 📄 Overview
+Detailed documentation is available in the following sections:
 
-**fVideo News** is a full-featured automation tool designed to streamline the creation of engaging, high-quality videos from news articles. The tool is particularly useful for content creators, media agencies, and social media marketers who want to transform written news into visually captivating and easily shareable videos for platforms like YouTube, TikTok, and Instagram.
+- [AI Components](docs/AI.md) - Natural language, speech, and image generation capabilities
+- [Database Architecture](docs/DATABASE.md) - Data models and storage systems
+- [API Integration](docs/API.md) - External service integrations
+- [Pipeline System](docs/PIPELINE.md) - Video processing pipeline architecture
 
-This repository combines cutting-edge AI technologies for text generation, image creation, voice synthesis, and video assembly, allowing users to generate videos with minimal manual intervention. By leveraging APIs and powerful libraries, it offers a modular approach to customize various aspects of video production. Here’s a breakdown of what this project can do:
-Let's craft a visually appealing README that stands out, adds precise installation guidance, and integrates best practices for clarity. Here's an updated version:
+## ⚙️ Core Features
 
----
+- 🤖 **Intelligent Content Processing**
+  - Automated article analysis and summarization
+  - Smart media prompt generation
+  - Content optimization for different platforms
 
+- 🎬 **Dual Pipeline Support**
+  - Short-form vertical videos (9:16) for TikTok/Reels
+  - Long-form horizontal content (16:9) for YouTube
+  
+- 🎨 **Rich Media Generation**
+  - AI-powered image generation
+  - Dynamic text-to-speech with multiple providers
+  - Automatic subtitle generation
+  - Professional video assembly
 
+- 📊 **Progress Monitoring**
+  - Real-time pipeline stage tracking
+  - Detailed success/failure metrics
+  - Telegram integration for status updates
 
-**VideoNews** automates news content creation by fetching, summarizing, and assembling articles into videos. With integrated AI, it generates voiceovers and uploads to YouTube & TikTok!
+## 🏗️ Architecture
 
-🚀 **[Get Started Today!](#quickstart)**
+### System Components
+```mermaid
+graph TD
+    A[News Sources] --> B[Content Processor]
+    B --> C[AI Pipeline]
+    C --> D[Media Generator]
+    D --> E[Video Assembler]
+    E --> F[Upload Manager]
+    F --> G[Distribution]
+```
 
----
+### Data Flow
+```mermaid
+graph LR
+    A[Article Input] --> B[Content Analysis]
+    B --> C[Media Generation]
+    C --> D[Audio Synthesis]
+    D --> E[Video Assembly]
+    E --> F[Platform Upload]
+```
 
-## ✨ **Features**
+## 🛠️ Technical Requirements
 
-- 🔍 **Fetch** news via APIs (NewsAPI, Currents)
-- 🗣️ **Text-to-Speech** (TTS) with ElevenLabs
-- 🎥 **Video Generation**: Combine media and subtitles
-- 📤 **Auto-upload** to YouTube & TikTok
+- Python 3.10+
+- FFmpeg
+- SFML library
+- Required API keys:
+  - News API or Currents API
+  - ElevenLabs (for TTS)
+  - Pexels API (for media)
+  - YouTube/TikTok API credentials
 
----
+## 📦 Installation
 
-## 🎯 **Technologies Used**
-
-- **Python 3.10**
-- **APIs**: NewsAPI, Currents, Pexels, ElevenLabs
-- **YouTube API**: OAuth 2.0 integration
-- **Google Cloud Console**: API setup
-- **SFML**: For rendering videos
-
----
-
-## ⚙️ **Installation**
-
-### 1. **Clone the Repository**
-
+1. **Clone the Repository**
 ```bash
 git clone https://github.com/akumanomi1988/VideoNews.git
 cd VideoNews
 ```
 
-### 2. **Set Up Virtual Environment**
-
+2. **Create Virtual Environment**
 ```bash
 python -m venv venv
-source venv/bin/activate  # MacOS/Linux
-venv\Scripts\activate      # Windows
+source venv/bin/activate  # Unix/macOS
+venv\Scripts\activate     # Windows
 ```
 
-### 3. **Install Dependencies**
-
+3. **Install Dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. **Install SFML** (for multimedia processing)
-
-- On **Windows**: Use the precompiled binaries from [SFML Downloads](https://www.sfml-dev.org/download.php)
-- On **Linux**: Install via package manager
-  ```bash
-  sudo apt-get install libsfml-dev
-  ```
-- On **Mac**: Install via Homebrew
-  ```bash
-  brew install sfml
-  ```
-
-### 5. **Google Cloud Console Setup**
-
-You'll need to configure the **YouTube Data API** for video uploads:
-
-1. Go to [Google Console](https://console.cloud.google.com/).
-2. Create a **New Project**.
-3. Enable **YouTube Data API v3**.
-4. Create **OAuth Credentials** and download the `client_secret.json` file.
-5. Place the file inside the `.secrets/` folder.
-
----
-
-## 🗂 **Project Structure**
-
-```plaintext
-VideoNews/
-│
-├── .secrets/                    # Stores sensitive API credentials
-├── scripts/                     # Temporary files, subtitles, and processing scripts
-├── DataFetcher/                 # Fetching news and media
-├── dbControllers/               # User management (optional)
-├── IA/                          # AI models: NLP, TTS, Text-to-Image
-├── Uploaders/                   # Uploaders for TikTok, YouTube
-├── main.py                      # Main program
-├── settings.json                # API keys configuration
-└── telegram_bot.py              # Integration with Telegram for notifications
+4. **Configure Settings**
+```bash
+cp settings.example.json settings.json
+# Edit settings.json with your API keys and preferences
 ```
 
----
+## 🚀 Usage
 
-## 📋 **Configuration**
+### Basic Usage
 
-Before running the app, configure your API keys in `settings.json`:
+```python
+from news_video_processor import NewsVideoProcessor
 
-```json
-{
-  "news_api_key": "YOUR_NEWS_API_KEY",
-  "pexels_api_key": "YOUR_PEXELS_API_KEY",
-  "elevenlabs_api_key": "YOUR_ELEVENLABS_API_KEY",
-  "google_credentials": "path_to_your_google_credentials.json"
-}
+processor = NewsVideoProcessor('settings.json')
+
+# Generate short-form video
+processor.process_latest_news_in_short_format({
+    'url': 'https://example.com/article',
+    'format': 'short',
+    'aspect_ratio': '9:16'
+})
+
+# Generate long-form video
+processor.process_latest_news_in_long_format({
+    'url': 'https://example.com/article',
+    'format': 'long',
+    'aspect_ratio': '16:9'
+})
 ```
 
----
+### Telegram Integration
 
-## 🚀 **Run the Application**
-
-Once everything is set up, run the following command to generate a video from news:
+The system includes built-in Telegram bot integration for remote monitoring and control:
 
 ```bash
-python main.py
+python telegram_bot.py
 ```
 
-The tool will fetch news, generate voiceovers, assemble a video, and upload it to YouTube or TikTok.
+## 🔧 Configuration
 
----
+See [API Documentation](docs/API.md) for detailed configuration options and API integrations.
 
-## 🛠 **API Setup**
+## 📊 Monitoring
 
-1. **NewsAPI**: [Sign up for API key](https://newsapi.org/).
-2. **Pexels API**: [Register for key](https://pexels.com/api/).
-3. **ElevenLabs API**: [Sign up](https://elevenlabs.io/).
+The system includes a comprehensive monitoring dashboard:
 
----
+```bash
+python scripts/run_dashboard.py
+```
 
-## 💡 **Best Practices**
+## 🤝 Contributing
 
-- Customize your content by editing text summarization models.
-- Ensure you monitor API rate limits to avoid overuse.
-- Stay updated with the latest API changes on their official websites.
+Contributions are welcome! Please check our [Contributing Guidelines](CONTRIBUTING.md).
 
----
-
-## 🤝 **Contributing**
-
-Feel free to contribute by submitting issues or pull requests. Let's make **VideoNews** better together!
-
----
-
-## 📄 **License**
+## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## 🙏 Acknowledgments
+
+- Thanks to the amazing AI and ML communities
+- All our contributors and supporters
+- Special thanks to our Telegram community members
+
 ---
 
-That's it! Your **VideoNews** README is now designed to be informative, visually appealing, and clear for potential users and contributors. The sections cover everything from setup to project structure, with icons and precise guidance on the technologies used, ensuring a smooth user experience.
-
-If you find this project useful, give it a ⭐ **star** and help spread the word by sharing it with others in the community! Fork the repository and make it your own—let’s collaborate to make this tool even better.
-
-## Star History ⭐
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Akumanomi1988/from_news_to_uploaded&type=Date)](https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date)
----
-
-For more information, visit the [GitHub repository](https://github.com/Akumanomi1988/VideoNews).
+Built with ❤️ by the VideoNews Team

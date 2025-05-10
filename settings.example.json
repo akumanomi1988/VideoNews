@@ -1,60 +1,150 @@
 {
-  "settings": {
-      "temp_dir": "Temporary directory to store intermediate files (e.g., .temp)",
-      "media_source": "Source for media like images or videos, can be 'huggingface' or 'Pexels'",
-      "tts_source": "Source for Text-to-Speech (TTS), e.g., 'TTSEdge' (for Microsoft Azure Text-to-Speech)",
-      "news_source": "Source for news articles, can be 'newsapi' or 'currentsapi'"
+  "api_keys": {
+    "news_api": "YOUR_NEWS_API_KEY",
+    "currents_api": "YOUR_CURRENTS_API_KEY",
+    "pexels_api": "YOUR_PEXELS_API_KEY",
+    "elevenlabs": "YOUR_ELEVENLABS_KEY"
   },
-  "tiktok": {
-    "app_id": "APP_ID_from_TIKTOK",
-    "client_secret": "APP_SECRET_from_TIKTOK",
-    "client_id": "client_id_from_TIKTOK"
-  },
-  "youtube": {
-      "credentials_file": "Path to your YouTube credentials file (e.g., C:/path/to/your/client_secret.json)"
-  },
-  "pexels": {
-      "api_key": "Your Pexels API key"
-  },
-  "newsapi": {
-      "api_key": "Your NewsAPI key",
-      "country": "Country code (e.g., 'us'). Refer to the API documentation for valid values",
-      "category": "Category of news (e.g., 'business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology')",
-      "page_size": "Number of articles to fetch per request (e.g., 5)"
-  },
-  "currentsapi": {
-      "api_key": "Your CurrentsAPI key",
-      "country": "Country code (e.g., 'us'). Refer to the API documentation for valid values",
-      "category": "Category of news (e.g., 'business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology')",
-      "page_size": "Number of articles to fetch per request (e.g., 5)"
-  },
-  "article_settings": {
-      "model": "The GPT model to use (e.g., 'gpt-3.5-turbo', 'gpt-4')",
-      "image_model": "The image generation model to use (e.g., 'dall-e-3', 'gemini')",
-      "language": "Language for generating articles (e.g., 'Spanish')"
-  },
-  "video_result": {
-      "aspect_ratio": "Video aspect ratio (e.g., '9:16' for vertical or '16:9' for horizontal)",
-      "background_music": "Path to background music file (e.g., C:/path/to/your/music.mp3)"
-  },
-  "elevenlabs": {
-      "credentials_path": "Path to your ElevenLabs credentials file (e.g., .secrets/elevenlabsaccounts.json)",
-      "quota_min": "Minimum quota for ElevenLabs (e.g., 1000)"
-  },
-  "tts_edge": {
-    "voice": "Azure TTS voice option (e.g., 'es-ES-XimenaNeural' for female Spanish voice) you can find more here https://gist.github.com/BettyJJ/17cbaa1de96235a7f5773b8690a20462",
-    "speech_rate_adjustment": "Adjustment for speech rate, positive values speed up, negative values slow down (e.g., 10)",
-    "pitch_adjustment": "Adjustment for pitch, positive values increase pitch, negative values lower pitch (e.g., -10)"
-  },
-  "huggingface": {
-      "api_key": "Your Huggingface API key"
+  "oauth": {
+    "youtube": {
+      "client_id": "YOUR_CLIENT_ID",
+      "client_secret": "YOUR_CLIENT_SECRET",
+      "redirect_uri": "http://localhost:8080/oauth2callback"
+    },
+    "tiktok": {
+      "client_key": "YOUR_CLIENT_KEY",
+      "client_secret": "YOUR_CLIENT_SECRET",
+      "redirect_uri": "http://localhost:8080/tiktok/callback"
+    }
   },
   "telegram": {
-      "bot_token": "Your Telegram Bot Token"
+    "bot_token": "YOUR_BOT_TOKEN",
+    "webhook_url": "https://akumanomi1988.example.com/webhook",
+    "admin_chat_id": "YOUR_ADMIN_CHAT_ID"
   },
-  "meta":{
-    "facebook_page_id":"",
-    "facebook_token":"",
-    "instagram_token":""
+  "database": {
+    "news_db": "processed_news.db",
+    "users_db": "users.db",
+    "backup_enabled": true,
+    "backup_interval_hours": 24
+  },
+  "pipeline": {
+    "default_type": "short",
+    "parallel_processing": true,
+    "memory_optimization": true,
+    "cache_enabled": true,
+    "temp_dir": ".temp",
+    "output_dir": "output",
+    "max_retries": 3,
+    "timeout_seconds": 300
+  },
+  "video": {
+    "short_form": {
+      "aspect_ratio": "9:16",
+      "target_duration": 60,
+      "max_duration": 180,
+      "resolution": "1080x1920",
+      "fps": 30,
+      "bitrate": "4M"
+    },
+    "long_form": {
+      "aspect_ratio": "16:9",
+      "target_duration": 600,
+      "max_duration": 1200,
+      "resolution": "1920x1080",
+      "fps": 30,
+      "bitrate": "8M"
+    }
+  },
+  "tts": {
+    "provider": "edge",
+    "language": "en",
+    "voice": "en-US-JennyNeural",
+    "rate": 0,
+    "pitch": 0,
+    "optimize_for_low_vram": false,
+    "fallback_providers": [
+      "elevenlabs",
+      "bark"
+    ],
+    "quota_management": {
+      "elevenlabs_min_chars": 1000,
+      "max_concurrent_requests": 3
+    }
+  },
+  "news": {
+    "sources": [
+      "newsapi",
+      "currents"
+    ],
+    "languages": [
+      "en",
+      "es"
+    ],
+    "categories": [
+      "technology",
+      "science",
+      "business"
+    ],
+    "content_filters": {
+      "min_length": 300,
+      "max_length": 5000,
+      "exclude_keywords": [
+        "explicit",
+        "nsfw"
+      ],
+      "require_image": true
+    }
+  },
+  "media": {
+    "image_generation": {
+      "provider": "flux",
+      "style_preset": "photographic",
+      "model": "black-forest-labs/FLUX.1-schnell",
+      "fallback_provider": "pexels"
+    },
+    "music": {
+      "enabled": true,
+      "volume": 0.3,
+      "fade_duration": 3,
+      "library_path": "Resources/Music"
+    }
+  },
+  "monitoring": {
+    "enabled": true,
+    "log_level": "INFO",
+    "metrics_enabled": true,
+    "dashboard_port": 8050,
+    "alert_on_error": true,
+    "performance_tracking": true
+  },
+  "upload": {
+    "platforms": {
+      "youtube": {
+        "enabled": true,
+        "privacy": "public",
+        "category_id": "22",
+        "made_for_kids": false,
+        "tags_enabled": true,
+        "auto_thumbnails": true
+      },
+      "tiktok": {
+        "enabled": true,
+        "privacy": "public",
+        "allow_comments": true,
+        "allow_duet": true,
+        "allow_stitch": true
+      }
+    },
+    "scheduling": {
+      "enabled": false,
+      "timezone": "UTC",
+      "optimal_times": [
+        "14:00",
+        "18:00",
+        "20:00"
+      ],
+      "min_interval_hours": 4
+    }
   }
 }
