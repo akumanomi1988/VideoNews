@@ -302,7 +302,7 @@ async def headless(update: Update, context: CallbackContext):
 
             print(f"Título: {news_item['title']}")
             print(f"URL: {news_item['url']}")
-            print(f"Puntaje de Viralidad: {news_item['virality_score']:.2f}\n")
+            print(f"Puntaje de Viralidad: {news_item['virality_score']:.2f}\n") 
 
             url = news_item['url']
             if is_url_processed(news_item['url']):

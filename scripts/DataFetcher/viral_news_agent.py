@@ -1,3 +1,4 @@
+# from news_mapper import parse_rss_to_standard_object, FeedItem
 from datetime import datetime, timezone, timedelta
 from dateutil import parser
 import requests
@@ -14,6 +15,8 @@ from colorama import init, Fore, Style
 from newsapi import NewsApiClient
 import textstat
 
+from scripts.DataFetcher.news_mapper import parse_rss_to_standard_object
+
 # Initialize colorama
 init(autoreset=True)
 
@@ -25,6 +28,8 @@ except OSError:
     import spacy.cli
     spacy.cli.download("es_core_news_sm")
     nlp = spacy.load("es_core_news_sm")
+
+PUB_DATE_FIELDS = ['pub_date', 'pubDate', 'published', 'updated', 'dc:date', 'lastBuildDate']
 
 class NewsProcessor:
     def __init__(self, config, viral_news_file='viral_news.json'):
@@ -42,19 +47,29 @@ class NewsProcessor:
         all_news = []
 
         # Procesar feeds RSS
-        for feed in self._config['rss_feeds']:
-            print(Fore.CYAN + f"Processing feed: {feed}")
-            content = self._fetch_rss_feed(feed)
+        for feed_url in self._config['rss_feeds']:  # Asegúrate que esto sea una lista de URLs
+            print(Fore.CYAN + f"Processing feed: {feed_url}")
+            content = self._fetch_rss_feed(feed_url)
             if content:
-                news_items = self._parse_rss_feed(content, feed)
-                recent_news = [news for news in news_items if self._is_recent(news['pub_date'])]
-                all_news.extend(recent_news)
-
+                try:
+                    news_items = parse_rss_to_standard_object(content)
+                    rss_news = [
+                        {
+                            'title': item.title,
+                            'link': item.link,
+                            'description': item.description,
+                            'publishedAt': item.pub_date  # Usamos datetime directamente
+                        } for item in news_items if item.pub_date and self._is_recent(item.pub_date)
+                    ]
+                    all_news.extend(rss_news)
+                except Exception as e:
+                    print(f"Error detected: {e}")
+                    
         # Procesar NewsAPI
         newsapi_client = NewsAPIClient(self._config['newsapi_key'])
         print(Fore.CYAN + "Processing news from NewsAPI")
         countries = ['es', 'us', 'gb', 'fr', 'ru']
-        newsapi_news = newsapi_client.get_latest_headlines(countries=countries, category='business', page_size=20)
+        newsapi_news = newsapi_client.get_latest_headlines(countries=countries, category='technology', page_size=20)
         recent_newsapi_news = [news for news in newsapi_news if self._is_recent(news.get('publishedAt'))]
         all_news.extend(recent_newsapi_news)
 
@@ -63,7 +78,7 @@ class NewsProcessor:
         print(Fore.CYAN + "Processing news from CurrentsAPI")
         languages = ['es', 'en', 'fr', 'ru']
         for language in languages:
-            currents_news = currents_client.get_latest_headlines(country='', category='business', language=language, limit=20)
+            currents_news = currents_client.get_latest_headlines(country='', category='TECHNOLOGY', language=language, limit=20)
             recent_currents_news = [news for news in currents_news if self._is_recent(news.get('published_at'))]
             all_news.extend(recent_currents_news)
 
@@ -130,7 +145,7 @@ class NewsProcessor:
         try:
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            return response.content.decode('utf-8')
+            return response.content  # Devolver bytes en lugar de decodificar manualmente
         except requests.exceptions.RequestException as e:
             print(Fore.RED + f"Error obtaining feed {url}: {e}")
             return None
@@ -146,21 +161,31 @@ class NewsProcessor:
             news_items.append({'title': title, 'link': link, 'pub_date': pub_date, 'source': url})
         return news_items
 
-    
+
     def _is_recent(self, pub_date):
         if not pub_date:
             return False
-        try:
-            pub_date = parser.parse(pub_date)
-        except ValueError:
+        
+        # Si ya es un datetime, no necesitamos parsearlo
+        if isinstance(pub_date, datetime):
+            parsed_date = pub_date
+        else:
+            # Si es un string, intentamos parsearlo
             try:
-                pub_date = datetime.strptime(pub_date, '%a, %d %b %Y %H:%M:%S %Z')
+                parsed_date = parser.parse(pub_date)
             except ValueError:
-                return False
-
-        # Hacer que `now` sea aware con zona horaria UTC
-        now = datetime.utcnow().replace(tzinfo=timezone.utc)
-        return now - pub_date < timedelta(days=self._config['time_window_days'])
+                try:
+                    parsed_date = datetime.strptime(pub_date, '%a, %d %b %Y %H:%M:%S %Z')
+                except ValueError:
+                    return False
+        
+        # Calcular el límite de antigüedad basado en time_window_days
+        now = datetime.now(parsed_date.tzinfo if parsed_date.tzinfo else None)  # Respetar zona horaria si existe
+        time_window = timedelta(days=self._config['time_window_days'])
+        time_difference = now - parsed_date
+        
+        # Verificar si la noticia está dentro del ventana de tiempo
+        return time_difference <= time_window
     def _evaluate_virality(self, article_url):
         try:
             headers = {'User-Agent': self._ua.random}
