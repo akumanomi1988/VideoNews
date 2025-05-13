@@ -20,34 +20,30 @@ class ConfigValidator:
         self._schema = {
             'api_keys': {
                 'type': dict,
-                'required': True,
-                'fields': {
+                'required': True,                'fields': {
                     'news_api': {'type': str, 'required': True},
                     'currents_api': {'type': str, 'required': False},
                     'pexels_api': {'type': str, 'required': True},
-                    'elevenlabs': {'type': str, 'required': False}
+                    'elevenlabs': {'type': str, 'required': False},
+                    'huggingface': {'type': str, 'required': False}
                 }
             },
             'oauth': {
                 'type': dict,
                 'required': True,
-                'fields': {
-                    'youtube': {
+                'fields': {                    'youtube': {
                         'type': dict,
                         'required': False,
                         'fields': {
-                            'client_id': {'type': str, 'required': True},
-                            'client_secret': {'type': str, 'required': True},
-                            'redirect_uri': {'type': str, 'required': True}
+                            'credentials_file': {'type': str, 'required': True}
                         }
-                    },
-                    'tiktok': {
+                    },                    'tiktok': {
                         'type': dict,
                         'required': False,
                         'fields': {
-                            'client_key': {'type': str, 'required': True},
+                            'app_id': {'type': str, 'required': True},
                             'client_secret': {'type': str, 'required': True},
-                            'redirect_uri': {'type': str, 'required': True}
+                            'client_id': {'type': str, 'required': True}
                         }
                     }
                 }

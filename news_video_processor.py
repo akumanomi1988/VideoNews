@@ -12,14 +12,15 @@ init(autoreset=True)
 class NewsVideoProcessor:
     """Main entry point for video processing with Telegram integration"""
     
-    def __init__(self, config_file='settings.json', callback_query: Optional[CallbackQuery] = None):
+    def __init__(self, config_file='pipeline_config.json', callback_query: Optional[CallbackQuery] = None):
         self.logger = logging.getLogger(__name__)
         self.callback_query = callback_query
         self.config_file = config_file
         
         # Initialize pipeline factory
         try:
-            self.factory = PipelineFactory.from_config_file(config_file)
+            self.factory = PipelineFactory()
+            self.factory.create_pipeline(config_path=config_file)
         except Exception as e:
             self.logger.error(f"Failed to initialize pipeline factory: {e}")
             raise

@@ -1,0 +1,48 @@
+{
+    "api_keys": {
+        "news_api": "b24237884c8f4bebb8264b440e65ed4b",
+        "pexels_api": "5h39cSaGuIYX9EYerrH3Hdm8xomKUeYf5QCU4cM9zqwa9yuGNWpuoFnQ",
+        "elevenlabs": "your_elevenlabs_key_here"
+    },
+    "oauth": {
+        "youtube": {
+            "client_id": "885672591350-301a0ftl5nc0f57opbie7ujhmokedl3e",
+            "client_secret": "your_youtube_client_secret",
+            "redirect_uri": "http://localhost:8080/oauth2callback"
+        }
+    },
+    "database": {
+        "news_db": "processed_news.db",
+        "users_db": "users.db"
+    },
+    "pipeline": {
+        "default_type": "short",
+        "temp_dir": ".temp",
+        "output_dir": "output"
+    },
+    "video": {
+        "short_form": {
+            "aspect_ratio": "9:16",
+            "target_duration": 60,
+            "max_duration": 180,
+            "resolution": "1080x1920",
+            "fps": 30,
+            "bitrate": "4M"
+        },
+        "background_music": "Resources/Music/Focus and Clarity.mp3"
+    },
+    "tts": {
+        "provider": "elevenlabs",
+        "voice": "es-ES-ElviraNeural",
+        "language": "es"
+    },
+    "news": {
+        "providers": {
+            "newsapi": {
+                "country": "us",
+                "category": "TECHNOLOGY",
+                "page_size": 5
+            }
+        }
+    }
+}
