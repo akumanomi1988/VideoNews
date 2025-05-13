@@ -20,7 +20,7 @@ venv/
 ENV/
 env/
 *.env
-
+pipeline_config.json
 # Configuración de entornos virtuales y herramientas de Python
 .venv/
 .pip/

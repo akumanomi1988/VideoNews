@@ -31,6 +31,9 @@ vaderSentiment
 textstat
 bark
 python-dateutil
+tenacity
+urllib3>=2.0.0
+requests[security]
 
 # Dependencias adicionales (no se instalan con pip):
 # - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.

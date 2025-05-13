@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from dateutil import parser as date_parser
 
 class FeedItem:
     def __init__(self, title=None, link=None, description=None, pub_date=None):
@@ -67,25 +68,13 @@ def parse_rss_to_standard_object(rss_content):
         for date_variant in PUB_DATE_VARIANTS:
             date_text = item.findtext(date_variant)
             if date_text:
-                # Intentar parsear diferentes formatos de fecha
-                for date_format in [
-                    '%a, %d %b %Y %H:%M:%S %Z',       # Ej: Thu, 27 Mar 2025 04:43:28 GMT
-                    '%a, %d %b %Y %H:%M:%S %z',       # Ej: Wed, 26 Mar 2025 16:36:13 +0000 (nuevo)
-                    '%Y-%m-%d %H:%M:%S %Z',           # Ej: 2025-03-27 04:43:28 GMT
-                    '%Y-%m-%dT%H:%M:%SZ',             # Ej: 2025-03-27T04:43:28Z (ISO)
-                    '%a, %d %b %Y %H:%M %Z',          # Ej: Thu, 27 Mar 2025 04:43 GMT
-                    '%a, %d %b %Y %H:%M:%S',          # Ej: Thu, 08 Dec 2016 12:05:00 (sin zona horaria)
-                    '%Y-%m-%d %H:%M:%S',              # Ej: 2025-03-27 04:43:28 (sin zona horaria)
-                    '%a, %d %b %Y %H:%M:%S %z %Z',    # Ej: Wed, 26 Mar 2025 16:36:13 +0000 UTC (raro, pero posible)
-                ]:
-                    try:
-                        pub_date = datetime.strptime(date_text.strip(), date_format)
-                        break
-                    except ValueError as e:
-                        print(f"Error parsing date '{date_text}': {e}")
-                        continue
-                if pub_date:
+                try:
+                    # Usar dateutil.parser para un parsing más robusto de fechas
+                    pub_date = date_parser.parse(date_text.strip())
                     break
+                except (ValueError, TypeError) as e:
+                    print(f"Error parsing date '{date_text}': {e}")
+                    continue
 
         # Crear objeto estandarizado
         feed_item = FeedItem(

@@ -14,6 +14,9 @@ from bs4 import BeautifulSoup
 from colorama import init, Fore, Style
 from newsapi import NewsApiClient
 import textstat
+from tenacity import retry, stop_after_attempt, wait_exponential
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from scripts.DataFetcher.news_mapper import parse_rss_to_standard_object
 
@@ -45,51 +48,93 @@ class NewsProcessor:
     def process_all_news(self):
         """Procesa todas las noticias desde diferentes fuentes y las almacena internamente."""
         all_news = []
+        successful_sources = 0
+        total_sources = 0
 
         # Procesar feeds RSS
-        for feed_url in self._config['rss_feeds']:  # Asegúrate que esto sea una lista de URLs
-            print(Fore.CYAN + f"Processing feed: {feed_url}")
-            content = self._fetch_rss_feed(feed_url)
-            if content:
-                try:
+        for feed_url in self._config['rss_feeds']:
+            total_sources += 1
+            try:
+                print(Fore.CYAN + f"Processing feed: {feed_url}")
+                content = self._fetch_rss_feed(feed_url)
+                if content:
                     news_items = parse_rss_to_standard_object(content)
                     rss_news = [
                         {
                             'title': item.title,
                             'link': item.link,
                             'description': item.description,
-                            'publishedAt': item.pub_date  # Usamos datetime directamente
+                            'publishedAt': item.pub_date
                         } for item in news_items if item.pub_date and self._is_recent(item.pub_date)
                     ]
                     all_news.extend(rss_news)
+                    successful_sources += 1
+            except Exception as e:
+                print(Fore.RED + f"Error processing RSS feed {feed_url}: {e}")
+
+        # Procesar NewsAPI con manejo de errores
+        total_sources += 1
+        try:
+            newsapi_client = NewsAPIClient(self._config['newsapi_key'])
+            print(Fore.CYAN + "Processing news from NewsAPI")
+            countries = ['es', 'us', 'gb', 'fr', 'ru']
+            newsapi_news = newsapi_client.get_latest_headlines(countries=countries, category='technology', page_size=20)
+            recent_newsapi_news = [news for news in newsapi_news if self._is_recent(news.get('publishedAt'))]
+            all_news.extend(recent_newsapi_news)
+            successful_sources += 1
+        except Exception as e:
+            print(Fore.RED + f"Error processing NewsAPI: {e}")
+
+        # Procesar CurrentsAPI con manejo de errores
+        total_sources += 1
+        try:
+            currents_client = CurrentsClient(self._config['currentsapi_key'])
+            print(Fore.CYAN + "Processing news from CurrentsAPI")
+            languages = ['es', 'en', 'fr', 'ru']
+            all_currents_news = []
+            
+            for language in languages:
+                try:
+                    currents_news = currents_client.get_latest_headlines(
+                        country='',
+                        category='TECHNOLOGY',
+                        language=language,
+                        limit=20
+                    )
+                    recent_currents_news = [
+                        news for news in currents_news
+                        if self._is_recent(news.get('published_at'))
+                    ]
+                    all_currents_news.extend(recent_currents_news)
                 except Exception as e:
-                    print(f"Error detected: {e}")
-                    
-        # Procesar NewsAPI
-        newsapi_client = NewsAPIClient(self._config['newsapi_key'])
-        print(Fore.CYAN + "Processing news from NewsAPI")
-        countries = ['es', 'us', 'gb', 'fr', 'ru']
-        newsapi_news = newsapi_client.get_latest_headlines(countries=countries, category='technology', page_size=20)
-        recent_newsapi_news = [news for news in newsapi_news if self._is_recent(news.get('publishedAt'))]
-        all_news.extend(recent_newsapi_news)
+                    print(Fore.YELLOW + f"Error fetching CurrentsAPI news for language {language}: {e}")
+                    continue
 
-        # Procesar CurrentsAPI
-        currents_client = CurrentsClient(self._config['currentsapi_key'])
-        print(Fore.CYAN + "Processing news from CurrentsAPI")
-        languages = ['es', 'en', 'fr', 'ru']
-        for language in languages:
-            currents_news = currents_client.get_latest_headlines(country='', category='TECHNOLOGY', language=language, limit=20)
-            recent_currents_news = [news for news in currents_news if self._is_recent(news.get('published_at'))]
-            all_news.extend(recent_currents_news)
+            if all_currents_news:
+                all_news.extend(all_currents_news)
+                successful_sources += 1
+        except Exception as e:
+            print(Fore.RED + f"Error processing CurrentsAPI: {e}")
 
-        # Evaluar viralidad en paralelo
+        # Evaluar viralidad en paralelo con mejor manejo de errores
+        print(Fore.CYAN + f"Processing {len(all_news)} articles for virality...")
+        results = []
+        
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(self._evaluate_virality, news['link'] if 'link' in news else news['url']): news for news in all_news}
-            results = []
-            for future in futures:
-                result = future.result()
-                if result and result['virality_score'] > self._config['virality_threshold']:
-                    results.append(result)
+            future_to_news = {
+                executor.submit(self._evaluate_virality, news['link'] if 'link' in news else news['url']): news
+                for news in all_news
+            }
+            
+            for future in future_to_news:
+                try:
+                    result = future.result(timeout=60)  # Timeout de 60 segundos por artículo
+                    if result and result['virality_score'] > self._config['virality_threshold']:
+                        results.append(result)
+                except Exception as e:
+                    news = future_to_news[future]
+                    url = news.get('link') or news.get('url')
+                    print(Fore.RED + f"Error processing article {url}: {e}")
 
         # Ordenar resultados por puntuación de viralidad
         self._processed_news = sorted(results, key=lambda news: news['virality_score'], reverse=True)
@@ -97,6 +142,12 @@ class NewsProcessor:
 
         # Guardar las noticias procesadas en el archivo
         self._save_viral_news()
+
+        # Reportar estadísticas
+        print(Fore.GREEN + f"\nProceso completado:")
+        print(f"- Fuentes exitosas: {successful_sources}/{total_sources}")
+        print(f"- Artículos procesados: {len(all_news)}")
+        print(f"- Artículos virales encontrados: {len(self._processed_news)}")
 
     def get_next_viral_news(self):
         """
@@ -271,31 +322,77 @@ class CurrentsClient:
         self.api_key = api_key
         self.latest_news_url = "https://api.currentsapi.services/v1/latest-news"
         self.search_url = "https://api.currentsapi.services/v1/search"
+        
+        # Configurar la sesión con reintentos automáticos
+        self.session = requests.Session()
+        retries = Retry(
+            total=5,  # número total de reintentos
+            backoff_factor=0.5,  # factor de espera entre reintentos
+            status_forcelist=[500, 502, 503, 504],  # códigos HTTP para reintentar
+            allowed_methods=["GET"]  # permitir reintentos solo en GET
+        )
+        adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
 
+    @retry(
+        stop=stop_after_attempt(3),  # intentar 3 veces
+        wait=wait_exponential(multiplier=1, min=4, max=30)  # espera exponencial entre intentos
+    )
     def get_latest_headlines(self, country='', category=None, language='es', limit=20):
-        headers = {'Authorization': self.api_key}
+        headers = {
+            'Authorization': self.api_key,
+            'User-Agent': UserAgent().random
+        }
         params = {'country': country, 'language': language, 'limit': limit}
         if category:
             params['category'] = category
 
         try:
             print(Fore.CYAN + f"Fetching the latest headlines for country: {country}, category: {category}, language: {language}, limit: {limit}")
-            response = requests.get(self.latest_news_url, headers=headers, params=params, timeout=15)
+            
+            # Usar la sesión configurada con reintentos
+            response = self.session.get(
+                self.latest_news_url,
+                headers=headers,
+                params=params,
+                timeout=(5, 30)  # (tiempo de conexión, tiempo de lectura)
+            )
             response.raise_for_status()
+            
             data = response.json()
             if 'news' in data:
-                print(Fore.GREEN + "Headlines fetched successfully.")
+                print(Fore.GREEN + f"Headlines fetched successfully. Got {len(data['news'])} articles.")
                 return data['news']
             else:
-                print(Fore.YELLOW + "No articles found.")
+                print(Fore.YELLOW + "No articles found in the response.")
                 return []
+                
+        except requests.exceptions.Timeout as e:
+            print(Fore.RED + f"Timeout error accessing CurrentsAPI: {e}")
+            raise  # Permitir que tenacity reintente
         except requests.exceptions.RequestException as e:
-            print(Fore.RED + f"An error occurred: {e}")
+            print(Fore.RED + f"Error accessing CurrentsAPI: {e}")
+            raise  # Permitir que tenacity reintente
+        except json.JSONDecodeError as e:
+            print(Fore.RED + f"Error decoding JSON response: {e}")
+            return []
+        except Exception as e:
+            print(Fore.RED + f"Unexpected error in get_latest_headlines: {e}")
             return []
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=30)
+    )
     def search_news(self, query, language='es', category=None, start_date=None, end_date=None, limit=20):
-        headers = {'Authorization': self.api_key}
-        params = {'keywords': query, 'language': language, 'limit': limit, 'category': category}
+        headers = {
+            'Authorization': self.api_key,
+            'User-Agent': UserAgent().random
+        }
+        params = {'keywords': query, 'language': language, 'limit': limit}
+        if category:
+            params['category'] = category
         if start_date:
             params['start_date'] = start_date
         if end_date:
@@ -303,17 +400,34 @@ class CurrentsClient:
 
         try:
             print(Fore.CYAN + f"Searching news for query: '{query}', language: {language}, limit: {limit}")
-            response = requests.get(self.search_url, headers=headers, params=params, timeout=15)
+            
+            response = self.session.get(
+                self.search_url,
+                headers=headers,
+                params=params,
+                timeout=(5, 30)  # (tiempo de conexión, tiempo de lectura)
+            )
             response.raise_for_status()
+            
             data = response.json()
             if 'news' in data:
-                print(Fore.GREEN + "Search results fetched successfully.")
+                print(Fore.GREEN + f"Search results fetched successfully. Got {len(data['news'])} articles.")
                 return data['news']
             else:
                 print(Fore.YELLOW + "No articles found for the given query.")
                 return []
+                
+        except requests.exceptions.Timeout as e:
+            print(Fore.RED + f"Timeout error in search_news: {e}")
+            raise  # Permitir que tenacity reintente
         except requests.exceptions.RequestException as e:
-            print(Fore.RED + f"An error occurred: {e}")
+            print(Fore.RED + f"Error in search_news: {e}")
+            raise  # Permitir que tenacity reintente
+        except json.JSONDecodeError as e:
+            print(Fore.RED + f"Error decoding JSON response in search_news: {e}")
+            return []
+        except Exception as e:
+            print(Fore.RED + f"Unexpected error in search_news: {e}")
             return []
 
 
