@@ -47,52 +47,92 @@ async def configure_setting(update: Update, context: CallbackContext):
         for category in categories
     ]
     # Add cancel option
-    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel_config')])
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data='cancel_config')])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Ask user to select a category
+    
     await update.message.reply_text(
-        "Please select a category to modify or cancel:",
-        reply_markup=reply_markup
+        "⚙️ *Configuration Settings*\n\n"
+        "Select a category to modify:\n"
+        "_Choose from the options below_",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 # Handle category selection
 async def category_selection_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
-    if query.data == 'cancel_config':
-        await query.message.reply_text("Configuration selection cancelled. ✅")
+    if query.data == 'cancel':
+        await query.message.reply_text(
+            "❌ *Operation Cancelled*\n"
+            "News category selection cancelled.\n"
+            "_Use /news_category to start again_",
+            parse_mode='Markdown'
+        )
         return
-    selected_category = query.data  # Get selected category
+    selected_category = query.data
     settings = load_settings()
-    # Show settings for the selected category
-    category_settings = settings[selected_category]
-    response = f"Configuration for *{selected_category.capitalize()}*:\n"
-    for key in category_settings.keys():
-        response += f"- {key}\n"
-    response += "\nSelect a setting to modify or cancel."
-    # Create inline keyboard for settings
+    news_client = NewsAPIClient(api_key=settings['newsapi']['api_key'])
+    await query.message.reply_text(
+        f"🔍 *Fetching News*\n\n"
+        f"Category: `{selected_category.capitalize()}`\n"
+        "_Please wait while I fetch the latest articles..._",
+        parse_mode='Markdown'
+    )
+    
+    if not news_cache["news"] or is_cache_expired():
+        latest_news = news_client.get_latest_headlines(
+            country=settings['newsapi']['country'],
+            page_size=settings['newsapi']['page_size'],
+            category=selected_category
+        )
+        news_cache["news"] = latest_news
+        news_cache["timestamp"] = time.time()
+    else:
+        latest_news = news_cache["news"]
+
     keyboard = [
-        [InlineKeyboardButton(key, callback_data=f"{selected_category}:{key}")] 
-        for key in category_settings.keys()
+        [InlineKeyboardButton(news_item['title'][:100] + "..." if len(news_item['title']) > 100 else news_item['title'], 
+                            callback_data=str(index))] 
+        for index, news_item in enumerate(latest_news)
     ]
-    # Add cancel option
-    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel_config')])
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data='cancel_selection')])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.message.reply_text(response, reply_markup=reply_markup)
+
+    await query.message.reply_text(
+        "📰 *Available News Articles*\n\n"
+        "_Select an article to process:_\n"
+        "Articles will be converted to video format\n"
+        "with voiceover and background music.",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
 # Handle setting selection
 async def setting_selection_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     if query.data == 'cancel_config':
-        await query.message.reply_text("Configuration selection cancelled. ✅")
+        await query.message.reply_text(
+            "❌ *Configuration Cancelled*\n"
+            "_Use /settings to start again_",
+            parse_mode='Markdown'
+        )
         return
-    # Split selected data into category and setting
+    
     selected_category, selected_setting = query.data.split(':')
     settings = load_settings()
-    # Ask the user for a new value for the selected setting
-    await query.message.reply_text(f"Current value for *{selected_setting}* is *{settings[selected_category][selected_setting]}*.\nPlease enter a new value:")
-    # Store context for the next message
+    current_value = settings[selected_category][selected_setting]
+    
+    await query.message.reply_text(
+        f"🔧 *Modify Setting*\n\n"
+        f"Category: `{selected_category}`\n"
+        f"Setting: `{selected_setting}`\n"
+        f"Current Value: `{current_value}`\n\n"
+        "_Enter the new value below:_",
+        parse_mode='Markdown'
+    )
+    
     context.user_data['category'] = selected_category
     context.user_data['setting'] = selected_setting
 
@@ -101,15 +141,28 @@ async def handle_new_value(update: Update, context: CallbackContext):
     if 'category' in context.user_data and 'setting' in context.user_data:
         selected_category = context.user_data['category']
         selected_setting = context.user_data['setting']
-        # Update the setting with the new value
+        new_value = update.message.text
         settings = load_settings()
-        settings[selected_category][selected_setting] = update.message.text
+        old_value = settings[selected_category][selected_setting]
+        settings[selected_category][selected_setting] = new_value
         save_settings(settings)
-        await update.message.reply_text(f"The setting *{selected_setting}* has been updated to *{update.message.text}* ✅")
-        # Clear user data
+        
+        await update.message.reply_text(
+            "✅ *Setting Updated*\n\n"
+            f"Category: `{selected_category}`\n"
+            f"Setting: `{selected_setting}`\n"
+            f"Old Value: `{old_value}`\n"
+            f"New Value: `{new_value}`",
+            parse_mode='Markdown'
+        )
         context.user_data.clear()
     else:
-        await update.message.reply_text("No setting selected. Please start over with /config. ❌")
+        await update.message.reply_text(
+            "❌ *Error*\n\n"
+            "No setting selected.\n"
+            "_Use /settings to start the configuration process._",
+            parse_mode='Markdown'
+        )
 
 # News functions
 def is_cache_expired():
@@ -117,82 +170,121 @@ def is_cache_expired():
 
 async def show_category_selection(update: Update, context: CallbackContext):
     categories = ['business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology']
+    
     # Build an inline keyboard with each category and the cancel option
     keyboard = [
         [InlineKeyboardButton(category.capitalize(), callback_data=category)] 
         for category in categories
     ]
     # Add the cancel option
-    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel')])
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data='cancel')])
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
     # Send message asking the user to select a category
     await update.message.reply_text(
-        "Please select a news category or cancel:",
-        reply_markup=reply_markup
+        "📰 *Select News Category*\n\n"
+        "Choose a category for your news content:\n"
+        "_Select from the options below_",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 async def category_selection_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     if query.data == 'cancel':
-        await query.message.reply_text("Category selection cancelled. ✅")
+        await query.message.reply_text(
+            "❌ *Operation Cancelled*\n"
+            "News category selection cancelled.\n"
+            "_Use /news_category to start again_",
+            parse_mode='Markdown'
+        )
         return
-    selected_category = query.data  # Get the selected category
+    selected_category = query.data
     settings = load_settings()
     news_client = NewsAPIClient(api_key=settings['newsapi']['api_key'])
-    await query.message.reply_text(f"Fetching the latest news in category: {selected_category}... 📰")
-    # If the cache has expired or is empty, fetch new news
+    await query.message.reply_text(
+        f"🔍 *Fetching News*\n\n"
+        f"Category: `{selected_category.capitalize()}`\n"
+        "_Please wait while I fetch the latest articles..._",
+        parse_mode='Markdown'
+    )
+    
     if not news_cache["news"] or is_cache_expired():
         latest_news = news_client.get_latest_headlines(
             country=settings['newsapi']['country'],
             page_size=settings['newsapi']['page_size'],
-            category=selected_category  # Use the selected category
+            category=selected_category
         )
-        news_cache["news"] = latest_news  # Store in cache
-        news_cache["timestamp"] = time.time()  # Update cache timestamp
-        print("News cache updated.")
+        news_cache["news"] = latest_news
+        news_cache["timestamp"] = time.time()
     else:
-        latest_news = news_cache["news"]  # Use cached news
-        print("Using cached news.")
-    # Build an inline keyboard with each headline and the cancel option
+        latest_news = news_cache["news"]
+
     keyboard = [
-        [InlineKeyboardButton(news_item['title'], callback_data=str(index))] 
+        [InlineKeyboardButton(news_item['title'][:100] + "..." if len(news_item['title']) > 100 else news_item['title'], 
+                            callback_data=str(index))] 
         for index, news_item in enumerate(latest_news)
     ]
-    # Add the cancel option
-    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel_selection')])
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data='cancel_selection')])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Send message with the list of news and an inline keyboard
+
     await query.message.reply_text(
-        "Select a news item to process or cancel:",
-        reply_markup=reply_markup
+        "📰 *Available News Articles*\n\n"
+        "_Select an article to process:_\n"
+        "Articles will be converted to video format\n"
+        "with voiceover and background music.",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 async def news_selection_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     if query.data == 'cancel_selection':
-        await query.message.reply_text("News selection cancelled. ✅")
+        await query.message.reply_text(
+            "❌ *Selection Cancelled*\n"
+            "_Use /news_category to start again_",
+            parse_mode='Markdown'
+        )
         return
-    # Obtener el índice de la noticia seleccionada
+
     selected_index = int(query.data)
-    # Cargar las noticias cacheadas
     latest_news = news_cache["news"]
-    selected_news = latest_news[selected_index]  # La noticia seleccionada
-    # Procesar la noticia según el tipo seleccionado (corta o larga)
+    selected_news = latest_news[selected_index]
     processor = NewsVideoProcessor(callback_query=query)
+    
     try:
         if context.user_data.get('news_type') == 'long':
-            await query.message.reply_text(f"Processing long news... ⏳")
-            response = processor.process_latest_news_in_long_format(selected_news)  # Procesar como noticia larga
+            await query.message.reply_text(
+                "🎥 *Creating Long-Format Video*\n\n"
+                f"Article: `{selected_news['title'][:50]}...`\n"
+                "_This may take a few minutes..._",
+                parse_mode='Markdown'
+            )
+            response = processor.process_latest_news_in_long_format(selected_news)
         else:
-            await query.message.reply_text(f"Processing short news... ⏳")
-            response = processor.process_latest_news_in_short_format(selected_news)  # Procesar como noticia corta
-        await query.message.reply_text(f"News processing completed: {format_youtube_message(response)} ✅")
+            await query.message.reply_text(
+                "📱 *Creating Short-Format Video*\n\n"
+                f"Article: `{selected_news['title'][:50]}...`\n"
+                "_This may take a few minutes..._",
+                parse_mode='Markdown'
+            )
+            response = processor.process_latest_news_in_short_format(selected_news)
+        
+        await query.message.reply_text(
+            f"{format_youtube_message(response)}",
+            parse_mode='Markdown'
+        )
     except Exception as e:
-        await query.message.reply_text(f"An error occurred while processing the news: {str(e)}. ❌")
+        await query.message.reply_text(
+            "❌ *Processing Error*\n\n"
+            f"Failed to process article:\n"
+            f"`{selected_news['title']}`\n\n"
+            f"Error: _{str(e)}_",
+            parse_mode='Markdown'
+        )
     finally:
-        # Limpiar el tipo de noticia del contexto
         context.user_data.pop('news_type', None)
 
 def format_youtube_message(response):
@@ -204,71 +296,147 @@ def format_youtube_message(response):
     video_id = response['id']
     url_video = f"https://www.youtube.com/watch?v={video_id}"
     thumbnail_url = response['snippet']['thumbnails']['default']['url']
-    # Format the message for Telegram
+
+    # Truncate description if too long (keep first 150 characters)
+    description = description[:150] + "..." if len(description) > 150 else description
+    
+    # Format the message for Telegram with improved styling
     message = f"""
-    🛢️ **Title:** {title}
-    📄 **Description:** {description}
-    📺 **Channel:** {channel}
-    📅 **Published At:** {published_at}
-    🔗 **Video Link:** [Watch Video]({url_video})
-    📸 ![Thumbnail]({thumbnail_url})
-    """
+🎬 *New Video Created*
+━━━━━━━━━━━━━━━━━━━━━
+📺 *Title:* `{title}`
+
+📝 *Description:*
+_{description}_
+
+🎯 *Details:*
+• *Channel:* `{channel}`
+• *Published:* `{published_at}`
+
+🔗 *Watch Now:* [Open on YouTube]({url_video})
+━━━━━━━━━━━━━━━━━━━━━
+"""
     return message
 
 # Function to list available settings
 async def list_settings(update: Update, context: CallbackContext):
-    settings = load_settings()  # Load settings from file
-    response = "Available settings:\n\n"
-    # Iterate through sections and their settings
+    settings = load_settings()
+    response = "⚙️ *Current Settings*\n\n"
+    
+    if not settings:
+        await update.message.reply_text(
+            "⚠️ *No Settings Found*\n\n"
+            "Configuration file is empty or not found.\n"
+            "_Use /settings to configure the application._",
+            parse_mode='Markdown'
+        )
+        return
+        
     for section, config in settings.items():
-        response += f"*{section}*\n"
-        for key in config.keys():
-            response += f"  - {key}\n"
+        response += f"📁 *{section.upper()}*\n"
+        for key, value in config.items():
+            # Mask sensitive values
+            if any(sensitive in key.lower() for sensitive in ['token', 'key', 'secret', 'password', 'credential']):
+                value = '••••••••'
+            response += f"  • `{key}`: `{value}`\n"
         response += "\n"
-    await update.message.reply_text(response)
+    
+    response += "_Use /settings to modify these values_"
+    
+    await update.message.reply_text(
+        response,
+        parse_mode='Markdown'
+    )
 
 async def error_handler(update: Update, context: CallbackContext):
     error_message = str(context.error)
     print(f"Error detected: {error_message}")
     if "[WinError 32]" in error_message:
         if update and update.message:
-            await update.message.reply_text("System file blocked. Let's retry in 2 minutes...")
+            await update.message.reply_text(
+                "⚠️ *System Operation Blocked*\n\n"
+                "_System will retry in 2 minutes..._\n"
+                "Please wait while we resolve this.",
+                parse_mode='Markdown'
+            )
         print("Detected file access error. Retrying in 5 seconds...")
-        await asyncio.sleep(5)  # Espera antes de reintentar
-        return  # No reinicies la aplicación, solo reintenta
+        await asyncio.sleep(5)
+        return
+
     # Si el error ocurre en un contexto de mensaje, informamos al usuario
     if update and update.message:
-        await update.message.reply_text("An error occurred while processing your request. Please try again later. ❌")
+        await update.message.reply_text(
+            "❌ *Error Occurred*\n\n"
+            "An unexpected error occurred while processing your request.\n"
+            "_Please try again in a few moments._",
+            parse_mode='Markdown'
+        )
 
 # Procesa noticia corta a partir de un tema
 async def short_news_topic(update: Update, context: CallbackContext):
     if context.args:
-        headline = " ".join(context.args)  # Unir el argumento en caso de que sea un titular largo
-        await update.message.reply_text(f"Processing short news with headline: {headline}... 📰")
+        headline = " ".join(context.args)
+        await update.message.reply_text(
+            "📱 *Processing Short Video*\n\n"
+            f"Topic: `{headline[:50]}...`\n"
+            "_Creating short-format video..._",
+            parse_mode='Markdown'
+        )
         try:
-            # Procesar el titular directamente como noticia corta
             processor = NewsVideoProcessor(callback_query=None)
             response = processor.process_latest_news_in_short_format({"title": headline, "description": ""})
-            await update.message.reply_text(f"News processing completed: {format_youtube_message(response)} ✅")
+            await update.message.reply_text(
+                f"{format_youtube_message(response)}",
+                parse_mode='Markdown'
+            )
         except Exception as e:
-            await update.message.reply_text(f"An error occurred while processing the news: {str(e)}. ❌")
+            await update.message.reply_text(
+                "❌ *Processing Error*\n\n"
+                f"Failed to process topic:\n"
+                f"`{headline}`\n\n"
+                f"Error: _{str(e)}_",
+                parse_mode='Markdown'
+            )
     else:
-        await update.message.reply_text("Please provide a headline/topic after the command.")
+        await update.message.reply_text(
+            "❌ *Missing Topic*\n\n"
+            "Please provide a topic or headline after the command.\n"
+            "_Example: /topic_shortnews Technology advances in 2025_",
+            parse_mode='Markdown'
+        )
 
 # Procesa noticia larga a partir de un tema
 async def long_news_topic(update: Update, context: CallbackContext):
     if context.args:
-        headline = " ".join(context.args)  # Unir el argumento en caso de que sea un titular largo
-        await update.message.reply_text(f"Processing long news with headline: {headline}... ⏳")
+        headline = " ".join(context.args)
+        await update.message.reply_text(
+            "🎥 *Processing Long Video*\n\n"
+            f"Topic: `{headline[:50]}...`\n"
+            "_Creating detailed video content..._",
+            parse_mode='Markdown'
+        )
         try:
-            # Procesar el titular directamente como noticia larga
             processor = NewsVideoProcessor(callback_query=None)
             response = processor.process_latest_news_in_long_format({"title": headline, "description": ""})
-            await update.message.reply_text(f"Long news processing completed: {format_youtube_message(response)} ✅")
+            await update.message.reply_text(
+                f"{format_youtube_message(response)}",
+                parse_mode='Markdown'
+            )
         except Exception as e:
-            await update.message.reply_text(f"An error occurred while processing the news: {str(e)}. ❌")
+            await update.message.reply_text(
+                "❌ *Processing Error*\n\n"
+                f"Failed to process topic:\n"
+                f"`{headline}`\n\n"
+                f"Error: _{str(e)}_",
+                parse_mode='Markdown'
+            )
     else:
-        await update.message.reply_text("Please provide a headline/topic after the command.")
+        await update.message.reply_text(
+            "❌ *Missing Topic*\n\n"
+            "Please provide a topic or headline after the command.\n"
+            "_Example: /topic_longnews Latest developments in AI_",
+            parse_mode='Markdown'
+        )
 
 # Procesa noticia larga seleccionando una categoría (flujo original)
 async def long_news(update: Update, context: CallbackContext):
@@ -283,56 +451,106 @@ async def headless(update: Update, context: CallbackContext):
     
     if not context.args:
         news_processor.process_all_news()
-        await update.message.reply_text("All viral news processed! 🎉")
+        await update.message.reply_text(
+            "🎉 *Viral News Processing Complete*\n\n"
+            "✅ All viral news items have been successfully processed!\n"
+            "_Check the generated videos in your content dashboard._",
+            parse_mode='Markdown'
+        )
         return
 
     try:
         news_to_process = int(context.args[0])
         if news_to_process > 20:
-            await update.message.reply_text("Error: The argument must be a number and cannot exceed 20. ❌")
+            await update.message.reply_text(
+                "❌ *Invalid Input*\n\n"
+                "The number of news items cannot exceed 20.\n"
+                "_Please provide a smaller number._",
+                parse_mode='Markdown'
+            )
             return
 
         processed_count = 0
-
         video_processor = NewsVideoProcessor(callback_query=None)
+        
+        # Initial status message
+        await update.message.reply_text(
+            "🔄 *Starting News Processing*\n\n"
+            f"Target: `{news_to_process}` articles\n"
+            "_Processing will begin momentarily..._",
+            parse_mode='Markdown'
+        )
+
         while processed_count < news_to_process:
             news_item = news_processor.get_next_viral_news()
             if not news_item:
-                break  # No hay más noticias por procesar
-
-            print(f"Título: {news_item['title']}")
-            print(f"URL: {news_item['url']}")
-            print(f"Puntaje de Viralidad: {news_item['virality_score']:.2f}\n") 
+                break
 
             url = news_item['url']
             if is_url_processed(news_item['url']):
                 continue
 
             try:
-                # Procesar noticias en formato largo y corto
-                #long_response = video_processor.process_latest_news_in_long_format({"title": url, "description": ""})
-                #await update.message.reply_text(f"News processing completed: {format_youtube_message(long_response)} ✅")
+                # Process news in both formats
+                long_response = video_processor.process_latest_news_in_long_format({"title": url, "description": ""})
+                await update.message.reply_text(
+                    "✨ *Long Format Video Created*\n\n"
+                    f"{format_youtube_message(long_response)}",
+                    parse_mode='Markdown'
+                )
                 
                 short_response = video_processor.process_latest_news_in_short_format({"title": url, "description": ""})
-                await update.message.reply_text(f"Short format created: {format_youtube_message(short_response)} ✅")
+                await update.message.reply_text(
+                    "✨ *Short Format Video Created*\n\n"
+                    f"{format_youtube_message(short_response)}",
+                    parse_mode='Markdown'
+                )
 
-                # Marcar la noticia como procesada
                 save_processed_news(news_item)
                 processed_count += 1
 
-            except Exception as e:
-                # Manejar errores de procesamiento
-                await update.message.reply_text(f"Error processing {url}: {str(e)} ❌")
+                # Progress update
+                await update.message.reply_text(
+                    f"📊 *Progress Update*\n\n"
+                    f"Processed: `{processed_count}/{news_to_process}`\n"
+                    "_Continuing with next item..._",
+                    parse_mode='Markdown'
+                )
 
-                # Reinstanciar el `processor` para evitar estados inválidos
-                await update.message.reply_text("Reinstantiating processor due to an error... 🔄")
+            except Exception as e:
+                await update.message.reply_text(
+                    "⚠️ *Processing Error*\n\n"
+                    f"Failed to process article:\n"
+                    f"`{url}`\n\n"
+                    f"Error: _{str(e)}_",
+                    parse_mode='Markdown'
+                )
+
+                await update.message.reply_text(
+                    "🔄 *System Recovery*\n\n"
+                    "Reinitializing processor...\n"
+                    "_Please wait while we stabilize the system._",
+                    parse_mode='Markdown'
+                )
                 video_processor = NewsVideoProcessor(callback_query=None)
                 continue
 
-        await update.message.reply_text("All viral news processed! 🎉")
+        # Final completion message
+        await update.message.reply_text(
+            "🎉 *Processing Complete*\n\n"
+            f"Successfully processed: `{processed_count}` articles\n"
+            "_All requested news items have been converted to videos._",
+            parse_mode='Markdown'
+        )
 
     except Exception as e:
-        await update.message.reply_text(f"An error occurred: {str(e)} ❌")
+        await update.message.reply_text(
+            "❌ *System Error*\n\n"
+            f"An unexpected error occurred:\n"
+            f"_{str(e)}_\n\n"
+            "Please try again or contact support.",
+            parse_mode='Markdown'
+        )
 
 
 # Añadir los comandos a la aplicación
