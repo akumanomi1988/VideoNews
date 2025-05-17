@@ -493,18 +493,36 @@ async def headless(update: Update, context: CallbackContext):
             try:
                 # Process news in both formats
                 long_response = video_processor.process_latest_news_in_long_format({"title": url, "description": ""})
-                await update.message.reply_text(
-                    "✨ *Long Format Video Created*\n\n"
-                    f"{format_youtube_message(long_response)}",
-                    parse_mode='Markdown'
-                )
+                if long_response:
+                    youtube_response = await handle_youtube_upload(
+                        update, 
+                        long_response['file_path'], 
+                        long_response['title'][:80], 
+                        long_response['thumbnail'], 
+                        long_response['description'],
+                        long_response['tags']
+                    )
+                    await update.message.reply_text(
+                        "✨ *Long Format Video Created*\n\n"
+                        f"{format_youtube_message(youtube_response)}",
+                        parse_mode='Markdown'
+                    )
                 
                 short_response = video_processor.process_latest_news_in_short_format({"title": url, "description": ""})
-                await update.message.reply_text(
-                    "✨ *Short Format Video Created*\n\n"
-                    f"{format_youtube_message(short_response)}",
-                    parse_mode='Markdown'
-                )
+                if short_response:
+                    youtube_response = await handle_youtube_upload(
+                        update, 
+                        short_response['file_path'], 
+                        short_response['title'][:80], 
+                        short_response['thumbnail'], 
+                        short_response['description'],
+                        short_response['tags']
+                    )
+                    await update.message.reply_text(
+                        "✨ *Short Format Video Created*\n\n"
+                        f"{format_youtube_message(youtube_response)}",
+                        parse_mode='Markdown'
+                    )
 
                 save_processed_news(news_item)
                 processed_count += 1
@@ -516,6 +534,18 @@ async def headless(update: Update, context: CallbackContext):
                     "_Continuing with next item..._",
                     parse_mode='Markdown'
                 )
+
+                # Si no es el último video, esperar 1 hora antes del siguiente
+                if processed_count < news_to_process:
+                    wait_time = 3600  # 1 hora en segundos
+                    await update.message.reply_text(
+                        "⏳ *Cooldown Period*\n\n"
+                        "Waiting 1 hour before next video\n"
+                        f"Next video will start at: `{time.strftime('%H:%M:%S', time.localtime(time.time() + wait_time))}`\n"
+                        "_This helps prevent rate limiting and ensures better distribution._",
+                        parse_mode='Markdown'
+                    )
+                    await asyncio.sleep(wait_time)
 
             except Exception as e:
                 await update.message.reply_text(
@@ -552,6 +582,61 @@ async def headless(update: Update, context: CallbackContext):
             parse_mode='Markdown'
         )
 
+async def handle_youtube_upload(update: Update, output_file, title, cover, description, tags):
+    """Handle YouTube upload with token refresh if needed."""
+    try:
+        youtube_response = None
+        max_retries = 2
+        retry_count = 0
+
+        while retry_count < max_retries and not youtube_response:
+            try:
+                video_processor = NewsVideoProcessor(callback_query=None)
+                youtube_response = video_processor.youtube_uploader.upload(
+                    output_file,
+                    title=title[:80],
+                    thumbnail_path=cover,
+                    description=description,
+                    tags=tags
+                )
+                return youtube_response
+            except Exception as e:
+                error_str = str(e).lower()
+                if 'token' in error_str and 'expired' in error_str or 'invalid credentials' in error_str:
+                    token_path = os.path.join(os.path.dirname(video_processor.config['youtube']['credentials_file']), 'token.json')
+                    if os.path.exists(token_path):
+                        os.remove(token_path)
+                        await update.message.reply_text(
+                            "🔄 *YouTube Authentication Required*\n\n"
+                            "The previous session has expired.\n"
+                            "_Initializing new authentication..._",
+                            parse_mode='Markdown'
+                        )
+                        # Intentar nueva autenticación
+                        auth_url = video_processor.youtube_uploader.get_authorization_url()
+                        await update.message.reply_text(
+                            "🔐 *Authentication Required*\n\n"
+                            "Please authenticate with YouTube:\n"
+                            f"`{auth_url}`\n\n"
+                            "_Complete the authentication and then the upload will continue automatically._",
+                            parse_mode='Markdown'
+                        )
+                        retry_count += 1
+                        continue
+                raise e
+        
+        if not youtube_response:
+            raise Exception("Failed to authenticate with YouTube after retries")
+        
+        return youtube_response
+    except Exception as e:
+        await update.message.reply_text(
+            "❌ *YouTube Upload Error*\n\n"
+            f"Error: _{str(e)}_\n"
+            "_The video was created but could not be uploaded._",
+            parse_mode='Markdown'
+        )
+        raise e
 
 # Añadir los comandos a la aplicación
 if __name__ == '__main__':
