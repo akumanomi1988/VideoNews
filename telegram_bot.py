@@ -494,36 +494,50 @@ async def headless(update: Update, context: CallbackContext):
                 # Process news in both formats
                 long_response = video_processor.process_latest_news_in_long_format({"title": url, "description": ""})
                 if long_response:
-                    youtube_response = await handle_youtube_upload(
-                        update, 
-                        long_response['file_path'], 
-                        long_response['title'][:80], 
-                        long_response['thumbnail'], 
-                        long_response['description'],
-                        long_response['tags']
-                    )
-                    await update.message.reply_text(
-                        "✨ *Long Format Video Created*\n\n"
-                        f"{format_youtube_message(youtube_response)}",
-                        parse_mode='Markdown'
-                    )
-                
+                    try:
+                        youtube_response = await handle_youtube_upload(
+                            update, 
+                            long_response['file_path'], 
+                            long_response['title'][:80], 
+                            long_response['thumbnail'], 
+                            long_response['description'],
+                            long_response['tags']
+                        )
+                        await update.message.reply_text(
+                            "✨ *Long Format Video Created*\n\n"
+                            f"{format_youtube_message(youtube_response)}",
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        await update.message.reply_text(
+                            "❌ *YouTube Mapping Error*\n\n"
+                            f"Error: _{str(e)}_\n\n"
+                            "Continuing with next video...",
+                            parse_mode='Markdown'
+                        )
                 short_response = video_processor.process_latest_news_in_short_format({"title": url, "description": ""})
                 if short_response:
-                    youtube_response = await handle_youtube_upload(
-                        update, 
-                        short_response['file_path'], 
-                        short_response['title'][:80], 
-                        short_response['thumbnail'], 
-                        short_response['description'],
-                        short_response['tags']
-                    )
-                    await update.message.reply_text(
-                        "✨ *Short Format Video Created*\n\n"
-                        f"{format_youtube_message(youtube_response)}",
-                        parse_mode='Markdown'
-                    )
-
+                    try:
+                        youtube_response = await handle_youtube_upload(
+                            update, 
+                            short_response['file_path'], 
+                            short_response['title'][:80], 
+                            short_response['thumbnail'], 
+                            short_response['description'],
+                            short_response['tags']
+                        )
+                        await update.message.reply_text(
+                            "✨ *Short Format Video Created*\n\n"
+                            f"{format_youtube_message(youtube_response)}",
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        await update.message.reply_text(
+                            "❌ *YouTube Mapping Error*\n\n"
+                            f"Error: _{str(e)}_\n\n"
+                            "Continuing with next video...",
+                            parse_mode='Markdown'
+                        )
                 save_processed_news(news_item)
                 processed_count += 1
 
@@ -534,18 +548,6 @@ async def headless(update: Update, context: CallbackContext):
                     "_Continuing with next item..._",
                     parse_mode='Markdown'
                 )
-
-                # Si no es el último video, esperar 1 hora antes del siguiente
-                if processed_count < news_to_process:
-                    wait_time = 3600  # 1 hora en segundos
-                    await update.message.reply_text(
-                        "⏳ *Cooldown Period*\n\n"
-                        "Waiting 1 hour before next video\n"
-                        f"Next video will start at: `{time.strftime('%H:%M:%S', time.localtime(time.time() + wait_time))}`\n"
-                        "_This helps prevent rate limiting and ensures better distribution._",
-                        parse_mode='Markdown'
-                    )
-                    await asyncio.sleep(wait_time)
 
             except Exception as e:
                 await update.message.reply_text(
@@ -588,17 +590,39 @@ async def handle_youtube_upload(update: Update, output_file, title, cover, descr
         youtube_response = None
         max_retries = 2
         retry_count = 0
-
         while retry_count < max_retries and not youtube_response:
             try:
                 video_processor = NewsVideoProcessor(callback_query=None)
-                youtube_response = video_processor.youtube_uploader.upload(
+                upload_result = video_processor.youtube_uploader.upload(
                     output_file,
                     title=title[:80],
                     thumbnail_path=cover,
                     description=description,
                     tags=tags
                 )
+                # Map upload_result to the expected format for format_youtube_message
+                # If upload_result is already a dict with 'snippet' and 'id', use as is
+                if isinstance(upload_result, dict) and 'snippet' in upload_result and 'id' in upload_result:
+                    youtube_response = upload_result
+                else:
+                    # Try to extract fields or wrap as needed
+                    # Example: upload_result may be a dict with flat keys
+                    snippet = {
+                        'title': upload_result.get('title', title),
+                        'description': upload_result.get('description', description),
+                        'channelTitle': upload_result.get('channelTitle', 'Unknown'),
+                        'publishedAt': upload_result.get('publishedAt', ''),
+                        'thumbnails': {
+                            'default': {
+                                'url': upload_result.get('thumbnail_url', cover)
+                            }
+                        }
+                    }
+                    video_id = upload_result.get('id') or upload_result.get('video_id') or upload_result.get('videoId')
+                    youtube_response = {
+                        'snippet': snippet,
+                        'id': video_id or '',
+                    }
                 return youtube_response
             except Exception as e:
                 error_str = str(e).lower()
@@ -624,10 +648,8 @@ async def handle_youtube_upload(update: Update, output_file, title, cover, descr
                         retry_count += 1
                         continue
                 raise e
-        
         if not youtube_response:
             raise Exception("Failed to authenticate with YouTube after retries")
-        
         return youtube_response
     except Exception as e:
         await update.message.reply_text(

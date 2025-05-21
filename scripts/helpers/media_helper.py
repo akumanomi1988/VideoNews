@@ -145,22 +145,54 @@ class ImageHelper:
 
     @staticmethod
     def reduce_image_size(image_path: str, max_size_kb: int, reduction_percentage: int):
-        """Reduces the size of an image if it exceeds the given maximum size."""
+        """Reduces the size of an image if it exceeds the given maximum size.
+        
+        Args:
+            image_path: Path to the image file
+            max_size_kb: Maximum size in KB for the output image
+            reduction_percentage: Percentage to reduce dimensions by in each iteration
+            
+        The function will progressively reduce the image size until it's under max_size_kb,
+        maintaining aspect ratio and image quality as much as possible.
+        """
+        import os
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"{Fore.RED}❌ Image file not found: {image_path}")
+        if reduction_percentage <= 0 or reduction_percentage >= 100:
+            raise ValueError(f"{Fore.RED}❌ Reduction percentage must be between 1 and 99")
         current_size_kb = os.path.getsize(image_path) / 1024.0
-        image = Image.open(image_path)
-
-        while current_size_kb > max_size_kb:
-            width, height = image.size
-            new_width = int(width * (reduction_percentage / 100.0))
-            new_height = int(height * (reduction_percentage / 100.0))
-
-            image = image.resize((new_width, new_height), Image.ANTIALIAS)
-            image.save(image_path, optimize=True, quality=85)
-
-            current_size_kb = os.path.getsize(image_path) / 1024.0
-            print(f"{Fore.YELLOW}Resized to: {new_width}x{new_height}, weight: {current_size_kb:.2f} kB")
-
-        print(f"{Fore.GREEN}Reduction complete! Image is within the size limit.")
+        if current_size_kb <= max_size_kb:
+            print(f"{Fore.GREEN}✅ Image already within size limit: {current_size_kb:.2f} KB")
+            return
+        try:
+            image = Image.open(image_path)
+            original_format = image.format
+            quality = 95
+            attempts = 0
+            max_attempts = 10  # Prevent infinite loops
+            while current_size_kb > max_size_kb and attempts < max_attempts:
+                attempts += 1
+                width, height = image.size
+                if attempts > 1:
+                    scale = (100 - reduction_percentage) / 100.0
+                    new_width = max(int(width * scale), 1)
+                    new_height = max(int(height * scale), 1)
+                    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                image.save(image_path, format=original_format, optimize=True, quality=quality)
+                current_size_kb = os.path.getsize(image_path) / 1024.0
+                if current_size_kb > max_size_kb and quality > 65:
+                    quality -= 5
+                print(f"{Fore.YELLOW}📏 Size: {current_size_kb:.2f} KB, "
+                      f"Dimensions: {image.size[0]}x{image.size[1]}, "
+                      f"Quality: {quality}%")
+            if current_size_kb <= max_size_kb:
+                print(f"{Fore.GREEN}✅ Image successfully reduced to {current_size_kb:.2f} KB")
+            else:
+                print(f"{Fore.YELLOW}⚠️ Could not reduce image below {max_size_kb} KB "
+                      f"while maintaining acceptable quality")
+        except Exception as e:
+            print(f"{Fore.RED}❌ Error reducing image size: {str(e)}")
+            raise
 
     @staticmethod
     def enhance_thumbnail(image_path: str, text: str, 
@@ -169,81 +201,68 @@ class ImageHelper:
                       max_size_kb: int = 2000, 
                       reduction_percentage: int = 5, 
                       text_size: int = 0):
-        """Enhances a thumbnail by adding text in the selected position and style."""
+        """Enhances a thumbnail by adding text in the selected position and style.
+        
+        Args:
+            image_path: Path to the image file
+            text: Text to add to the image
+            position: Position enum indicating where to place the text
+            style: Style enum indicating the text style to use
+            max_size_kb: Maximum size in KB for the output image
+            reduction_percentage: Percentage to reduce image by if over max_size_kb
+            text_size: Optional custom text size, as percentage of default size
+        """
         try:
-            # Reduce image size
             ImageHelper.reduce_image_size(image_path, max_size_kb, reduction_percentage)
-
-            # Open the image and draw text
             image = Image.open(image_path)
             draw = ImageDraw.Draw(image)
-
-            # Obtener parámetros del estilo utilizando StyleHelper
             style_params = SubtitleHelper.get_style_parameters(style)
-
-            # Asignar los valores obtenidos del estilo
             font_path = style_params['font_path']
-            if text_size == 0:
-                font_size = style_params['fontsize']
-            else:
-                font_size = text_size
+            font_size = text_size if text_size > 0 else style_params['fontsize']
             stroke_color = style_params['stroke_color']
             stroke_width = style_params['stroke_width']
             text_color = style_params['text_color']
-
-            # Cargar la fuente según el estilo
-            font = ImageFont.truetype(font_path, font_size)
-
             img_width, img_height = image.size
-            max_text_width = img_width * 0.6  # Permitimos que el texto ocupe hasta el 80% del ancho
-
-            # Dividir el texto en múltiples líneas si es necesario
-            lines, current_line = [], ""
-            for word in text.split():
+            max_text_width = int(img_width * 0.6)
+            font = ImageFont.truetype(font_path, font_size)
+            lines = []
+            words = text.split()
+            current_line = words[0] if words else ""
+            for word in words[1:]:
                 test_line = f"{current_line} {word}".strip()
-                # Calcular el ancho del texto en esta fuente
-                line_width = draw.textsize(test_line, font=font)[0]
+                bbox = draw.textbbox((0, 0), test_line, font=font)
+                line_width = bbox[2] - bbox[0]
                 if line_width <= max_text_width:
                     current_line = test_line
                 else:
                     lines.append(current_line)
                     current_line = word
-            if current_line:
-                lines.append(current_line)
-
-            # Calcular la altura total del texto basado en las líneas divididas
-            total_text_height = sum([draw.textsize(line, font=font)[1] for line in lines])
-
-            # Calcular la posición inicial para dibujar el texto, usando el centro del texto
-            text_position = SubtitleHelper.calculate_text_position_image(
-                position, img_width, img_height, max_text_width, total_text_height
-            )
-
-            # Controlar el tamaño del texto en relación con el ancho de la imagen
-            if text_size > 0:
-                font_size = int(font_size * (text_size / 100))
-                font = ImageFont.truetype(font_path, font_size)
-
-            # Dibujar cada línea de texto en la imagen, sin superponerlas
+            lines.append(current_line)
+            line_heights = []
             for line in lines:
-                # Calcular el ancho de cada línea para centrarla
-                line_width, _ = draw.textsize(line, font=font)
+                bbox = draw.textbbox((0, 0), line, font=font)
+                line_heights.append(bbox[3] - bbox[1])
+            total_text_height = sum(line_heights)
+            line_spacing = int(font_size * 0.2)
+            total_height_with_spacing = total_text_height + (line_spacing * (len(lines) - 1))
+            text_position = SubtitleHelper.calculate_text_position_image(
+                position, img_width, img_height, max_text_width, total_height_with_spacing
+            )
+            current_y = text_position[1]
+            for idx, line in enumerate(lines):
+                bbox = draw.textbbox((0, 0), line, font=font)
+                line_width = bbox[2] - bbox[0]
                 centered_x = text_position[0] + (max_text_width - line_width) // 2
-
-                if stroke_width > 0:
-                    draw.text((centered_x, text_position[1]), line, fill=text_color, 
-                            stroke_fill=stroke_color, stroke_width=stroke_width, font=font, align='center')
+                if stroke_width and stroke_width > 0:
+                    draw.text((centered_x, current_y), line, fill=text_color, 
+                              stroke_fill=stroke_color, stroke_width=stroke_width, 
+                              font=font, align='center')
                 else:
-                    draw.text((centered_x, text_position[1]), line, fill=text_color, font=font, align='center')
-                
-                # Moverse hacia abajo para la siguiente línea de texto
-                text_position = (text_position[0], text_position[1] + font.size)
-
-
-            # Sobrescribir la imagen original
-            image.save(image_path)  # Guardar la imagen con el texto agregado
+                    draw.text((centered_x, current_y), line, fill=text_color, 
+                              font=font, align='center')
+                current_y += line_heights[idx] + line_spacing
+            image.save(image_path)
             print(Fore.GREEN + f"✅ Thumbnail updated: {image_path}")
-
         except Exception as e:
             print(Fore.RED + f"❌ Error enhancing thumbnail: {e}")
 
@@ -301,8 +320,6 @@ class SubtitleHelper:
             return ((img_width - max_text_width) // 2, img_height - total_text_height - margin_y)
         elif position == Position.BOTTOM_RIGHT:
             return (img_width - max_text_width - margin_x, img_height - total_text_height - margin_y)
-
-
     @staticmethod
     def split_subtitles(subtitle_text, font, max_width):
         """Split long subtitles into shorter lines for better readability."""
@@ -310,7 +327,9 @@ class SubtitleHelper:
         current_line = ""
         for word in subtitle_text.split():
             test_line = f"{current_line} {word}".strip()
-            if font.getsize(test_line)[0] <= max_width:  # Adjust to fit within the width
+            # Calculate the width using textlength
+            line_width = font.getlength(test_line)
+            if line_width <= max_width:  # Adjust to fit within the width
                 current_line = test_line
             else:
                 wrapped_lines.append(current_line)
@@ -337,21 +356,28 @@ class SubtitleHelper:
         stroke_width = style_params['stroke_width']
         text_color = style_params['text_color']
         
-        # Cargar la fuente con el tamaño máximo
-        font = ImageFont.truetype(font_path, max_fontsize)
-        max_text_width = video_size[0] * 0.95  # Permitimos un padding (80% del ancho del video)
+        # Cargar la fuente con el tamaño máximo        font = ImageFont.truetype(font_path, max_fontsize)
+        max_text_width = video_size[0] * 0.95  # Permitimos un padding (95% del ancho del video)
 
         # Dividir los subtítulos largos en líneas más cortas para que se ajusten al ancho del video
         txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)
 
+        # Create a temporary image to measure text
+        temp_img = Image.new('RGB', (1, 1))
+        temp_draw = ImageDraw.Draw(temp_img)
+
         # Reducir dinámicamente el tamaño de la fuente en un 5% hasta que el texto quepa dentro del límite
-        while font.getsize_multiline(txt)[0] > max_text_width and max_fontsize > 50:
+        bbox = temp_draw.multiline_textbbox((0, 0), txt, font=font)
+        while (bbox[2] - bbox[0]) > max_text_width and max_fontsize > 50:
             max_fontsize = int(max_fontsize * 0.95)  # Reducir el tamaño de la fuente en un 5%
             font = ImageFont.truetype(font_path, max_fontsize)
             txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)  # Volver a dividir el texto
+            bbox = temp_draw.multiline_textbbox((0, 0), txt, font=font)
 
         # Calcular el tamaño del texto basado en las líneas divididas
-        text_width, text_height = font.getsize_multiline(txt)
+        bbox = temp_draw.multiline_textbbox((0, 0), txt, font=font)
+        text_width = bbox[2] - bbox[0]  # right - left
+        text_height = bbox[3] - bbox[1]  # bottom - top
 
         # Generar el clip de texto con el nuevo tamaño de fuente
         text_clip = TextClip(

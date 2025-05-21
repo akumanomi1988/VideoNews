@@ -71,29 +71,33 @@ class VideoAssembler:
 
         # Process image files
         audio_duration = mp.AudioFileClip(self.voiceover_file).duration
-        # Process image files
-        audio_duration = mp.AudioFileClip(self.voiceover_file).duration
         config = EffectConfig(
             background_color=(255, 255, 255),  # White background
             interpolation=cv2.INTER_CUBIC  # High-quality interpolation
         )
+        supported_formats = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp')
         for image_file in self.media_images:
             try:
-                
-                # print(Fore.CYAN + f"🖼️ Processing image: {image_file}")
-                # image_clip = ImageClip(image_file, duration=audio_duration / len(self.media_images))
-                # image_clip = self.adjust_aspect_ratio(image_clip)
-                # image_clip = self.apply_image_effect(image_clip)  # Aplicar efecto
-                # adjusted_clips.append(image_clip)
+                # Validar formato y existencia antes de procesar
+                if not os.path.isfile(image_file):
+                    print(Fore.YELLOW + f"⚠️ Archivo no encontrado: {image_file}. Se omite.")
+                    continue
+                if not image_file.lower().endswith(supported_formats):
+                    print(Fore.YELLOW + f"⚠️ Formato de imagen no soportado: {image_file}. Se omite.")
+                    continue
+                try:
+                    # Intentar abrir la imagen para verificar que no esté corrupta
+                    img = Image.open(image_file)
+                    img.verify()
+                except Exception:
+                    print(Fore.YELLOW + f"⚠️ Imagen corrupta o ilegible: {image_file}. Se omite.")
+                    continue
                 engine = AkumaEngine(config)
-                # Video parameters
                 image_src = image_file  # Path to the input image
                 output_path = os.path.splitext(image_file)[0] + ".mp4"  # Path for the output video
                 effect = "akuma_zoom_in"  # Effect to be applied
                 duration = audio_duration / len(self.media_images)  # Duration of the video in seconds
                 fps = 30  # Frames per second
-
-                # Generate the video
                 try:
                     engine.generate_video(
                         image_src=image_src,
@@ -105,8 +109,6 @@ class VideoAssembler:
                     print(f"Video successfully generated: {output_path}")
                 except Exception as e:
                     print(f"Error generating video: {e}")
-                # image_clip = ImageClip(image_file, duration=audio_duration / len(self.media_images))
-                # image_clip.fps = 24
                 video_clip = VideoFileClip(output_path)
                 adjusted_clips.append(self.adjust_aspect_ratio(video_clip))
             except Exception as e:
