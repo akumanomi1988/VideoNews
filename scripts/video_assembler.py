@@ -1,28 +1,46 @@
-import cv2
-from AkumaImageEffect.effect_engine import AkumaEngine, EffectConfig
-import AkumaImageEffect.effects.core_effects  # Automatically imports and registers effects
-
-from pydub import AudioSegment
-
-import moviepy.editor as mp
-from moviepy.video.tools.subtitles import SubtitlesClip
-from moviepy.editor import TextClip, CompositeVideoClip, ImageClip, VideoFileClip
-from moviepy.video.fx import resize, crop
-
 import os
 import textwrap
-from colorama import init, Fore
-from PIL import Image, ImageDraw
+from typing import List, Optional, Tuple
+
+import cv2
 import numpy as np
+from PIL import Image, ImageDraw
+from colorama import init, Fore
+from pydub import AudioSegment
+import moviepy.editor as mp
+from moviepy.video.tools.subtitles import SubtitlesClip
+from moviepy.editor import (
+    TextClip, CompositeVideoClip, ImageClip, VideoFileClip
+)
+from moviepy.video.fx import resize, crop
 
 from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleHelper
+from AkumaImageEffect.effect_engine import AkumaEngine, EffectConfig
+import AkumaImageEffect.effects.core_effects  # Auto-imports and registers effects
 
-
-# Initialize colorama
+# Initialize colorama for colored terminal output
 init(autoreset=True)
 
+# Constants for configuration and supported formats
+SUPPORTED_IMAGE_FORMATS = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp')
+DEFAULT_FPS = 30
+DEFAULT_BG_COLOR = (255, 255, 255)
+DEFAULT_INTERPOLATION = cv2.INTER_CUBIC
+
 class VideoAssembler:
-    def __init__(self, subtitle_file, voiceover_file, output_file, media_videos=None, media_images=None, aspect_ratio="9:16", background_music=""):
+    """
+    Class responsible for assembling a video from images/videos, voiceover, subtitles, and optional background music.
+    """
+    def __init__(
+        self,
+        subtitle_file: str,
+        voiceover_file: str,
+        output_file: str,
+        media_videos: Optional[List[str]] = None,
+        media_images: Optional[List[str]] = None,
+        aspect_ratio: str = "9:16",
+        background_music: str = ""
+    ):
         self.subtitle_file = subtitle_file
         self.voiceover_file = voiceover_file
         self.output_file = output_file
@@ -30,37 +48,44 @@ class VideoAssembler:
         self.media_images = media_images or []
         self.aspect_ratio = aspect_ratio
         self.background_music = background_music
-    
-    def get_target_dimensions(self):
-        """Return target dimensions based on the specified aspect ratio."""
-        if self.aspect_ratio == '9:16':
-            return 1080, 1920  # Vertical aspect ratio
-        elif self.aspect_ratio == '16:9':
-            return 1920, 1080  # Horizontal aspect ratio
-        else:
-            raise ValueError(Fore.RED + "❌ Invalid aspect ratio. Use '9:16' or '16:9'.")
 
-    def adjust_aspect_ratio(self, clip):
-        """Resize and crop the video/image clip to match the target aspect ratio."""
+    def get_target_dimensions(self) -> Tuple[int, int]:
+        """
+        Return target dimensions based on the specified aspect ratio.
+        """
+        if self.aspect_ratio == '9:16':
+            return 1080, 1920
+        elif self.aspect_ratio == '16:9':
+            return 1920, 1080
+        raise ValueError(Fore.RED + "❌ Invalid aspect ratio. Use '9:16' or '16:9'.")
+
+    def adjust_aspect_ratio(self, clip: VideoFileClip) -> VideoFileClip:
+        """
+        Resize and crop the video/image clip to match the target aspect ratio.
+        """
         target_w, target_h = self.get_target_dimensions()
         clip_aspect_ratio = clip.w / clip.h
         target_aspect_ratio = target_w / target_h
 
-        # Resize and crop based on aspect ratio comparison
         if clip_aspect_ratio > target_aspect_ratio:
             resized_clip = resize.resize(clip, height=target_h)
         else:
             resized_clip = resize.resize(clip, width=target_w)
 
-        cropped_clip = crop.crop(resized_clip, width=target_w, height=target_h, 
-                                 x_center=resized_clip.w // 2, y_center=resized_clip.h // 2)
+        cropped_clip = crop.crop(
+            resized_clip,
+            width=target_w,
+            height=target_h,
+            x_center=resized_clip.w // 2,
+            y_center=resized_clip.h // 2
+        )
         return cropped_clip
 
-    def adjust_media(self):
-        """Process and adjust media files (videos and images) to match the aspect ratio."""
+    def process_video_files(self) -> List[VideoFileClip]:
+        """
+        Process and adjust video files to match the aspect ratio.
+        """
         adjusted_clips = []
-
-        # Process video files
         for media_file in self.media_videos:
             try:
                 print(Fore.CYAN + f"📹 Processing video: {media_file}")
@@ -68,128 +93,207 @@ class VideoAssembler:
                 adjusted_clips.append(self.adjust_aspect_ratio(video_clip))
             except Exception as e:
                 print(Fore.RED + f"❌ Error processing video {media_file}: {e}")
+        return adjusted_clips
 
-        # Process image files
-        audio_duration = mp.AudioFileClip(self.voiceover_file).duration
+    def process_image_files(self, audio_duration: float) -> List[VideoFileClip]:
+        """
+        Process and convert images to video clips with effects, matching the aspect ratio.
+        """
+        adjusted_clips = []
         config = EffectConfig(
-            background_color=(255, 255, 255),  # White background
-            interpolation=cv2.INTER_CUBIC  # High-quality interpolation
+            background_color=DEFAULT_BG_COLOR,
+            interpolation=DEFAULT_INTERPOLATION
         )
-        supported_formats = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp')
+        num_images = len(self.media_images)
+        if num_images == 0:
+            return adjusted_clips
+
+        duration_per_image = audio_duration / num_images
+
         for image_file in self.media_images:
+            if not self._is_valid_image_file(image_file):
+                continue
             try:
-                # Validar formato y existencia antes de procesar
-                if not os.path.isfile(image_file):
-                    print(Fore.YELLOW + f"⚠️ Archivo no encontrado: {image_file}. Se omite.")
-                    continue
-                if not image_file.lower().endswith(supported_formats):
-                    print(Fore.YELLOW + f"⚠️ Formato de imagen no soportado: {image_file}. Se omite.")
-                    continue
-                try:
-                    # Intentar abrir la imagen para verificar que no esté corrupta
-                    img = Image.open(image_file)
-                    img.verify()
-                except Exception:
-                    print(Fore.YELLOW + f"⚠️ Imagen corrupta o ilegible: {image_file}. Se omite.")
-                    continue
-                engine = AkumaEngine(config)
-                image_src = image_file  # Path to the input image
-                output_path = os.path.splitext(image_file)[0] + ".mp4"  # Path for the output video
-                effect = "akuma_zoom_in"  # Effect to be applied
-                duration = audio_duration / len(self.media_images)  # Duration of the video in seconds
-                fps = 30  # Frames per second
-                try:
-                    engine.generate_video(
-                        image_src=image_src,
-                        effect=effect,
-                        duration=duration,
-                        output_path=output_path,
-                        fps=fps
-                    )
-                    print(f"Video successfully generated: {output_path}")
-                except Exception as e:
-                    print(f"Error generating video: {e}")
+                self._verify_image_integrity(image_file)
+                output_path = self._generate_video_from_image(
+                    image_file, config, duration_per_image
+                )
                 video_clip = VideoFileClip(output_path)
                 adjusted_clips.append(self.adjust_aspect_ratio(video_clip))
             except Exception as e:
                 print(Fore.RED + f"❌ Error processing image {image_file}: {e}")
-
         return adjusted_clips
 
-    def split_subtitles(self, subtitle_text):
-        """Split long subtitles into shorter lines for better readability."""
-        return '\n'.join(textwrap.wrap(subtitle_text, width=15))
+    def _is_valid_image_file(self, image_file: str) -> bool:
+        """
+        Check if the image file exists and has a supported format.
+        """
+        if not os.path.isfile(image_file):
+            print(Fore.YELLOW + f"⚠️ File not found: {image_file}. Skipping.")
+            return False
+        if not image_file.lower().endswith(SUPPORTED_IMAGE_FORMATS):
+            print(Fore.YELLOW + f"⚠️ Unsupported image format: {image_file}. Skipping.")
+            return False
+        return True
 
-    def assemble_video(self,style:Style = Style.DEFAULT,position: Position = Position.MIDDLE_CENTER):
-        """Assemble and create the final video with subtitles, voiceover, and optional background music."""
+    def _verify_image_integrity(self, image_file: str) -> None:
+        """
+        Verify that the image is not corrupt or unreadable.
+        """
+        try:
+            with Image.open(image_file) as img:
+                img.verify()
+        except Exception:
+            raise ValueError(f"⚠️ Corrupt or unreadable image: {image_file}. Skipping.")
+
+    def _generate_video_from_image(
+        self, image_file: str, config: EffectConfig, duration: float
+    ) -> str:
+        """
+        Generate a video from an image using AkumaEngine.
+        """
+        engine = AkumaEngine(config)
+        output_path = os.path.splitext(image_file)[0] + ".mp4"
+        effect = "akuma_zoom_in"
+        try:
+            engine.generate_video(
+                image_src=image_file,
+                effect=effect,
+                duration=duration,
+                output_path=output_path,
+                fps=DEFAULT_FPS
+            )
+            print(f"Video successfully generated: {output_path}")
+        except Exception as e:
+            raise RuntimeError(f"Error generating video: {e}")
+        return output_path
+
+    def adjust_media(self) -> List[VideoFileClip]:
+        """
+        Process and adjust all media files (videos and images) to match the aspect ratio.
+        """
+        audio_duration = mp.AudioFileClip(self.voiceover_file).duration
+        video_clips = self.process_video_files()
+        image_clips = self.process_image_files(audio_duration)
+        return video_clips + image_clips
+
+    def split_subtitles(self, subtitle_text: str, width: int = 15) -> str:
+        """
+        Split long subtitles into shorter lines for better readability.
+        """
+        return '\n'.join(textwrap.wrap(subtitle_text, width=width))
+
+    def assemble_video(
+        self,
+        style: Style = Style.DEFAULT,
+        position: Position = Position.MIDDLE_CENTER
+    ) -> None:
+        """
+        Assemble and create the final video with subtitles, voiceover, and optional background music.
+        """
         adjusted_clips = self.adjust_media()
-
         if not adjusted_clips:
             raise ValueError(Fore.RED + "🚨 No media files could be adjusted. Check your inputs.")
 
+        video = self._concatenate_clips(adjusted_clips)
+        audio = self._load_voiceover_audio()
+        video = video.set_audio(audio)
+
+        if self.background_music:
+            video = self._add_background_music(video, audio)
+
+        if self.subtitle_file:
+            video = self._add_subtitles(video, style, position)
+
+        self._write_final_video(video, audio.duration)
+
+    def _concatenate_clips(self, clips: List[VideoFileClip]) -> CompositeVideoClip:
+        """
+        Concatenate video clips into a single video.
+        """
         try:
-            video = mp.concatenate_videoclips(adjusted_clips)
+            return mp.concatenate_videoclips(clips)
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error concatenating video clips: {e}")
 
+    def _load_voiceover_audio(self) -> mp.AudioFileClip:
+        """
+        Load the voiceover audio file and apply fadeout.
+        """
         try:
-            audio = mp.AudioFileClip(self.voiceover_file).audio_fadeout(2)
-            video = video.set_audio(audio)
+            return mp.AudioFileClip(self.voiceover_file).audio_fadeout(2)
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error loading voiceover: {e}")
 
-        # Agregar música de fondo si se proporciona
-        if self.background_music:
-            try:
-                music = mp.AudioFileClip(self.background_music)
-                background_audio = mp.CompositeAudioClip([audio, music.volumex(0.2)])
-                video = video.set_audio(background_audio)
-
-            except Exception as e:
-                raise ValueError(Fore.RED + f"❌ Error processing background music: {e}")
-
-        if self.subtitle_file:
-            try:
-                # Position the subtitle according to the 'position' parameter
-                final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video.size[0],img_height=video.size[1],max_text_width=0.95 * video.size[0],total_text_height=video.size[1]/3)
-                
-                subtitles = SubtitlesClip(self.subtitle_file, lambda txt: self.generate_subtitle(txt, video.size,style=style,position=position))
-                subtitles = subtitles.set_position(final_position)
-                video = CompositeVideoClip([video, subtitles])
-            except Exception as e:
-                raise ValueError(Fore.RED + f"❌ Error adding subtitles: {e}")
-
-        # Escribir el archivo de video final
+    def _add_background_music(
+        self, video: CompositeVideoClip, voiceover_audio: mp.AudioFileClip
+    ) -> CompositeVideoClip:
+        """
+        Add background music to the video, mixing it with the voiceover.
+        """
         try:
-            video = video.subclip(0, audio.duration).fadeout(2)
-            video.write_videofile(self.output_file, write_logfile=False)
+            music = mp.AudioFileClip(self.background_music)
+            background_audio = mp.CompositeAudioClip([
+                voiceover_audio, music.volumex(0.2)
+            ])
+            return video.set_audio(background_audio)
+        except Exception as e:
+            raise ValueError(Fore.RED + f"❌ Error processing background music: {e}")
+
+    def _add_subtitles(
+        self, video: CompositeVideoClip, style: Style, position: Position
+    ) -> CompositeVideoClip:
+        """
+        Add subtitles to the video at the specified position and style.
+        """
+        try:
+            final_position = SubtitleHelper.calculate_text_position_video(
+                position=position,
+                img_width=video.size[0],
+                img_height=video.size[1],
+                max_text_width=0.95 * video.size[0],
+                total_text_height=video.size[1] / 3
+            )
+            subtitles = SubtitlesClip(
+                self.subtitle_file,
+                lambda txt: self.generate_subtitle(txt, video.size, style=style, position=position)
+            ).set_position(final_position)
+            return CompositeVideoClip([video, subtitles])
+        except Exception as e:
+            raise ValueError(Fore.RED + f"❌ Error adding subtitles: {e}")
+
+    def _write_final_video(self, video: CompositeVideoClip, duration: float) -> None:
+        """
+        Write the final video file to disk.
+        """
+        try:
+            final_video = video.subclip(0, duration).fadeout(2)
+            final_video.write_videofile(self.output_file, write_logfile=False)
             print(Fore.GREEN + "✅ Video processing completed successfully.")
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error writing final video: {e}")
 
-    def generate_subtitle(self, txt, video_size, 
-                      position=Position.MIDDLE_CENTER,
-                      style=Style.BOLD,
-                      bg_color=None,
-                      text_color='yellow'):
+    def generate_subtitle(
+        self,
+        txt: str,
+        video_size: Tuple[int, int],
+        position: Position = Position.MIDDLE_CENTER,
+        style: Style = Style.BOLD,
+        bg_color: Optional[str] = None,
+        text_color: str = 'yellow'
+    ) -> CompositeVideoClip:
         """
-        Generate subtitles in a simplified way.
+        Generate a styled subtitle clip for overlaying on the video.
         """
-        # Ensure the text is in Unicode
         txt = txt.encode('utf-8').decode('utf-8')
-
-        # Internal style configuration based on the selected general style
         style_params = SubtitleHelper.get_style_parameters(style)
-        
-        # Asignar los valores obtenidos del estilo
         font = style_params['font_path']
         fontsize = style_params['fontsize']
         stroke_color = style_params['stroke_color']
         stroke_width = style_params['stroke_width']
         text_color = style_params['text_color']
         bg_color = style_params['bg_color']
-   
-        # Configure the subtitle text with 'caption' method
+
         text_clip = TextClip(
             txt,
             font=font,
@@ -198,87 +302,87 @@ class VideoAssembler:
             stroke_color=stroke_color,
             stroke_width=stroke_width,
             method='caption',
-            size=(video_size[0]*0.9, None),
+            size=(video_size[0] * 0.9, None),
             align='center',
-            
         )
 
-        # Get the size of the text
         text_width, text_height = text_clip.size
-        padding_x = 20
-        padding_y = 10
+        padding_x, padding_y = 20, 10
         box_width = text_width + 2 * padding_x
         box_height = text_height + 2 * padding_y
 
-
-        # Limit the height of the text
         max_height = video_size[1] / 3
         if text_height > max_height:
             scale_factor = max_height / text_height
             text_clip = text_clip.resize(newsize=(int(text_width * scale_factor), int(max_height)))
             box_width = int(text_width * scale_factor) + 2 * padding_x
             box_height = int(max_height) + 2 * padding_y
-        # Create the background only if a background color is specified
+
+        image_clip = None
         if bg_color:
             image = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
             draw = ImageDraw.Draw(image)
-            radius = 25  # Rounded corners
+            radius = 25
+            fill_color = (0, 0, 0, int(255 * 0.6)) if bg_color == 'blue' else bg_color
             draw.rounded_rectangle(
                 [(0, 0), (box_width, box_height)],
                 radius=radius,
-                fill=(0, 0, 0, int(255 * 0.6)) if bg_color == 'blue' else bg_color
+                fill=fill_color
             )
             image_np = np.array(image)
             image_clip = ImageClip(image_np).set_duration(text_clip.duration)
-        else:
-            image_clip = None
-        
-        # final_position = SubtitleHelper.calculate_text_position_image(position=position,img_width=video_size[1],img_height=video_size[2],max_text_width=0.8 * video_size[2],total_text_height=max_height)
-        final_position = SubtitleHelper.calculate_text_position_video(position=position,img_width=video_size[0],img_height=video_size[1],max_text_width=0.8 * video_size[0],total_text_height=max_height)
-        # Position the subtitle according to the 'position' parameter
-        # if position == Position.TOP_CENTER:
-        #     final_position = ('center', 0.1 * video_size[1])
-        # elif position == Position.MIDDLE_CENTER:
-        #     final_position = ('center', 'center')
-        # else:  # Position.BOTTOM_CENTER
-        #     final_position = ('center', 0.8 * video_size[1])
 
-        # Combine the background (if it exists) with the text
+        final_position = SubtitleHelper.calculate_text_position_video(
+            position=position,
+            img_width=video_size[0],
+            img_height=video_size[1],
+            max_text_width=0.8 * video_size[0],
+            total_text_height=max_height
+        )
+
         if image_clip:
             subtitle_clip = CompositeVideoClip([image_clip, text_clip]).set_position(final_position)
         else:
             subtitle_clip = text_clip.set_position(final_position)
 
         return subtitle_clip
-    
-# Parte principal para instanciar y ejecutar la clase
+
+# --- Main execution block for testing/demo purposes ---
+
 if __name__ == "__main__":
-    # Definir los parámetros usando archivos de la carpeta .temp
-    ImageHelper.enhance_thumbnail(".temp/NONE_6ffe59f0-6917-48ca-aae1-d960230c69a2.png", 
-                                  "El increible titular está guapísimo para esta noticia impresionante", 
-                                  Position.BOTTOM_CENTER, Style.THUMBNAIL_BOLD, 2000, 95)
-    subtitle_file = "scripts/.temp/subtitles.srt"  # Archivo de subtítulos
-    voiceover_file = ".temp/c6f3db91-5d9a-4db5-8d33-4a22039bb973.mp3"  # Archivo de voz en off
-    output_file = ".temp/Análisis_de_los_Siete_Estados_C2.mp4"  # Archivo de salida
-    media_images = [
+    # Configuration constants for demo/testing
+    SUBTITLE_FILE = "scripts/.temp/subtitles.srt"
+    VOICEOVER_FILE = ".temp/c6f3db91-5d9a-4db5-8d33-4a22039bb973.mp3"
+    OUTPUT_FILE = ".temp/Análisis_de_los_Siete_Estados_C2.mp4"
+    MEDIA_IMAGES = [
         ".temp/NONE_8f38d792-7e26-4eac-9e39-3476fb47ed30.png",
         ".temp/NONE_af2e1d86-dffb-4ebe-a193-8aca7d2c51bc.png",
         ".temp/NONE_058309ef-7531-4093-971c-d65578544e3e.png",
         ".temp/NONE_2a737ae5-7d13-4835-8cb2-cc318a0f2445.png"
-        # Agregar más imágenes según sea necesario
     ]
-    media_videos = []  # Lista de videos adicionales, si tienes alguno para incluir
-    background_music = "Resources\Music\SweetBananaMelody.mp3"  # Ruta a la música de fondo, si deseas agregar una
+    MEDIA_VIDEOS = []
+    BACKGROUND_MUSIC = "Resources/Music/SweetBananaMelody.mp3"
+    ASPECT_RATIO = "16:9"
 
-    # Crear instancia de VideoAssembler
-    video_assembler = VideoAssembler(
-        subtitle_file=subtitle_file,
-        voiceover_file=voiceover_file,
-        output_file=output_file,
-        media_images=media_images,
-        media_videos=media_videos,
-        background_music=background_music,
-        aspect_ratio="16:9"
+    # Example: Enhance thumbnail (for demonstration)
+    ImageHelper.enhance_thumbnail(
+        ".temp/NONE_6ffe59f0-6917-48ca-aae1-d960230c69a2.png",
+        "El increible titular está guapísimo para esta noticia impresionante",
+        Position.BOTTOM_CENTER,
+        Style.THUMBNAIL_BOLD,
+        2000,
+        95
     )
-    video_assembler.assemble_video(style=Style.BOLD,position=Position.BOTTOM_CENTER)
+
+    # Create and run the video assembler
+    video_assembler = VideoAssembler(
+        subtitle_file=SUBTITLE_FILE,
+        voiceover_file=VOICEOVER_FILE,
+        output_file=OUTPUT_FILE,
+        media_images=MEDIA_IMAGES,
+        media_videos=MEDIA_VIDEOS,
+        background_music=BACKGROUND_MUSIC,
+        aspect_ratio=ASPECT_RATIO
+    )
+    video_assembler.assemble_video(style=Style.BOLD, position=Position.BOTTOM_CENTER)
 

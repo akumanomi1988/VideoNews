@@ -1,3 +1,7 @@
+import os
+from enum import Enum
+from typing import Optional, Tuple, Dict, Any
+
 from moviepy.editor import (
     VideoFileClip,
     ImageClip,
@@ -8,21 +12,33 @@ from moviepy.editor import (
 )
 from moviepy.video.tools.subtitles import SubtitlesClip
 from moviepy.video.fx import resize, crop
-import textwrap
 from colorama import init, Fore
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-from enum import Enum
 from pydub import AudioSegment
-import os
 
-# Initialize colorama
+# Inicializa colorama para salida en consola coloreada
 init(autoreset=True)
 
-# Your enums and other classes go here...
+# ------------------ CONSTANTES DE CONFIGURACIÓN ------------------
+FONT_PATHS = {
+    "helvetica": r"C:\Windows\Fonts\Helvetica.ttf",
+    "arial": r"C:\Windows\Fonts\Arial.ttf",
+    "times": r"C:\Windows\Fonts\Times.ttf",
+    "comic": r"C:\Windows\Fonts\ComicSansMS.ttf",
+    "georgia": r"C:\Windows\Fonts\Georgia.ttf",
+    "sub_otf": r"Resources\Fonts\sub.otf",
+    "title_otf": r"Resources\Fonts\title.otf",
+    "intensa": r"Resources\Fonts\Intensa.ttf",
+    "cartoon": r"Resources\Fonts\Cartoon.ttf",
+    "arial_otf": r"Resources\Fonts\Arial.otf"
+}
+TEMP_DIR = ".temp"
+TEMP_MUSIC_FILENAME = "temp_music.wav"
 
-# Enums for subtitle position and style
+# ------------------ ENUMS ------------------
 class Position(Enum):
+    """Posiciones posibles para colocar texto en imágenes o videos."""
     TOP_LEFT = 'top_left'
     TOP_CENTER = 'top_center'
     TOP_RIGHT = 'top_right'
@@ -33,8 +49,8 @@ class Position(Enum):
     BOTTOM_CENTER = 'bottom_center'
     BOTTOM_RIGHT = 'bottom_right'
 
-
 class Style(Enum):
+    """Estilos visuales para subtítulos y portadas."""
     DEFAULT = 'default'
     BOLD = 'bold'
     MINIMAL = 'minimal'
@@ -52,39 +68,42 @@ class Style(Enum):
     THUMBNAIL_CARTOON = 'thumbnail_cartoon'
     THUMBNAIL_INTENSA = 'thumbnail_intensa'
 
-
 # ------------------ VIDEO HELPER ------------------
 class VideoHelper:
-    """Helper for processing video files, adjusting aspect ratios, and concatenating clips."""
+    """Utilidades para procesar videos: ajuste de aspecto, concatenación, etc."""
 
     @staticmethod
-    def get_target_dimensions(aspect_ratio):
-        """Returns target dimensions based on the specified aspect ratio."""
+    def get_target_dimensions(aspect_ratio: str) -> Tuple[int, int]:
+        """Devuelve dimensiones objetivo según el aspect ratio."""
         if aspect_ratio == '9:16':
-            return 1080, 1920  # Vertical aspect ratio
+            return 1080, 1920
         elif aspect_ratio == '16:9':
-            return 1920, 1080  # Horizontal aspect ratio
-        else:
-            raise ValueError(Fore.RED + "❌ Invalid aspect ratio. Use '9:16' or '16:9'.")
+            return 1920, 1080
+        raise ValueError(Fore.RED + "❌ Invalid aspect ratio. Use '9:16' or '16:9'.")
 
     @staticmethod
-    def adjust_aspect_ratio(clip, aspect_ratio):
-        """Resizes and crops the video/image clip to match the target aspect ratio."""
+    def adjust_aspect_ratio(clip, aspect_ratio: str):
+        """Redimensiona y recorta el clip para que coincida con el aspect ratio objetivo."""
         target_w, target_h = VideoHelper.get_target_dimensions(aspect_ratio)
-        clip_aspect_ratio = clip.w / clip.h
-        target_aspect_ratio = target_w / target_h
+        clip_aspect = clip.w / clip.h
+        target_aspect = target_w / target_h
 
-        if clip_aspect_ratio > target_aspect_ratio:
-            resized_clip = resize.resize(clip, height=target_h)
+        if clip_aspect > target_aspect:
+            resized = resize.resize(clip, height=target_h)
         else:
-            resized_clip = resize.resize(clip, width=target_w)
+            resized = resize.resize(clip, width=target_w)
 
-        return crop.crop(resized_clip, width=target_w, height=target_h, 
-                         x_center=resized_clip.w // 2, y_center=resized_clip.h // 2)
+        return crop.crop(
+            resized,
+            width=target_w,
+            height=target_h,
+            x_center=resized.w // 2,
+            y_center=resized.h // 2
+        )
 
     @staticmethod
-    def process_video(file_path, aspect_ratio):
-        """Processes a video file, adjusting its aspect ratio."""
+    def process_video(file_path: str, aspect_ratio: str):
+        """Procesa un archivo de video ajustando su aspect ratio."""
         try:
             print(Fore.CYAN + f"📹 Processing video: {file_path}")
             video_clip = VideoFileClip(file_path)
@@ -94,28 +113,25 @@ class VideoHelper:
             return None
 
     @staticmethod
-    def process_image(file_path, aspect_ratio, audio_duration, num_images):
-        """Processes an image file, adjusting its aspect ratio and setting its duration."""
+    def process_image(file_path: str, aspect_ratio: str, audio_duration: float, num_images: int):
+        """Procesa una imagen ajustando su aspect ratio y duración."""
         try:
             print(Fore.CYAN + f"🖼️ Processing image: {file_path}")
             image_clip = ImageClip(file_path)
             adjusted_clip = VideoHelper.adjust_aspect_ratio(image_clip, aspect_ratio)
-
-            # Calculate duration for each image
             image_duration = audio_duration / num_images
             return adjusted_clip.set_duration(image_duration)
         except Exception as e:
             print(Fore.RED + f"❌ Error processing image {file_path}: {e}")
             return None
 
-
 # ------------------ AUDIO HELPER ------------------
 class AudioHelper:
-    """Helper for processing audio files, including voiceovers and background music."""
+    """Utilidades para procesar archivos de audio: voiceover y música de fondo."""
 
     @staticmethod
-    def get_voiceover_audio(voiceover_file):
-        """Load and return the voiceover audio file."""
+    def get_voiceover_audio(voiceover_file: str) -> AudioFileClip:
+        """Carga y retorna el audio de voiceover con fundido de salida."""
         try:
             audio = AudioFileClip(voiceover_file).audio_fadeout(2)
             return audio
@@ -123,53 +139,57 @@ class AudioHelper:
             raise ValueError(Fore.RED + f"❌ Error loading voiceover: {e}")
 
     @staticmethod
-    def add_background_music(video, music_file, audio_duration):
-        """Add background music to a video."""
+    def add_background_music(video, music_file: str, audio_duration: float):
+        """Agrega música de fondo a un video."""
         try:
             music = AudioSegment.from_mp3(music_file)
-            temp_music_file = os.path.join(".temp", "temp_music.wav")
-            music.export(temp_music_file, format="wav")
+            os.makedirs(TEMP_DIR, exist_ok=True)
+            temp_music_path = os.path.join(TEMP_DIR, TEMP_MUSIC_FILENAME)
+            music.export(temp_music_path, format="wav")
 
-            with AudioFileClip(temp_music_file) as music_clip:
-                music_clip = music_clip.volumex(0.2).subclip(0, audio_duration).audio_fadeout(2)
+            with AudioFileClip(temp_music_path) as music_clip:
+                music_clip = (
+                    music_clip
+                    .volumex(0.2)
+                    .subclip(0, audio_duration)
+                    .audio_fadeout(2)
+                )
                 composite_audio = CompositeAudioClip([video.audio, music_clip])
                 video = video.set_audio(composite_audio)
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error processing background music: {e}")
         return video
 
-
 # ------------------ IMAGE HELPER ------------------
 class ImageHelper:
-    """Helper for image processing, including thumbnail enhancements and image size reduction."""
+    """Utilidades para procesar imágenes: reducción de tamaño y mejora de miniaturas."""
 
     @staticmethod
-    def reduce_image_size(image_path: str, max_size_kb: int, reduction_percentage: int):
-        """Reduces the size of an image if it exceeds the given maximum size.
-        
-        Args:
-            image_path: Path to the image file
-            max_size_kb: Maximum size in KB for the output image
-            reduction_percentage: Percentage to reduce dimensions by in each iteration
-            
-        The function will progressively reduce the image size until it's under max_size_kb,
-        maintaining aspect ratio and image quality as much as possible.
+    def reduce_image_size(
+        image_path: str,
+        max_size_kb: int,
+        reduction_percentage: int
+    ) -> None:
         """
-        import os
+        Reduce el tamaño de una imagen si excede el máximo especificado.
+        """
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"{Fore.RED}❌ Image file not found: {image_path}")
-        if reduction_percentage <= 0 or reduction_percentage >= 100:
+        if not (1 <= reduction_percentage < 100):
             raise ValueError(f"{Fore.RED}❌ Reduction percentage must be between 1 and 99")
+
         current_size_kb = os.path.getsize(image_path) / 1024.0
         if current_size_kb <= max_size_kb:
             print(f"{Fore.GREEN}✅ Image already within size limit: {current_size_kb:.2f} KB")
             return
+
         try:
             image = Image.open(image_path)
             original_format = image.format
             quality = 95
             attempts = 0
-            max_attempts = 10  # Prevent infinite loops
+            max_attempts = 10
+
             while current_size_kb > max_size_kb and attempts < max_attempts:
                 attempts += 1
                 width, height = image.size
@@ -195,22 +215,17 @@ class ImageHelper:
             raise
 
     @staticmethod
-    def enhance_thumbnail(image_path: str, text: str, 
-                      position: Position = Position.MIDDLE_CENTER, 
-                      style: Style = Style.THUMBNAIL_BOLD, 
-                      max_size_kb: int = 2000, 
-                      reduction_percentage: int = 5, 
-                      text_size: int = 0):
-        """Enhances a thumbnail by adding text in the selected position and style.
-        
-        Args:
-            image_path: Path to the image file
-            text: Text to add to the image
-            position: Position enum indicating where to place the text
-            style: Style enum indicating the text style to use
-            max_size_kb: Maximum size in KB for the output image
-            reduction_percentage: Percentage to reduce image by if over max_size_kb
-            text_size: Optional custom text size, as percentage of default size
+    def enhance_thumbnail(
+        image_path: str,
+        text: str,
+        position: Position = Position.MIDDLE_CENTER,
+        style: Style = Style.THUMBNAIL_BOLD,
+        max_size_kb: int = 2000,
+        reduction_percentage: int = 5,
+        text_size: int = 0
+    ) -> None:
+        """
+        Mejora una miniatura agregando texto en la posición y estilo seleccionados.
         """
         try:
             ImageHelper.reduce_image_size(image_path, max_size_kb, reduction_percentage)
@@ -225,26 +240,13 @@ class ImageHelper:
             img_width, img_height = image.size
             max_text_width = int(img_width * 0.6)
             font = ImageFont.truetype(font_path, font_size)
-            lines = []
-            words = text.split()
-            current_line = words[0] if words else ""
-            for word in words[1:]:
-                test_line = f"{current_line} {word}".strip()
-                bbox = draw.textbbox((0, 0), test_line, font=font)
-                line_width = bbox[2] - bbox[0]
-                if line_width <= max_text_width:
-                    current_line = test_line
-                else:
-                    lines.append(current_line)
-                    current_line = word
-            lines.append(current_line)
-            line_heights = []
-            for line in lines:
-                bbox = draw.textbbox((0, 0), line, font=font)
-                line_heights.append(bbox[3] - bbox[1])
+
+            lines = ImageHelper._wrap_text(text, font, max_text_width, draw)
+            line_heights = [draw.textbbox((0, 0), line, font=font)[3] - draw.textbbox((0, 0), line, font=font)[1] for line in lines]
             total_text_height = sum(line_heights)
             line_spacing = int(font_size * 0.2)
             total_height_with_spacing = total_text_height + (line_spacing * (len(lines) - 1))
+
             text_position = SubtitleHelper.calculate_text_position_image(
                 position, img_width, img_height, max_text_width, total_height_with_spacing
             )
@@ -253,25 +255,54 @@ class ImageHelper:
                 bbox = draw.textbbox((0, 0), line, font=font)
                 line_width = bbox[2] - bbox[0]
                 centered_x = text_position[0] + (max_text_width - line_width) // 2
-                if stroke_width and stroke_width > 0:
-                    draw.text((centered_x, current_y), line, fill=text_color, 
-                              stroke_fill=stroke_color, stroke_width=stroke_width, 
-                              font=font, align='center')
-                else:
-                    draw.text((centered_x, current_y), line, fill=text_color, 
-                              font=font, align='center')
+                draw.text(
+                    (centered_x, current_y),
+                    line,
+                    fill=text_color,
+                    stroke_fill=stroke_color if stroke_width else None,
+                    stroke_width=stroke_width,
+                    font=font,
+                    align='center'
+                )
                 current_y += line_heights[idx] + line_spacing
             image.save(image_path)
             print(Fore.GREEN + f"✅ Thumbnail updated: {image_path}")
         except Exception as e:
             print(Fore.RED + f"❌ Error enhancing thumbnail: {e}")
 
+    @staticmethod
+    def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> list:
+        """Divide el texto en líneas para que no excedan el ancho máximo."""
+        words = text.split()
+        if not words:
+            return [""]
+        lines = []
+        current_line = words[0]
+        for word in words[1:]:
+            test_line = f"{current_line} {word}".strip()
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            line_width = bbox[2] - bbox[0]
+            if line_width <= max_width:
+                current_line = test_line
+            else:
+                lines.append(current_line)
+                current_line = word
+        lines.append(current_line)
+        return lines
+
 # ------------------ SUBTITLE HELPER ------------------
 class SubtitleHelper:
+    """Utilidades para generar y posicionar subtítulos en videos."""
+
     @staticmethod
-    def calculate_text_position_image(position, img_width, img_height, max_text_width, text_height):
-        """Calculate text position with a 10% margin."""
-        # Definir los márgenes del 10% de la imagen
+    def calculate_text_position_image(
+        position: Position,
+        img_width: int,
+        img_height: int,
+        max_text_width: int,
+        text_height: int
+    ) -> Tuple[int, int]:
+        """Calcula la posición del texto en una imagen con margen del 10%."""
         margin_x = int(0.1 * img_width)
         margin_y = int(0.1 * img_height)
 
@@ -293,15 +324,20 @@ class SubtitleHelper:
             return ((img_width - max_text_width) // 2, img_height - text_height - margin_y)
         elif position == Position.BOTTOM_RIGHT:
             return (img_width - max_text_width - margin_x, img_height - text_height - margin_y)
-        
-    @staticmethod
-    def calculate_text_position_video(position, img_width, img_height, max_text_width, total_text_height):
-        """Calcula la posición del texto asegurando que no exceda los límites del video y mantenga un margen adecuado."""
-        # Definir márgenes
-        margin_x = int(0.1 * img_width)  # 10% del ancho de la imagen
-        margin_y = int(0.05 * img_height)  # 5% del alto de la imagen
+        return (margin_x, margin_y)
 
-        # Posicionamiento en base a la opción seleccionada
+    @staticmethod
+    def calculate_text_position_video(
+        position: Position,
+        img_width: int,
+        img_height: int,
+        max_text_width: int,
+        total_text_height: int
+    ) -> Tuple[int, int]:
+        """Calcula la posición del texto en un video con margen adecuado."""
+        margin_x = int(0.1 * img_width)
+        margin_y = int(0.05 * img_height)
+
         if position == Position.TOP_LEFT:
             return (margin_x, margin_y)
         elif position == Position.TOP_CENTER:
@@ -320,16 +356,18 @@ class SubtitleHelper:
             return ((img_width - max_text_width) // 2, img_height - total_text_height - margin_y)
         elif position == Position.BOTTOM_RIGHT:
             return (img_width - max_text_width - margin_x, img_height - total_text_height - margin_y)
+        return (margin_x, margin_y)
+
     @staticmethod
-    def split_subtitles(subtitle_text, font, max_width):
-        """Split long subtitles into shorter lines for better readability."""
+    def split_subtitles(subtitle_text: str, font: ImageFont.FreeTypeFont, max_width: int) -> str:
+        """Divide subtítulos largos en líneas más cortas para mejor legibilidad."""
+        words = subtitle_text.split()
         wrapped_lines = []
         current_line = ""
-        for word in subtitle_text.split():
+        for word in words:
             test_line = f"{current_line} {word}".strip()
-            # Calculate the width using textlength
             line_width = font.getlength(test_line)
-            if line_width <= max_width:  # Adjust to fit within the width
+            if line_width <= max_width:
                 current_line = test_line
             else:
                 wrapped_lines.append(current_line)
@@ -339,47 +377,40 @@ class SubtitleHelper:
         return '\n'.join(wrapped_lines)
 
     @staticmethod
-    def generate_subtitle(txt, video_size, 
-                        position=Position.MIDDLE_CENTER,
-                        style=Style.BOLD,
-                        bg_color=None):
+    def generate_subtitle(
+        txt: str,
+        video_size: Tuple[int, int],
+        position: Position = Position.MIDDLE_CENTER,
+        style: Style = Style.BOLD,
+        bg_color: Optional[str] = None
+    ):
         """
-        Generate subtitles with customizable styles and positioning.
+        Genera un clip de subtítulo con estilos y posicionamiento personalizables.
         """
-        # Obtener parámetros del estilo utilizando StyleHelper
         style_params = SubtitleHelper.get_style_parameters(style)
-        
-        # Asignar los valores obtenidos del estilo
         font_path = style_params['font_path']
         max_fontsize = style_params['fontsize']
         stroke_color = style_params['stroke_color']
         stroke_width = style_params['stroke_width']
         text_color = style_params['text_color']
-        
-        # Cargar la fuente con el tamaño máximo        font = ImageFont.truetype(font_path, max_fontsize)
-        max_text_width = video_size[0] * 0.95  # Permitimos un padding (95% del ancho del video)
 
-        # Dividir los subtítulos largos en líneas más cortas para que se ajusten al ancho del video
+        font = ImageFont.truetype(font_path, max_fontsize)
+        max_text_width = int(video_size[0] * 0.95)
+
         txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)
 
-        # Create a temporary image to measure text
         temp_img = Image.new('RGB', (1, 1))
         temp_draw = ImageDraw.Draw(temp_img)
-
-        # Reducir dinámicamente el tamaño de la fuente en un 5% hasta que el texto quepa dentro del límite
         bbox = temp_draw.multiline_textbbox((0, 0), txt, font=font)
         while (bbox[2] - bbox[0]) > max_text_width and max_fontsize > 50:
-            max_fontsize = int(max_fontsize * 0.95)  # Reducir el tamaño de la fuente en un 5%
+            max_fontsize = int(max_fontsize * 0.95)
             font = ImageFont.truetype(font_path, max_fontsize)
-            txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)  # Volver a dividir el texto
+            txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)
             bbox = temp_draw.multiline_textbbox((0, 0), txt, font=font)
 
-        # Calcular el tamaño del texto basado en las líneas divididas
-        bbox = temp_draw.multiline_textbbox((0, 0), txt, font=font)
-        text_width = bbox[2] - bbox[0]  # right - left
-        text_height = bbox[3] - bbox[1]  # bottom - top
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
 
-        # Generar el clip de texto con el nuevo tamaño de fuente
         text_clip = TextClip(
             txt,
             font=font_path,
@@ -387,20 +418,18 @@ class SubtitleHelper:
             color=text_color,
             stroke_color=stroke_color,
             stroke_width=stroke_width,
-            size=(max_text_width, None),  # Limitar el ancho
+            size=(max_text_width, None),
             align='center',
             method='caption'
         )
 
-        # Calcular la posición del texto basada en el valor del enum `Position`
         final_position = SubtitleHelper.calculate_text_position_video(
-            position, 
-            video_size[0], video_size[1], 
-            text_width, 
+            position,
+            video_size[0], video_size[1],
+            text_width,
             text_height
         )
 
-        # Si se especifica un color de fondo, añadir una caja de fondo
         if bg_color:
             padding_x = 20
             padding_y = 10
@@ -423,26 +452,33 @@ class SubtitleHelper:
 
         return subtitle_clip
 
-
     @staticmethod
-    def add_subtitles(video, subtitle_file, style=Style.DEFAULT, position=Position.MIDDLE_CENTER):
-        """Add subtitles to the video based on the provided subtitle file."""
+    def add_subtitles(
+        video,
+        subtitle_file: str,
+        style: Style = Style.DEFAULT,
+        position: Position = Position.MIDDLE_CENTER
+    ):
+        """Agrega subtítulos al video usando el archivo proporcionado."""
         try:
-            subtitles = SubtitlesClip(subtitle_file, lambda txt: SubtitleHelper.generate_subtitle(txt, video.size, style=style, position=position))
+            subtitles = SubtitlesClip(
+                subtitle_file,
+                lambda txt: SubtitleHelper.generate_subtitle(
+                    txt, video.size, style=style, position=position
+                )
+            )
             return CompositeVideoClip([video, subtitles])
         except Exception as e:
             raise ValueError(f"❌ Error adding subtitles: {e}")
-        
+
     @staticmethod
-    def get_style_parameters(style: Style):
+    def get_style_parameters(style: Style) -> Dict[str, Any]:
         """
-        Returns the style parameters (font, size, colors, stroke) for different styles.
-        The styles cover both 'thumbnail' and 'subtitle' use cases.
+        Devuelve los parámetros de estilo (fuente, tamaño, colores, trazo) para diferentes estilos.
         """
         styles = {
-            # Estilos para subtítulos
             Style.DEFAULT: {
-                'font_path': "C:\\Windows\\Fonts\\Helvetica.ttf",
+                'font_path': FONT_PATHS["helvetica"],
                 'fontsize': 90,
                 'stroke_color': 'black',
                 'stroke_width': 3,
@@ -450,7 +486,7 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.BOLD: {
-                'font_path': "Resources\\Fonts\\sub.otf",
+                'font_path': FONT_PATHS["sub_otf"],
                 'fontsize': 100,
                 'stroke_color': 'white',
                 'stroke_width': 5,
@@ -458,7 +494,7 @@ class SubtitleHelper:
                 'bg_color': 'black'
             },
             Style.MINIMAL: {
-                'font_path': "C:\\Windows\\Fonts\\Arial.ttf",
+                'font_path': FONT_PATHS["arial"],
                 'fontsize': 80,
                 'stroke_color': 'black',
                 'stroke_width': 0,
@@ -466,7 +502,7 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.ELEGANT: {
-                'font_path': "C:\\Windows\\Fonts\\Times.ttf",
+                'font_path': FONT_PATHS["times"],
                 'fontsize': 95,
                 'stroke_color': 'gray',
                 'stroke_width': 2,
@@ -474,7 +510,7 @@ class SubtitleHelper:
                 'bg_color': 'navy'
             },
             Style.VIBRANT: {
-                'font_path': "Resources\\Fonts\\sub.otf",
+                'font_path': FONT_PATHS["sub_otf"],
                 'fontsize': 115,
                 'stroke_color': 'blue',
                 'stroke_width': 6,
@@ -482,7 +518,7 @@ class SubtitleHelper:
                 'bg_color': 'yellow'
             },
             Style.CASUAL: {
-                'font_path': "C:\\Windows\\Fonts\\ComicSansMS.ttf",
+                'font_path': FONT_PATHS["comic"],
                 'fontsize': 85,
                 'stroke_color': None,
                 'stroke_width': 0,
@@ -490,7 +526,7 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.SUBTLE: {
-                'font_path': "Resources\\Fonts\\sub.otf",
+                'font_path': FONT_PATHS["sub_otf"],
                 'fontsize': 70,
                 'stroke_color': 'green',
                 'stroke_width': 2,
@@ -498,7 +534,7 @@ class SubtitleHelper:
                 'bg_color': 'black'
             },
             Style.FORMAL: {
-                'font_path': "C:\\Windows\\Fonts\\Georgia.ttf",
+                'font_path': FONT_PATHS["georgia"],
                 'fontsize': 100,
                 'stroke_color': 'darkblue',
                 'stroke_width': 6,
@@ -506,17 +542,15 @@ class SubtitleHelper:
                 'bg_color': 'white'
             },
             Style.DRAMATIC: {
-                'font_path': "Resources\\Fonts\\Arial.otf",
+                'font_path': FONT_PATHS["arial_otf"],
                 'fontsize': 120,
                 'stroke_color': 'black',
                 'stroke_width': 6,
                 'text_color': 'yellow',
                 'bg_color': None
             },
-            
-            # Estilos para portadas (thumbnail)
             Style.THUMBNAIL_BOLD: {
-                'font_path': "Resources\\Fonts\\title.otf",
+                'font_path': FONT_PATHS["title_otf"],
                 'fontsize': 120,
                 'stroke_color': 'red',
                 'stroke_width': 8,
@@ -524,7 +558,7 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.THUMBNAIL_MINIMAL: {
-                'font_path': "Resources\\Fonts\\Intensa.ttf",
+                'font_path': FONT_PATHS["intensa"],
                 'fontsize': 100,
                 'stroke_color': None,
                 'stroke_width': 0,
@@ -532,7 +566,7 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.THUMBNAIL_INTENSA: {
-                'font_path': "Resources\\Fonts\\Intensa.ttf",
+                'font_path': FONT_PATHS["intensa"],
                 'fontsize': 100,
                 'stroke_color': 'red',
                 'stroke_width': 8,
@@ -540,7 +574,7 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.THUMBNAIL_ELEGANT: {
-                'font_path': "C:\\Windows\\Fonts\\Times.ttf",
+                'font_path': FONT_PATHS["times"],
                 'fontsize': 150,
                 'stroke_color': 'gray',
                 'stroke_width': 2,
@@ -548,7 +582,7 @@ class SubtitleHelper:
                 'bg_color': 'darkblue'
             },
             Style.THUMBNAIL_VIBRANT: {
-                'font_path': "Resources\\Fonts\\title.otf",
+                'font_path': FONT_PATHS["title_otf"],
                 'fontsize': 115,
                 'stroke_color': 'blue',
                 'stroke_width': 6,
@@ -556,7 +590,7 @@ class SubtitleHelper:
                 'bg_color': 'yellow'
             },
             Style.THUMBNAIL_CASUAL: {
-                'font_path': "Resources\\Fonts\\Cartoon.ttf",
+                'font_path': FONT_PATHS["cartoon"],
                 'fontsize': 180,
                 'stroke_color': 'white',
                 'stroke_width': 8,
@@ -564,7 +598,7 @@ class SubtitleHelper:
                 'bg_color': None
             },
             Style.THUMBNAIL_CARTOON: {
-                'font_path': "Resources\\Fonts\\Cartoon.ttf",
+                'font_path': FONT_PATHS["cartoon"],
                 'fontsize': 180,
                 'stroke_color': 'white',
                 'stroke_width': 8,
@@ -572,5 +606,4 @@ class SubtitleHelper:
                 'bg_color': None
             }
         }
-        # Return the style parameters for the given style
-        return styles.get(style, styles[Style.DEFAULT])  # Fallback to DEFAULT if style is not found
+        return styles.get(style, styles[Style.DEFAULT])

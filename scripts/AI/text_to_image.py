@@ -28,6 +28,17 @@ class StylePreset(Enum):
     ABSTRACT = "NO TEXT. Non-representational imagery featuring vibrant splashes of color and sharp contrasts, captured in close-up macro shots to create visual intrigue."
     REALISM = "NO TEXT. Faithful depiction of scenes with natural colors, medium shot, and balanced light that emphasize fine details for an authentic look."
     YOUTUBE_THUMBNAIL = "Image without text. High-contrast, vibrant colors with a clean and focused composition. Sharp HD quality, ensuring crystal-clear details. A strikingly seductive woman with an expressive, engaging gaze, her slightly parted lips hinting at playful intrigue. Her captivating eyes lock onto the viewer, radiating confidence and allure. The shot is a half-height close-up, perfectly framing her elegant features. The background is softly blurred and neutral, ensuring no distractions while emphasizing her charm. Balanced lighting enhances her beauty, creating depth and warmth. The overall aesthetic is eye-catching, sophisticated, and irresistibly captivating."
+    DISNEY = "NO TEXT. Whimsical, colorful characters with large expressive eyes and soft, rounded features. Magical backgrounds, fairy-tale atmosphere, and a warm, inviting color palette inspired by classic Disney animation."
+    PIXAR = "NO TEXT. 3D animated style with vibrant colors, exaggerated expressions, and cinematic lighting. Playful and heartwarming, with a focus on storytelling and emotional depth, reminiscent of Pixar movies."
+    KIDS_BOOK = "NO TEXT. Simple, playful illustrations with bold outlines and bright, cheerful colors. Friendly characters and imaginative scenes, as seen in classic children's picture books."
+    CARTOON = "NO TEXT. Exaggerated, humorous characters with bold lines and flat colors. Dynamic poses and expressive faces, in the style of Saturday morning cartoons."
+    PIXELART = "NO TEXT. Retro pixel art style with blocky, low-resolution graphics and a limited color palette. Nostalgic and playful, reminiscent of classic 8-bit and 16-bit video games."
+    LEGO = "NO TEXT. 3D render of scenes and characters built entirely from LEGO bricks, with glossy plastic textures and playful construction."
+    PAPER_CUTOUT = "NO TEXT. Collage style using layered paper cutouts, with visible textures and shadows, creating a handcrafted, tactile look."
+    CLAYMATION = "NO TEXT. Stop-motion clay animation style, with soft, rounded shapes and visible fingerprints, giving a handmade, playful feel."
+    STORYBOOK_WATERCOLOR = "NO TEXT. Gentle watercolor washes and soft pencil outlines, evoking the charm of classic children's storybook illustrations."
+    CHIBI = "NO TEXT. Super-deformed, cute characters with oversized heads and eyes, tiny bodies, and bright, pastel colors, inspired by Japanese chibi art."
+    DREAMWORKS = "NO TEXT. 3D animated style with expressive, slightly exaggerated characters, dynamic lighting, and a cinematic, adventurous atmosphere, inspired by DreamWorks Animation films."
 
 class FluxImageGenerator:
     def __init__(self, token=None, output_dir="output_images", model="black-forest-labs/FLUX.1-schnell"):
