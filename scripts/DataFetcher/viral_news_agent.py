@@ -1,4 +1,5 @@
 import json
+import spacy
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
@@ -15,7 +16,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from textblob import TextBlob
 from urllib3.util.retry import Retry
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-import spacy
 import textstat
 
 from scripts.DataFetcher.news_mapper import parse_rss_to_standard_object
