@@ -168,5 +168,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Star History ⭐
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Akumanomi1988/from_news_to_uploaded&type=Date)](https://star-history.com/#Akumanomi1988/from_news_to_uploaded&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=akumanomi1988/VideoNews&type=Date)](https://www.star-history.com/#akumanomi1988/VideoNews&Date)
 ---
