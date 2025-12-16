@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional, Union
 import psutil
 from colorama import Fore, init
 from telegram import CallbackQuery, Message
-
 from scripts.AI.natural_language_generation import Chatbot
 from scripts.AI.speech_to_text import stt_whisper
 from scripts.AI.text_to_speech import TTSFactory, TTSProvider
@@ -301,7 +300,6 @@ class NewsVideoProcessor:
             self.cleanup_temp_folder()
             os.makedirs(self.temp_dir, exist_ok=True)
             latest_news = [forze_topic]
-            cover = None
 
             self.send_progress(
                 "🎬 *Starting Video Creation*\n\n"
@@ -342,10 +340,11 @@ class NewsVideoProcessor:
                 audio_path = self.tts.text_to_speech_file(
                     article,
                     voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE]['language'],
-                    srt_path=os.path.join(self.temp_dir, 'subtitles.srt')
+                    language=self.config[CONFIG_TTS_EDGE]['language']
+                    # srt_path=os.path.join(self.temp_dir, 'subtitles.srt')
                 )
 
+                
                 subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
 
                 self.send_progress(
@@ -366,7 +365,7 @@ class NewsVideoProcessor:
 
                 output_file = os.path.join(self.temp_dir, self.clean_filename(title))
                 video_assembler = VideoAssembler(
-                    subtitle_file=subtitle_path,
+                    subtitle_file=None,
                     voiceover_file=audio_path,
                     output_file=output_file,
                     media_images=media_images,

@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 from colorama import init, Fore
-from pydub import AudioSegment
+
 import moviepy.editor as mp
 from moviepy.video.tools.subtitles import SubtitlesClip
 from moviepy.editor import (
@@ -16,7 +16,8 @@ from moviepy.video.fx import resize, crop
 
 from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleHelper
 from AkumaImageEffect.effect_engine import AkumaEngine, EffectConfig
-import AkumaImageEffect.effects.core_effects  # Auto-imports and registers effects
+# import AkumaImageEffect.effects.core_effects  # Auto-imports and registers effects
+from AkumaSubtitler import AkumaSubtitler
 
 # Initialize colorama for colored terminal output
 init(autoreset=True)
@@ -204,8 +205,18 @@ class VideoAssembler:
 
         if self.subtitle_file:
             video = self._add_subtitles(video, style, position)
+            self._write_final_video(video, audio.duration)
+        else:
+            self._write_final_video(video, audio.duration)
+            # Initialize the subtitler
+            akuma = AkumaSubtitler()
+            # Basic usage with auto-generated subtitles
+            akuma.forge_video(
+                video_path=self.output_file,
+                output_path=self.output_file
+            )
 
-        self._write_final_video(video, audio.duration)
+
 
     def _concatenate_clips(self, clips: List[VideoFileClip]) -> CompositeVideoClip:
         """

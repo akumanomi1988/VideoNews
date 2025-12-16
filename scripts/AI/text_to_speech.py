@@ -13,11 +13,11 @@ from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 import uuid
-from colorama import Fore, Style, init
+from colorama import Fore,  init
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
 from pydub import AudioSegment
-from scipy.io.wavfile import write as write_wav
+# from scipy.io.wavfile import write as write_wav
 from bark import generate_audio, preload_models, SAMPLE_RATE
 import edge_tts
 
@@ -76,7 +76,7 @@ class TTSEdge:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    async def text_to_speech(self, text: str, voice: str = "es-ES-XimenaNeural", rate: int = 0, pitch: int = 0, srt_path: str = None):
+    async def text_to_speech(self, text: str, voice: str = "es-ES-XimenaNeural", rate: int = 0, pitch: int = 0):
         """
         Converts text to speech using edge_tts and saves the result as an MP3 file.
         :param text: The content of text to convert to speech.
@@ -98,7 +98,6 @@ class TTSEdge:
 
             # Generate TTS audio using edge_tts
             communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
-            submaker = edge_tts.SubMaker()
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
                 tmp_path = tmp_file.name
@@ -106,13 +105,6 @@ class TTSEdge:
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             audio_file.write(chunk["data"])
-                        elif chunk["type"] == "WordBoundary":
-                            submaker.feed(chunk)
-
-            # Save subtitles if srt_path is provided
-            if srt_path:
-                with open(srt_path, "w") as srt_file:
-                    srt_file.write(submaker.get_srt())
 
             # Move the audio file to the output directory with a unique name
             file_name = f"{uuid.uuid4()}.mp3"
@@ -130,7 +122,7 @@ class TTSEdge:
         voices = await edge_tts.list_voices()
         return {f"{v['ShortName']} - {v['Locale']} ({v['Gender']})": v['ShortName'] for v in voices}
 
-    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural', srt_path: str = None) -> str:
+    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural') -> str:
         """
         Generates TTS audio and returns the path of the saved audio file.
         :param text: The text to convert to speech.
@@ -156,7 +148,7 @@ class TTSEdge:
             selected_voice = random.choice(list(filtered_voices.values()))
             print(Fore.YELLOW + f"Preferred voice not found. Using random voice: {selected_voice}")
         # Call the asynchronous function to generate audio
-        audio_file, error = asyncio.run(self.text_to_speech(text, selected_voice, srt_path=srt_path))
+        audio_file, error = asyncio.run(self.text_to_speech(text, selected_voice))
         if error:
             raise Exception(Fore.RED + f"Error generating audio: {error}")
         return audio_file
@@ -410,11 +402,11 @@ class TTSBark:
         return voices
 
 if __name__ == "__main__":
-    TEXT = "Hello World!"
-    VOICE = "en-GB-SoniaNeural"
+    TEXT = "El amanecer ilumina lentamente la ciudad, despertando sus calles silenciosas. Los primeros rayos acarician los tejados mientras la brisa fresca anuncia un nuevo día. Personas apresuradas inician sus rutinas, cafés humeantes acompañan los pensamientos y, entre el bullicio, cada mirada guarda una historia única, lista para comenzar nuevamente."
+    VOICE = "es-VE-SebastianNeural - es-VE (Male)"
     OUTPUT_FILE = "test.mp3"
     SRT_FILE = "test.srt"
 
     tts_factory = TTSFactory(TTSProvider.EDGE, output_dir="output_audio")
-    audio_file = tts_factory.text_to_speech_file(TEXT, voice=VOICE, srt_path=SRT_FILE)
+    audio_file = tts_factory.text_to_speech_file(TEXT, voice=VOICE)
     print(f"Audio file saved to: {audio_file}")

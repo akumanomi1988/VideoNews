@@ -4,7 +4,9 @@ google-auth-oauthlib
 google-auth-httplib2
 colorama
 pydub
-moviepy
+moviepy==1.0.3
+openai-whisper
+ffmpeg-python
 configparser
 uuid
 elevenlabs
@@ -13,7 +15,7 @@ whisper
 requests
 Pillow
 newsapi-python
-g4f
+g4f[all]
 edge_tts
 python-telegram-bot==20.0
 nest_asyncio
@@ -34,6 +36,9 @@ python-dateutil
 tenacity
 urllib3>=2.0.0
 requests[security]
+lxml[html_clean]
+akumaimageeffect
+akumasubtitler
 
 # Dependencias adicionales (no se instalan con pip):
 # - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.

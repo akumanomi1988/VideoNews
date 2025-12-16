@@ -30,7 +30,6 @@ build/
 *.egg
 
 # Archivos de configuración de IDEs
-.vscode/
 .idea/
 *.suo
 *.sw?
@@ -82,3 +81,6 @@ har_and_cookies*
 config.json
 viral_news.json
 test*.py
+
+config.json
+viral_news.json
