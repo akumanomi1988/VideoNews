@@ -3,12 +3,11 @@ import os
 import uuid
 import json
 import random
-from PIL import Image
-import g4f
 from colorama import Fore, Style, init
 import time
+from g4f.client import Client
 
-from scripts.DataFetcher.news_extractor import NewsExtractor
+from scripts.DataFetcher.news_extractor import NewsExtractor,ArticleData
 # Initialize Colorama
 init(autoreset=True)
 
@@ -24,40 +23,51 @@ class Chatbot:
         """
         self.language = language
         self.model = model
+        self.standard_rules = ('Your output must be a properly formatted JSON object, using double quotes for keys and single quotes for values. Ensure proper nesting, avoid trailing commas, and escape special characters when necessary.'
+                               'Ensure everything you say is factual and accurate, including years, numbers, and names.'
+                               )
+        self.ideology = 'Advocating for the transformation of existing structures toward a more just and equitable system'
+        self.tone = 'Adapt the tone of the narration based on the nature of the news: if it is serious or tragic, use a somber, reflective style with a dramatic touch to heighten the impact. If the news is light or has humorous potential, adopt a colloquial, street-style, or even profane tone to make it more entertaining and relatable. For topics involving elites, scandals, or high-society situations, use a sarcastic or posh tone to emphasize the irony. If the news carries a mysterious vibe, employ a conspiratorial style with subtle insinuations and unexpected twists to sow controlled doubts.'
 
     def generate_title(self, topic):
         title_prompt = (
-            'generate a response that must be a fully structured JSON object with the following format:\n'
+            'Generate a response that must be a fully structured JSON object with the following format:\n'
             '{'
-            '  "title": ""  //Create a highly engaging and SEO-optimized YouTube title that incorporates relevant keywords to attract viewers and boost search rankings. The title should be a maximum of 80 characters, capitalize the most important words, and include relevant emojis.'
+            '  "title": ""  // Create a highly engaging and SEO-optimized YouTube news title '
+            'that incorporates relevant keywords to attract viewers and boost search rankings. '
+            'The title should be highly clickable, a maximum of 80 characters, avoid URLs, capitalize the most important words, '
+            'and include relevant emojis to increase engagement.'
+            ' It should clearly indicate that the content is news-related, '
+            'either by specifying the topic (e.g., Economy, Politics, Tech) or using words like "Breaking," "Latest," or "Report".'
             '}'
-            'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
+            f'{self.standard_rules}'
             f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
+            f'- **Language of the title must be: [{self.language}]**\n'
             f'- Headline: [{topic}]\n'
         )
-        print(Fore.BLUE + f'title')
+
+        print(Fore.BLUE + 'Generating Title...')
         title_json = self._generate_json_element(title_prompt)
         return title_json.get('title', '')
-
+    
     def generate_description(self, topic):
         description_prompt = (
             'You are a creative and engaging news writer. Based on the headline and language I provide, '
             'generate a response that must be a fully structured JSON object with the following format:\n'
             '{\n'
-            '  "description": ""  // Write a brief, SEO-optimized video description in ' + self.language + ' that highlights key points while keeping the most intriguing details hidden. Use relevant keywords to enhance search visibility and create curiosity, enticing viewers to watch the video for the full story.'
+            '  "description": ""  // Write a brief, SEO-optimized video description in ' + self.language + ' that highlights key points while keeping the most intriguing details hidden.'
+                                    ' Use relevant keywords to enhance search visibility and create curiosity, enticing viewers to watch the video for the full story.'
             '}\n'
-            'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
+            f'{self.standard_rules}'
             f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
+            f'- **Languageof the article must be: [{self.language}]**\n'
             f'- Headline: [{topic}]\n'
         )
         print(Fore.BLUE + f'description')
         description_json = self._generate_json_element(description_prompt)
         return description_json.get('description', '')
 
-    
-    def generate_short_article(self, topic, length=100):
+    def generate_short_article(self, topic, length=50, accept_labels =False):
         def is_url(string):
             # Simple regex to check if the string is a URL
             return re.match(r'^(?:http|ftp)s?://', string) is not None
@@ -66,16 +76,24 @@ class Chatbot:
             # If the topic is a URL, use NewsExtractor to extract the article text
             extractor = NewsExtractor()
             article_text = extractor.extract_article(topic)
+            if article_text == None:
+                raise Exception('No article text')
             article_prompt = (
-                'generate a response that must be a fully structured JSON object with the following format:\n'
+                'Generate a response that must be a fully structured JSON object with the following format:\n'
                 '{\n'
-                '  "article": "" // Write a factual and informative summary of the following news article in ' + self.language + ' with a serious and professional tone. Present the key details of the event clearly and concisely, ensuring the summary is around ' + str(length) + ' words long. Focus on delivering the facts objectively, without unnecessary opinions or emotions, maintaining a formal style typical of traditional news reports. Emphasize clarity and precision to ensure the narrative is engaging while adhering to the word limit'
+                '  "article": "" // Write a factual and informative summary of the following news article in ' + self.language + ' with a serious and professional tone.'
+                                            ' As a narrator text.'
+                                            ' Present the key details of the event clearly and concisely, ensuring the summary is around ' + str(length) + ' words long.'
+                                            ' Include a call-to-action at the end encouraging readers to visit the channel to watch the full video for more details and insights.\n'
                 '}\n'
-                'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
-                'Ensure everything you say is truth. years, numbers and people.\n'
+                f'{self.standard_rules}\n'
+                f'- Ideological framing: {self.ideology}\n'
+                f'- Tone: {self.tone}\n'
                 f'Parameters:\n'
-                f'- Language: [{self.language}]\n'
-                f'- Article Text: [{article_text}]\n'
+                f'- **Language of the article must be: [{self.language}]**\n'
+                f'- **Word count: Approximately {str(length)} words**\n'
+                f'- **Call-to-action: Include a clear and engaging invitation to watch the full video on the channel**\n'
+                f'- Article Text: [{article_text.text}]'
             )
         else:
             # If the topic is not a URL, proceed with the original prompt
@@ -84,25 +102,36 @@ class Chatbot:
                 '{\n'
                 '  "article": "" // Write a factual and informative news article in ' + self.language + ' with a serious and professional tone. Present the key details of the event clearly and concisely, ensuring the article is around ' + str(length) + ' words long. Focus on delivering the facts objectively, without unnecessary opinions or emotions, maintaining a formal style typical of traditional news reports. Emphasize clarity and precision to ensure the narrative is engaging while adhering to the word limit'
                 '}\n'
-                'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
-                'Ensure everything you say is truth. years, numbers and people.\n'
+                f'{self.standard_rules}'
+                f'- Ideological framing: {self.ideology}'
+                f'- Tone: {self.tone}'
                 f'Parameters:\n'
-                f'- Language: [{self.language}]\n'
+                f'- **Languageof the article must be: [{self.language}]**\n'
                 f'- Headline: [{topic}]\n'
             )
 
         print(Fore.BLUE + f'article')
         article_json = self._generate_json_element(article_prompt)
+        if accept_labels:
+            return self.add_labels_to_text(article_json.get('article', ''))
         return article_json.get('article', '')
+    
     def generate_introduction(self, topic):
         # Genera una introducción breve pero intrigante
         intro_prompt = (
             'generate a response that must be a fully structured JSON object with the following format:\n'
             '{\n'
-            '  "article": "" // Write a brief, captivating introduction in ' + self.language + ' about the topic I provided. The introduction should be intriguing, hinting at something larger and more significant to come later. It should build anticipation while setting the scene in a serious and professional tone. The length of the introduction should be short, but impactful. Avoid giving away too much information upfront.\n'
+            '  "article": "" // Write a brief, captivating introduction in ' + self.language + ' about the topic I provided.'
+                            ' The introduction should be intriguing, hinting at something larger and more significant to come later.'
+                            ' It should build anticipation while setting the scene in a serious and professional tone.'
+                            ' The length of the introduction should be short, but impactful.'
+                            ' Avoid giving away too much information upfront.'
             '}\n'
+            f'{self.standard_rules}'
+            f'- Ideological framing: {self.ideology}'
+            f'- Tone: {self.tone}'
             f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
+            f'- **Language of the article must be: [{self.language}]**\n'
             f'- Headline: [{topic}]\n'
         )
         print(Fore.BLUE + f'Article: Introduction')
@@ -114,10 +143,17 @@ class Chatbot:
         development_prompt = (
             'generate a response that must be a fully structured JSON object with the following format:\n'
             '{\n'
-            '  "article": "" // Write an in-depth and detailed development of the news article in ' + self.language + ' about the topic I provided. The content should focus on the central events, providing all relevant details and context. The tone should remain serious and objective, and the article should include an exploration of the main details, stakeholders, and any expert opinions. The development should not be too short but should fit within a single response, aiming for a detailed exploration of the topic.\n'
+            '  "article": "" // Write an in-depth and detailed development of the news article in ' + self.language + ' about the topic I provided.'
+                                ' Speak as a professional narrator.'
+                                ' The content should focus on the central events, providing all relevant details and context.'
+                                ' The tone should remain serious and objective, and the article should include an exploration of the main details, stakeholders, and any expert opinions.'
+                                ' The development should not be too short but should fit within a single response, aiming for a detailed exploration of the topic.'
             '}\n'
+            f'{self.standard_rules}'
+            f'- Ideological framing: {self.ideology}'
+            f'- Tone: {self.tone}'
             f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
+            f'- **Language of the article must be: [{self.language}]**\n'
             f'- Headline: [{topic}]\n'
         )
         print(Fore.BLUE + f'Article: Body')
@@ -129,97 +165,222 @@ class Chatbot:
         conclusion_prompt = (
             'generate a response that must be a fully structured JSON object with the following format:\n'
             '{\n'
-            '  "article": "" // Write a brief conclusion or resolution in ' + self.language + ' that sums up the key takeaways from the news article about the topic provided. The conclusion should give a final perspective on the issue, hinting at possible future implications or developments. It should be succinct yet thought-provoking, bringing the article to a close without adding new details.\n'
+            '  "article": "" // Write a brief conclusion or resolution in ' + self.language + ' that sums up the key takeaways from the news article about the topic provided.'
+                            ' The conclusion should give a final perspective on the issue, hinting at possible future implications or developments.'
+                            ' It should be succinct yet thought-provoking, bringing the article to a close without adding new details.\n'
             '}\n'
+            f'{self.standard_rules}'
+            f'- Ideological framing: {self.ideology}'
+            f'- Tone: {self.tone}'
             f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
+            f'- **Language of the article must be: [{self.language}]**\n'
             f'- Headline: [{topic}]\n'
         )
         print(Fore.BLUE + f'Article: Conclusion')
         conclusion_json = self._generate_json_element(conclusion_prompt)
         return conclusion_json.get('article', '')
 
+    def add_labels_to_text(self, text):
+        label_prompt = (
+            "Generate a fully structured JSON object with the following format:\n"
+            "{\n"
+            '  "text_with_labels": "" // Rewrite the input text by adding specific tags in brackets (`[ ]`) '
+            "to control emotions, style, speed, pauses, and other elements based on the following rules:\n"
+            "1. **Emotions and Style**: Add tags like `[happy]`, `[sad]`, `[angry]`, `[formal]`, `[informal]`, or `[sarcastic]` "
+            "where relevant to reflect the tone of the text.\n"
+            "2. **Speed**: Use `[slow]` or `[fast]` to adjust the speaking speed in specific parts.\n"
+            "3. **Pauses and Silences**: Insert `[short_pause]`, `[long_pause]`, or `[silence:Xseconds]` to mark natural or dramatic pauses.\n"
+            "4. **Voice Change**: If there are multiple characters, use identifiers like `[v2/en_speaker_0]` or `[v2/es_speaker_9]` "
+            "to dynamically change the voice.\n"
+            "5. **Background Noise/Effects**: Add `[noise:crowd]`, `[sound:thunder]`, or similar effects to enhance the narration.\n"
+            "6. **Language**: If the text changes language, use `[language:es]` or `[language:en]`.\n"
+            "7. **Combination of Instructions**: Combine multiple tags if necessary (e.g., `[happy][slow] This is wonderful.`).\n"
+            "Your goal is to improve the narration by making it more expressive, dynamic, and suitable for audio conversion using these tags. "
+            "Keep the original text intact but add the necessary tags to maximize emotional and stylistic impact.\n"
+            "}\n"
+            f'{self.standard_rules}'
+            f'- Ideological framing: {self.ideology}\n'
+            f'- Tone: {self.tone}\n'
+            'Rules:\n'
+            '- Ensure the output is coherent and contextually appropriate.\n'
+            '- Use proper grammar and punctuation.\n'
+            '- Avoid unnecessary complexity.\n'
+            '- Maintain the original meaning of the text.\n'
+            f'Parameters:\n'
+            f'- Language of text must be: [{self.language}]\n'
+            f'- Input Text: [{text}]\n'
+        )
+        print(Fore.BLUE + f'Text: Adding Labels')
+        labeled_json = self._generate_json_element(label_prompt)
+        return labeled_json.get('text_with_labels', '')
 
-    def generate_full_article(self, topic):
+    def generate_full_article(self, topic, accept_label=False):
         def is_url(string):
             return re.match(r'^(?:http|ftp)s?://', string) is not None
 
         if is_url(topic):
             extractor = NewsExtractor()
-            article_text = extractor.extract_article(topic)
-            intro = self.generate_introduction_from_text(article_text)
-            development = self.generate_development_from_text(article_text)
-            conclusion = self.generate_conclusion_from_text(article_text)
+            article = extractor.extract_article(topic)
+            if article == None:
+                raise Exception('No article text')
+            intro = self.generate_introduction_from_text(article.text)
+            development = self.generate_development_from_text(article.text)
+            conclusion = self.generate_conclusion_from_text(article.text)
         else:
             intro = self.generate_introduction(topic)
             development = self.generate_development(topic)
             conclusion = self.generate_conclusion(topic)
-        
+
         full_article = intro + " " + development + " " + conclusion
+        full_article = self.generate_youtube_narration(full_article)
+        
+        if accept_label:
+            self.add_labels_to_text(full_article)
         return full_article , intro
-    def generate_introduction_from_text(self, article_text):
+    
+    def generate_introduction_from_text(self, article_text) -> str:
         intro_prompt = (
-            'generate a response that must be a fully structured JSON object with the following format:\n'
-            '{\n'
-            '  "article": "" // Write a brief, captivating introduction in ' + self.language + ' about the following news article text. The introduction should be intriguing, hinting at something larger and more significant to come later. It should build anticipation while setting the scene in a serious and professional tone. The length of the introduction should be short, but impactful. Avoid giving away too much information upfront.\n'
-            '}\n'
-            'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
+            "Generate a fully structured JSON object with the following format:\n"
+            "{\n"
+            f'  "article": "" // Craft a 30-50 word video introduction in {self.language} that includes: '
+            "1) A provocative hook starting with 'Did you know...?' or a similar phrase; "
+            "2) A rhetorical question hinting at systemic implications; "
+            "3) A compelling call to action. "
+            "4) Don't use emojis."
+            "Incorporate urgency markers (exclamation points), write numbers in words, and imply hidden truths. "
+            "Structure the introduction as follows: [SHOCKING HOOK] + [ALLURING TEASER] + [SUSPENSEFUL PAUSE] + [ENGAGEMENT COMMAND]. "
+            "Example: 'What if I told you that...? [X revelation]'\n"
+            "}\n"
+            f'{self.standard_rules}'
+            f'- Ideological framing: {self.ideology}'
+            f'- Tone: {self.tone}'
+            'Rules:\n'
+            '- Start with question-like structure\n'
+            '- Use 2-3 short sentences max\n'
+            '- Include 1 emoji (context-appropriate) if language allows\n'
             f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
+            f'- Language of article must be : [{self.language}]\n'
             f'- Article Text: [{article_text}]\n'
         )
         print(Fore.BLUE + f'Article: Introduction')
         intro_json = self._generate_json_element(intro_prompt)
         return intro_json.get('article', '')
 
-    def generate_development_from_text(self, article_text):
+    def generate_development_from_text(self, article_text) -> str:
         development_prompt = (
-            'generate a response that must be a fully structured JSON object with the following format:\n'
-            '{\n'
-            '  "article": "" // Write an in-depth and detailed development of the following news article text in ' + self.language + '. The content should focus on the central events, providing all relevant details and context. The tone should remain serious and objective, and the article should include an exploration of the main details, stakeholders, and any expert opinions. The development should be around 500  words long, aiming for a detailed exploration of the topic.\n'
-            '}\n'
-            'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
-            f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
-            f'- Article Text: [{article_text}]\n'
+            "Generate a fully structured JSON object with the following format:\n"
+            "{\n"
+            '  "article": "" // Write a 500-word continuous narrative analysis for voiceover using the news article provided\n'
+            "}\n\n"
+            "Instructions:\n"
+            "1. Create cohesive prose blending these elements organically:\n"
+            "   - Historical context and background\n"
+            "   - Chronological event sequence (numbers as words)\n"
+            "   - Contrast between elite vs. marginalized stakeholders\n"
+            "   - Systemic analysis through liberal-progressive lens\n"
+            "   - Future implications\n"
+            "2. Seamlessly integrate:\n"
+            "   - 3+ contrasts between official claims and factual outcomes\n"
+            "   - 2+ expert quotes (real or contextualized)\n"
+            "   - 1 historical parallel\n"
+            "   - 2-3 rhetorical questions with conspiratorial subtext\n"
+            "3. Use narrative devices for flow:\n"
+            "   - Logical transitions ('Yet...', 'This pattern recalls...', 'Paradoxically...')\n"
+            "   - Embedded chronology without section breaks\n"
+            "   - Data integration without bullet points\n\n"
+            "Formatting Rules:\n"
+            "- All numerical values written as words\n"
+            "- Maintain serious tone with journalistic gravity\n"
+            "- Avoid explicit section headers\n"
+            "- The text must be an interpretation of the provided content; you need to change it enough to avoid copyright infringement.\n"
+            f"- Ideological Perspective: {self.ideology}\n\n"
+            "Parameters:\n"
+            f"- Language: {self.language}\n"
+            f"- Source Article: {article_text}\n"
+            f"{self.standard_rules}"
         )
         print(Fore.BLUE + f'Article: Body')
         development_json = self._generate_json_element(development_prompt)
         return development_json.get('article', '')
-
+    
+    def generate_youtube_narration(self, complete_text) -> str:
+        narration_prompt = f"""
+        Transform the following news article text into a dynamic and engaging narration suitable for a YouTube news video. The narration should:
+        - Start with a strong hook in the first 5 seconds to capture the viewer's attention, previewing what we will see in the video.
+        - Maintain the tone and language of the original text, but make it more continuous and fluid as a narration script.
+        - Include calls to action, such as asking viewers to like the video, subscribe to the channel, or leave comments, integrated naturally.
+        - Maintain a similar duration to the original text.
+        - Be written in a way that sounds natural when spoken aloud.
+        - Be in {self.language}.
+        {self.standard_rules}
+        The result should be a JSON object with a single key "article" containing the complete narration text.
+        Original text:
+        {complete_text}
+        """
+        print(Fore.BLUE + 'Generating YouTube narration')
+        narration_json = self._generate_json_element(narration_prompt)
+        return narration_json.get('article', '')
+    
     def generate_conclusion_from_text(self, article_text):
         conclusion_prompt = (
-            'generate a response that must be a fully structured JSON object with the following format:\n'
-            '{\n'
-            '  "article": "" // Write a brief conclusion or resolution in ' + self.language + ' that sums up the key takeaways from the following news article text. The conclusion should give a final perspective on the issue, hinting at possible future implications or developments. It should be succinct yet thought-provoking, bringing the article to a close without adding new details.\n'
-            '}\n'
-            'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
-            f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
-            f'- Article Text: [{article_text}]\n'
+            "Generate a fully structured JSON object with the following format:\n"
+            "{\n"
+            '  "article": "" // Write a 50-100 word conclusion that offers a personal opinion on the issue from a liberal-progressive perspective.\n'
+            "}\n\n"
+            "Instructions:\n"
+            "1. The conclusion must be a personal perspective; begin with a phrase such as 'In my view...' or its equivalent to clearly indicate that it is your opinion.\n"
+            "2. Highlight systemic injustices and question power structures while hinting at future implications.\n"
+            "3. Conclude with one final, thought-provoking rhetorical question that implies deeper systemic issues.\n\n"
+            "Formatting Requirements:\n"
+            "- Use a serious tone with a slightly conspiratorial undertone (e.g., 'It is striking that...').\n"
+            "- All numbers must be written in words (e.g., 'two hundred million' instead of '200M').\n"
+            "- Maintain the ideological framing by critiquing elites and emphasizing the impact on marginalized groups.\n\n"
+            f"{self.standard_rules}\n"
+            f"- Ideological Framing: {self.ideology}\n"
+            f"- Tone: {self.tone}\n\n"
+            f"Parameters:\n"
+            f"- Language of article must be : [{self.language}]\n"
+            f"- Article Text: [{article_text}]\n"
+            "Ensure the output is a properly formatted JSON object without any markdown or extra formatting.\n"
         )
+
         print(Fore.BLUE + f'Article: Conclusion')
         conclusion_json = self._generate_json_element(conclusion_prompt)
         return conclusion_json.get('article', '')
 
-    def generate_image_descriptions(self, topic, count=10):
+    def generate_image_descriptions(self, text, count=10):
+        """
+        Genera descripciones de imágenes basadas en un texto narrativo.
+        
+        Args:
+            text (str): Texto narrativo del que extraer las imágenes (cuento, noticia, biografía, etc.).
+            count (int): Número de descripciones de imágenes a generar.
+            
+        Returns:
+            list: Lista de descripciones breves y concretas.
+        """
         image_descriptions_prompt = (
-            'You are a creative writer. Based on the headline I provide, generate a response that must be a fully structured JSON object with the following format: '
-            '{'
-            '  "image_descriptions": ["","",""...]  // Write ' + str(count) + ' detailed image descriptions in English, closely related to the scenes and key points discussed in the article. Each description should be one sentence long and provide enough vivid detail to help the audience visualize the moment clearly, as if it were a scene from a graphic novel. Each scene should reflect elements of mystery, suspense, or cosmic intrigue to engage the readers imagination.'
-            '}'
-            'Your output must be a **properly formatted JSON object**, containing exactly 10 single-sentence image descriptions in a list, without any additional formatting, markdown, or commentary.'
-            f'Parameters:\n'
-            f'- Headline: [{topic}]'
+            'You are a visual storyteller. Based on the given narrative, extract the most relevant elements '
+            'such as people, locations, objects, and key moments. Generate a structured JSON object in the '
+            'following format:\n'
+            '{\n'
+            '  "image_descriptions": ["", "", "..."]  // Generate ' + str(count) + ' image descriptions. '
+            'Each description should be concise, describing what is seen in the image as if it were a real photograph. '
+            'Focus on who or what appears, where they are, and what they are doing. Avoid unnecessary details or artistic interpretations.\n'
+            '}\n\n'
+            'Parameters:\n'
+            '- Narrative text: """' + text + '"""'
         )
-        print(Fore.BLUE + f'image descriptions')
-        image_descriptions_json = self._generate_json_element(image_descriptions_prompt)
+
+        print(Fore.BLUE + 'Generating image descriptions...')
+        image_descriptions_json = self._generate_json_element(image_descriptions_prompt, False)
         return image_descriptions_json.get('image_descriptions', [])
+
     def summarize_news_from_url(self, url):
         extractor = NewsExtractor()
-        article_text = extractor.extract_article(url)
+        article = extractor.extract_article(url)
         
-        if article_text is None:
+        if article is None:
             return []
 
         summary_prompt = (
@@ -227,9 +388,9 @@ class Chatbot:
             '{'
             '  "summary": "" // Write a brief summary of the news article in English, highlighting the main points and key details. The summary should be concise and informative, providing a clear overview of the article\'s content.'
             '}'
-            'Your output must be a **properly formatted JSON object**, containing a single summary string, without any additional formatting, markdown, or commentary.'
+            f"{self.standard_rules}\n"
             f'Parameters:\n'
-            f'- Article Text: [{article_text}]'
+            f'- Article Text: [{article.text}]'
         )
         print(Fore.BLUE + f'Summary')
         summary_json = self._generate_json_element(summary_prompt)
@@ -241,32 +402,53 @@ class Chatbot:
             '{'
             '  "tags": ["","",""...] // Provide a list of exactly 20 of the most effective and widely used tags for this topic. Tags should be optimized for YouTube and based on trending keywords and current community interests, incorporating single words and multi-word phrases that will maximize visibility and engagement. Each hashtag should be carefully researched to ensure relevance, without using the "#" symbol.'#// Generate 20 of the most relevant and widely used hashtags related to the topic in English, optimized for YouTube. Each hashtag should be effective for SEO, capturing trending topics and current events to maximize reach. Focus on including both single words and multi-word phrases that are highly relevant and frequently used in the community, without the "#" symbol, to enhance visibility and engagement.'
             '}'
-            'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting. Use VidIQs insights on current trends, search volumes, and competitive score to select the best possible hashtags for reach and engagement.'
+            f"{self.standard_rules}\n"
             f'Parameters:\n'
             f'- Language: [{self.language}]\n'
             f'- Headline: [{topic}]\n'
         )
         print(Fore.BLUE + f'tags')
-        tags_json = self._generate_json_element(tags_prompt)
+        tags_json = self._generate_json_element(tags_prompt,False)
         return tags_json.get('tags', [])
 
     def generate_cover(self, topic):
         cover_prompt = (
-            'You are a creative and engaging news writer. Based on the headline and language I provide, '
-            'generate a response that must be a fully structured JSON object with the following format:\n'
-            '{\n'
-            '  "cover": "" // Generate a short, attention-grabbing phrase in ' + self.language + ', focusing on the main character or affected person. It must contain a **maximum of 5 words** and evoke curiosity.\n'
-            '}\n'
-            'Ensure the output is a **properly formatted JSON object**, without markdown or extra formatting.\n'
-            f'Parameters:\n'
-            f'- Language: [{self.language}]\n'
-            f'- Headline: [{topic}]\n'
+            "You are an expert headline writer with a focus on clarity, precision, and SEO for news covers. "
+            "Your task is to create a **very brief (max 5-6 words), clear, and informative** phrase "
+            "based on the provided headline and language. Avoid generic or vague expressions. "
+            "Prioritize delivering **the core information or main impact** of the topic without exaggeration.\n"
+            "The output must be a **fully structured JSON object** in the following format:\n"
+            "{\n"
+            '  "cover": ""  // A specific, concise, and descriptive phrase in ' + self.language + ' that captures the key subject or event.\n'
+            "}\n"
+            f"Parameters:\n"
+            f"- Language: [{self.language}]\n"
+            f"- Headline: [{topic}]\n"
+            "Avoid filler words, drama, or ambiguity. Focus on **accuracy and direct value**."
         )
+
         print(Fore.BLUE + f'cover')
         cover_json = self._generate_json_element(cover_prompt)
         return cover_json.get('cover', '')
     
-    
+    def enhance_prompt(self, topic):
+        cover_prompt = (
+            "You are a professional clickbait headline writer specializing in news covers. "
+            "Your task is to generate a **highly engaging, curiosity-inducing, and dramatic** short phrase, "
+            "based on the headline and language provided. The phrase should feel like a **movie title** and be **no longer than 5 words**.\n"
+            "The output must be a **fully structured JSON object** in the following format:\n"
+            "{\n"
+            '  "cover": ""  // A gripping, clickbait phrase in ' + self.language + ', focusing on the main person or impact of the event.\n'
+            "}\n"
+            f"Parameters:\n"
+            f"- Language: [{self.language}]\n"
+            f"- Headline: [{topic}]\n"
+            "Make it **bold, shocking, and impossible to ignore**."
+        )
+
+        print(Fore.BLUE + f'cover')
+        cover_json = self._generate_json_element(cover_prompt)
+        return cover_json.get('cover', '')
 
     def generate_cover_image(self, topic):
         cover_image_prompt = (
@@ -275,7 +457,7 @@ class Chatbot:
             '  "coverImage": "" // Describe in english, the scene for the cover image, combining elements such as the main person (a man or woman conveying emotions relevant to the news topic), '
             'background setting related to the topic, and any additional details that evoke the intended emotions.\n'
             '}\n'
-            'Your output must be a **properly formatted JSON object**, without markdown or extra formatting.'
+            f"{self.standard_rules}\n"
             f'Parameters:\n'
             f'- Headline: [{topic}]\n'
         )
@@ -284,35 +466,95 @@ class Chatbot:
         return cover_image_json.get('coverImage', '')
 
 
-    def _generate_json_element(self, prompt_template):
+    
+    def _generate_json_element(self, prompt_template, clean:bool = True):
         """
         Helper function to generate a single JSON element based on the provided prompt.
         """
-        messages = [{"role": "system", "content": prompt_template}]
-        
-        retries = 10  # Número máximo de reintentos
+        retries = 50  # Número máximo de reintentos
         for attempt in range(retries):
-            response = g4f.ChatCompletion.create(model=self.model, messages=messages)
-            
             try:
+                # Nueva solicitud a GPT en cada intento
+                client = Client()
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "assistant", "content": prompt_template}],
+                    response_format="json",
+                )
+                response = response.choices[0].message.content
+                print(Fore.YELLOW + f"Response (Intento {attempt + 1}): {response}")
+
+                # Extraer contenido JSON de la respuesta
                 start_index = response.find('{')
                 end_index = response.rfind('}')
                 content = response[start_index:end_index + 1]
-                response_json = json.loads(content)  # Intentar cargar el JSON
 
-                return response_json
+                # Intentar limpiar y cargar el JSON
+                if clean :
+                    content = self.clean_and_load_json(content)
+                    return content  # Retorna el JSON si es válido
+                return json.loads(content)  # Retorna el JSON si es válido
 
-            except json.JSONDecodeError:
-                print(Fore.RED + f"Error: The response is not in valid JSON format (attempt {attempt + 1}/{retries}).")
-                print(Fore.RED + response)
+            except (json.JSONDecodeError, ValueError) as e:
+                # Captura errores en la conversión y en clean_and_load_json
+                print(Fore.RED + f"Error al procesar JSON (intento {attempt + 1}/{retries}): {e}")
+                print(Fore.RED + f"Respuesta defectuosa: {response}")
 
-                if attempt < retries - 1:
-                    time.sleep(1)  # Espera antes de reintentar
-                else:
-                    print(Fore.RED + "Max retries reached. Could not generate a valid JSON response.")
-        
+            except Exception as e:
+                # Captura cualquier otro error inesperado
+                print(Fore.RED + f"Error inesperado en la generación de JSON: {e} (intento {attempt + 1}/{retries})")
+
+            # Esperar antes de volver a intentar
+            if attempt < retries - 1:
+                time.sleep(2)  # Espera antes de reintentar con una nueva solicitud
+
+        print(Fore.RED + "Se alcanzó el número máximo de reintentos. No se pudo generar un JSON válido.")
         return None
-    
+
+    def clean_and_load_json(self, json_string: str):
+        """
+        Cleans a given JSON string to remove unwanted characters and make it valid for JSON parsing.
+        Replaces double quotes in values with single quotes while keeping JSON structure intact.
+        
+        :param json_string: A string containing JSON data.
+        :return: A Python dictionary parsed from the cleaned JSON string.
+        :raises ValueError: If the cleaned string is still not valid JSON.
+        """
+        try:
+            print(Fore.BLUE, json_string)
+            # Remove non-printable characters except for accented characters and other Unicode characters
+            json_string = re.sub(r'[\x00-\x1F\x7F]', '', json_string)
+            
+            # Strip unnecessary whitespace
+            json_string = json_string.strip()
+            
+            # Remove trailing commas in JSON objects and arrays
+            json_string = re.sub(r',\s*([}\]])', r'\1', json_string)
+            
+            # Ensure all keys are properly quoted
+            json_string = re.sub(r'(?<=\{|,)(\s*)([a-zA-Z0-9_]+)(\s*):', r'"\2":', json_string)
+            
+            # Contar las comillas dobles
+            quote_count = json_string.count('"')
+            if quote_count > 4:
+                # Encontrar todas las posiciones de las comillas
+                indices = [i for i, c in enumerate(json_string) if c == '"']
+                # Mantener las primeras 3 y la última
+                if len(indices) >= 4:
+                    keep_indices = set(indices[:3] + [indices[-1]])
+                    chars = list(json_string)
+                    for i in indices:
+                        if i not in keep_indices:
+                            chars[i] = "'"  # Reemplazar comillas intermedias
+                    json_string = ''.join(chars)
+            
+            # Convert JSON string to dictionary to manipulate values safely
+            json_dict = json.loads(json_string)
+            
+            return json_dict
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON after cleaning: {e}\n{json_string}")
+        
     def save_json(self, file_path, data):
         """Saves JSON data to a file."""
         try:
@@ -321,7 +563,7 @@ class Chatbot:
                 json.dump(data, f, ensure_ascii=False, indent=4)
             print(f"JSON saved successfully at {file_path}")
         except Exception as e:
-            print(f"Error saving JSON file: {e}")
+            print(f"Error saving JSON file: {e} ")
 
     def generate_article_and_phrases_short(self, topic):
         """
@@ -343,13 +585,13 @@ class Chatbot:
         article = self.generate_short_article(topic)  # Specify article length here
         title = self.generate_title(article)
         description = self.generate_description(article)
-        image_descriptions = self.generate_image_descriptions(article, count=10)  # Specify number of image descriptions here
+        image_descriptions = self.generate_image_descriptions(article, count=20)  # Specify number of image descriptions here
         tags = self.generate_tags(article)
         cover = self.generate_cover(article)
         cover_image = self.generate_cover_image(article)
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(10, len(image_descriptions)))
+        short_phrases = random.sample(image_descriptions, min(20, len(image_descriptions)))
 
         print(Fore.GREEN + "Article and phrases generated successfully.")
 
@@ -389,13 +631,13 @@ class Chatbot:
         article , short = self.generate_full_article(topic)
         title = self.generate_title(short)
         description = self.generate_description(short)
-        image_descriptions = self.generate_image_descriptions(short, count=20)  # Specify number of image descriptions here
+        image_descriptions = self.generate_image_descriptions(short, count=40)  # Specify number of image descriptions here
         tags = self.generate_tags(short)
         cover = self.generate_cover(short)
         cover_image = self.generate_cover_image(short)
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(20, len(image_descriptions)))
+        short_phrases = random.sample(image_descriptions, min(40, len(image_descriptions)))
 
         print(Fore.GREEN + "Long article and phrases generated successfully.")
 

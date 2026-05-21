@@ -5,17 +5,18 @@ from huggingface_hub import InferenceClient
 import os
 from colorama import Fore, init
 import random
+from g4f.client import Client
+import requests
+
 # Initialize colorama
 init(autoreset=True)
 
-# Enum for aspect ratios: LANDSCAPE (16:9) and PORTRAIT (9:16)
 class AspectRatio(Enum):
     LANDSCAPE = (1920, 1080)
     PORTRAIT = (1080, 1920)
 
-# Enum for style presets that define the artistic style and look of the image
 class StylePreset(Enum):
-    NONE = ""
+    NONE = "NO TEXT."
     VINTAGE = "NO TEXT. Sepia tones with retro cars and vintage architecture, enhanced with a grainy effect, shot with a 35mm film camera for an authentic nostalgic feel."
     MINIMALIST = "NO TEXT. Clean and uncluttered design featuring geometric forms and soft pastel tones, illuminated by high-key lighting in a studio shot that emphasizes simplicity."
     NATURE_SCENE = "A breathtaking landscape showcasing majestic mountains and serene lakes, captured with a DSLR using natural lighting for a wide dynamic range that highlights the beauty of nature."
@@ -26,51 +27,99 @@ class StylePreset(Enum):
     SURREALIST = "NO TEXT. Dreamlike elements with warped shapes and juxtaposed objects, illuminated by ethereal light and captured with a macro lens to enhance surreal qualities."
     ABSTRACT = "NO TEXT. Non-representational imagery featuring vibrant splashes of color and sharp contrasts, captured in close-up macro shots to create visual intrigue."
     REALISM = "NO TEXT. Faithful depiction of scenes with natural colors, medium shot, and balanced light that emphasize fine details for an authentic look."
-    YOUTUBE_THUMBNAIL = "An impressively seductive woman with a surprised expression and a slight smile gazes directly at the camera, her enchanting eyes drawing the viewer in. The shot is a half-height close-up, capturing her captivating features and alluring presence. The location is a random, unspecified backdrop that does not distract from her beauty, allowing her charm to take center stage. The focus is on her expression, highlighting the playful yet enticing allure she exudes"
+    YOUTUBE_THUMBNAIL = "Image without text. High-contrast, vibrant colors with a clean and focused composition. Sharp HD quality, ensuring crystal-clear details. A strikingly seductive woman with an expressive, engaging gaze, her slightly parted lips hinting at playful intrigue. Her captivating eyes lock onto the viewer, radiating confidence and allure. The shot is a half-height close-up, perfectly framing her elegant features. The background is softly blurred and neutral, ensuring no distractions while emphasizing her charm. Balanced lighting enhances her beauty, creating depth and warmth. The overall aesthetic is eye-catching, sophisticated, and irresistibly captivating."
+    DISNEY = "NO TEXT. Whimsical, colorful characters with large expressive eyes and soft, rounded features. Magical backgrounds, fairy-tale atmosphere, and a warm, inviting color palette inspired by classic Disney animation."
+    PIXAR = "NO TEXT. 3D animated style with vibrant colors, exaggerated expressions, and cinematic lighting. Playful and heartwarming, with a focus on storytelling and emotional depth, reminiscent of Pixar movies."
+    KIDS_BOOK = "NO TEXT. Simple, playful illustrations with bold outlines and bright, cheerful colors. Friendly characters and imaginative scenes, as seen in classic children's picture books."
+    CARTOON = "NO TEXT. Exaggerated, humorous characters with bold lines and flat colors. Dynamic poses and expressive faces, in the style of Saturday morning cartoons."
+    PIXELART = "NO TEXT. Retro pixel art style with blocky, low-resolution graphics and a limited color palette. Nostalgic and playful, reminiscent of classic 8-bit and 16-bit video games."
+    LEGO = "NO TEXT. 3D render of scenes and characters built entirely from LEGO bricks, with glossy plastic textures and playful construction."
+    PAPER_CUTOUT = "NO TEXT. Collage style using layered paper cutouts, with visible textures and shadows, creating a handcrafted, tactile look."
+    CLAYMATION = "NO TEXT. Stop-motion clay animation style, with soft, rounded shapes and visible fingerprints, giving a handmade, playful feel."
+    STORYBOOK_WATERCOLOR = "NO TEXT. Gentle watercolor washes and soft pencil outlines, evoking the charm of classic children's storybook illustrations."
+    CHIBI = "NO TEXT. Super-deformed, cute characters with oversized heads and eyes, tiny bodies, and bright, pastel colors, inspired by Japanese chibi art."
+    DREAMWORKS = "NO TEXT. 3D animated style with expressive, slightly exaggerated characters, dynamic lighting, and a cinematic, adventurous atmosphere, inspired by DreamWorks Animation films."
 
-    
 class FluxImageGenerator:
-    def __init__(self, token=None, output_dir="output_images",model="black-forest-labs/FLUX.1-schnell"):
-        # Initialize the Hugging Face Inference Client with the provided token
-        self.client = InferenceClient(token=token)
-        # Set output directory, creating it if it doesn't exist
+    def __init__(self, token=None, output_dir="output_images", model="black-forest-labs/FLUX.1-schnell"):
+        self.hf_client = InferenceClient(token=token) if token else None
+        self.g4f_client = Client()
         self.model = model
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
-        
+
     @staticmethod
     def getImagePresets():
         return {preset.name: preset.value for preset in StylePreset}
     
-    def generate_image(self, custom_prompt, style_preset:StylePreset, aspect_ratio):
-        try:
-            # Get the dimensions based on the selected aspect ratio
-            width, height = aspect_ratio.value
-            # Build the final prompt by combining the custom user prompt and the style preset
-            if style_preset == StylePreset.YOUTUBE_THUMBNAIL:
-                prompt =  f"{style_preset.value}"
-            elif style_preset == StylePreset.NONE:
-                prompt = custom_prompt
-            else:
-                prompt = f"{custom_prompt}. with this style -> {style_preset.value}"
+    def generate_image(self, custom_prompt, style_preset: StylePreset, aspect_ratio: AspectRatio):
+        # Construir el prompt final
+        if style_preset == StylePreset.YOUTUBE_THUMBNAIL:
+            final_prompt = style_preset.value
+        elif style_preset == StylePreset.NONE:
+            final_prompt = custom_prompt
+        else:
+            final_prompt = f"{custom_prompt}. with this style -> {style_preset.value}"
 
-            print(Fore.BLUE + f"Image prompt \t ::-> {prompt}")
-            # Generate the image using the Hugging Face API
-            image = self.client.text_to_image(
+        width, height = aspect_ratio.value
+        print(Fore.BLUE + f"Image prompt\t ::-> {final_prompt}")
+
+        # Sistema de reintentos con fallback
+        while True:
+            # Intentar con Hugging Face 3 veces
+            for _ in range(10):
+                image_path = self._generate_with_g4f(final_prompt, width, height)
+                # image_path = self._generate_with_huggingface(final_prompt, width, height)
+                if image_path:
+                    return image_path
+                sleep(10)  # Esperar entre intentos
+            if image_path:
+                return image_path
+            sleep(10)  # Esperar antes de reiniciar el ciclo
+
+    def _generate_with_huggingface(self, prompt, width, height):
+        if not self.hf_client:
+            return None
+            
+        try:
+            image = self.hf_client.text_to_image(
                 prompt,
                 model=self.model,
                 height=height,
                 width=width,
-                seed = random.randint(0, 2**32 - 1)
+                seed=random.randint(0, 2**32 - 1)
             )
-            # Define the output file path
-            output_path = os.path.join(self.output_dir, f"{style_preset.name}_{uuid.uuid4()}.png")
-            # Save the generated image to the specified output directory
+            
+            output_path = os.path.join(self.output_dir, f"hf_{uuid.uuid4()}.png")
             image.save(output_path)
-            print(Fore.GREEN + f"Image generated successfully and saved to {output_path}.")
+            print(Fore.GREEN + f"Hugging Face image saved to {output_path}")
             return output_path
         except Exception as e:
-            print(Fore.RED + f"Error: {e}")
-            sleep(60)
+            print(Fore.RED + f"Hugging Face Error: {str(e)}")
             return None
-    
+
+    def _generate_with_g4f(self, prompt, width, height):
+        try:
+            response = self.g4f_client.images.generate(
+                model="flux",
+                prompt=prompt,
+                response_format="url",
+                width = width,
+                height = height
+            )
+            
+            if not response.data:
+                return None
+
+            image_url = response.data[0].url
+            image_data = requests.get(image_url).content
+            
+            output_path = os.path.join(self.output_dir, f"g4f_{uuid.uuid4()}.png")
+            with open(output_path, 'wb') as f:
+                f.write(image_data)
+                
+            print(Fore.GREEN + f"g4f image saved to {output_path}")
+            return output_path
+        except Exception as e:
+            print(Fore.RED + f"g4f Error: {str(e)}")
+            return None

@@ -17,224 +17,218 @@ class YoutubeMediaUploader:
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
     def __init__(self, client_secrets_file, token_file='token.json', channel_description=""):
-        # Define the path for the .secrets directory
-        self.secrets_dir = os.path.join(os.getcwd(), ".secrets")
-        os.makedirs(self.secrets_dir, exist_ok=True)
+        try:
+            # Define the path for the .secrets directory
+            self.secrets_dir = os.path.join(os.getcwd(), ".secrets")
+            os.makedirs(self.secrets_dir, exist_ok=True)
 
-        # Full path for the client secrets and token files
-        self.client_secrets_file = os.path.join(self.secrets_dir, client_secrets_file)
-        self.token_file = os.path.join(self.secrets_dir, token_file)
+            # Full path for the client secrets and token files
+            self.client_secrets_file = os.path.join(self.secrets_dir, client_secrets_file)
+            self.token_file = os.path.join(self.secrets_dir, token_file)
 
-        self.channel_description = channel_description
-        self.youtube = self.authenticate_youtube()
+            self.channel_description = channel_description
+            self.youtube = self.authenticate_youtube()
+        
+        except Exception as e:
+            self.handle_error("Error inicializando el uploader", e, True)
 
     def authenticate_youtube(self):
         """Authenticates the user and returns a YouTube API client."""
         credentials = None
-        if os.path.exists(self.token_file):
-            with open(self.token_file, 'r') as token:
-                token_data = json.load(token)
-                credentials = Credentials.from_authorized_user_info(token_data, self.SCOPES)
+        try:
+            if os.path.exists(self.token_file):
+                with open(self.token_file, 'r') as token:
+                    token_data = json.load(token)
+                    credentials = Credentials.from_authorized_user_info(token_data, self.SCOPES)
 
-        if not credentials or not credentials.valid:
-            if credentials and credentials.expired and credentials.refresh_token:
-                print(Fore.CYAN + "Refreshing expired token...")
-                credentials.refresh(Request())
-            else:
-                os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-                flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
-                    self.client_secrets_file, self.SCOPES)
-                print(Fore.CYAN + "Running authorization flow on local server...")
-                credentials = flow.run_local_server(port=0)
+            if not credentials or not credentials.valid:
+                if credentials and credentials.expired and credentials.refresh_token:
+                    print(Fore.CYAN + "Refreshing expired token...")
+                    credentials.refresh(Request())
+                else:
+                    if not os.path.exists(self.client_secrets_file):
+                        raise FileNotFoundError(f"Archivo de client secrets no encontrado: {self.client_secrets_file}")
 
-                # Save the credentials for future use
-                with open(self.token_file, 'w') as token:
-                    token.write(credentials.to_json())
+                    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+                    flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
+                        self.client_secrets_file, self.SCOPES)
+                    print(Fore.CYAN + "Running authorization flow on local server...")
+                    credentials = flow.run_local_server(port=0)
 
-        youtube = googleapiclient.discovery.build("youtube", "v3", credentials=credentials)
-        print(Fore.GREEN + "Authentication successful!")
-        return youtube
+                    # Save the credentials for future use
+                    with open(self.token_file, 'w') as token:
+                        token.write(credentials.to_json())
 
-    # def upload_long_video(self, video_path, title, description, tags, thumbnail_path=None, category_id="22", privacy_status="public", location=None, recording_date=None):
-    #     """
-    #     Uploads a long video to YouTube.
-
-    #     Parameters:
-    #         video_path (str): Path to the video file.
-    #         title (str): Title of the video.
-    #         description (str): Description of the video.
-    #         tags (list): List of tags to include.
-    #         thumbnail_path (str, optional): Path to the thumbnail image file.
-    #         category_id (str, optional): The ID of the video category.
-    #         privacy_status (str, optional): Privacy status of the video.
-    #         location (str, optional): Location where the video was recorded.
-    #         recording_date (str, optional): Recording date of the video in YYYY-MM-DD format.
-
-    #     Returns:
-    #         dict: The response from the YouTube API.
-    #     """
-    #     # Validate input parameters
-    #     self.validate_video_parameters(video_path, title, description, tags, category_id, privacy_status)
-
-    #     hashtags = [f"{tag}" for tag in tags]
-    #     full_description = f"{description}\n\n{self.channel_description}\n\n{' '.join(hashtags)}"
-
-    #     media = MediaFileUpload(video_path)
-    #     print(Fore.CYAN + f"Uploading video '{title}'...")
+            youtube = googleapiclient.discovery.build("youtube", "v3", credentials=credentials)
+            print(Fore.GREEN + "Authentication successful!")
+            return youtube
         
-    #     request = self.youtube.videos().insert(
-    #         part="snippet,status",
-    #         body={
-    #             "snippet": {
-    #                 "title": title,
-    #                 "description": full_description,
-    #                 "tags": hashtags,
-    #                 "categoryId": category_id,
-    #                 "location": location or None,
-    #                 "recordingDate": recording_date or None
-    #             },
-    #             "status": {
-    #                 "privacyStatus": privacy_status
-    #             }
-    #         },
-    #         media_body=media
-    #     )
-        
-    #     response = self.execute_request_with_retries(request)
-
-    #     # Optionally set the thumbnail if provided
-    #     if thumbnail_path:
-    #         self.set_thumbnail(response['id'], thumbnail_path)
-
-    #     print(Fore.GREEN + f"Video uploaded successfully: {title}")
-    #     return response
+        except Exception as e:
+            self.handle_error("Error en autenticación", e, True)
+            raise
 
     def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='public'):
-        """
-        Uploads a short video to YouTube.
+        try:
+            self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
 
-        Parameters:
-            video_path (str): Path to the video file.
-            title (str): Title of the video.
-            description (str): Description of the video.
-            tags (list): List of tags to include.
-            thumbnail_path (str, optional): Path to the thumbnail image file.
-            default_language (str, optional): Default language of the video.
-            privacy_status (str, optional): Privacy status of the video.
+            hashtags = [f"{tag}" for tag in tags]
+            full_description = f"{description}\n\n{self.channel_description}\n\n{' #'.join(hashtags)}\n\n#Shorts #news #breakingnews"
+            
+            print(Fore.CYAN + f"Uploading Short with title: '{title}'...")
+            
+            media = MediaFileUpload(
+                    video_path,
+                    chunksize=1024*1024*8,  # 8MB chunks
+                    resumable=True,
+                    mimetype='video/mp4'
+            )
 
-        Returns:
-            dict: The response from the YouTube API.
-        """
-        # Validate input parameters
-        self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
-
-        hashtags = [f"{tag}" for tag in tags]
-        full_description = f"{description}\n\n{self.channel_description}\n\n{' #'.join(hashtags)}\n\n#Shorts #news #breakingnews"
-        
-        print(Fore.CYAN + f"Uploading Short with title: '{title}'...")
-        
-        media = MediaFileUpload(video_path)
-        request = self.youtube.videos().insert(
-            part="snippet,status",
-            body={
-                "snippet": {
-                    "title": title[:90],  # Truncate title to 90 characters
-                    "description": full_description,
-                    "tags": hashtags,
-                    "categoryId": "25",  # News & Politics
-                    "defaultLanguage": default_language,
-                    "defaultAudioLanguage": default_language,
+            request = self.youtube.videos().insert(
+                part="snippet,status",
+                body={
+                    "snippet": {
+                        "title": title[:90],
+                        "description": full_description,
+                        "tags": hashtags,
+                        "categoryId": "25",
+                        "defaultLanguage": default_language,
+                        "defaultAudioLanguage": default_language,
+                    },
+                    "status": {
+                        "privacyStatus": privacy_status,
+                        "selfDeclaredMadeForKids": False,
+                        "license": "youtube",
+                        "embeddable": True,
+                        "publicStatsViewable": True,
+                    }
                 },
-                "status": {
-                    "privacyStatus": privacy_status,
-                    "selfDeclaredMadeForKids": False,
-                    "license": "youtube",
-                    "embeddable": True,
-                    "publicStatsViewable": True,
-                }
-            },
-            media_body=media
-        )
+                media_body=media
+            )
+            
+            response = self.execute_request_with_retries(request)
+
+            if thumbnail_path:
+                self.set_thumbnail(response['id'], thumbnail_path)
+
+            print(Fore.GREEN + f"Short uploaded successfully: {title}")
+            return response
         
-        response = self.execute_request_with_retries(request)
-
-        # Optionally set the thumbnail if provided
-        if thumbnail_path:
-            self.set_thumbnail(response['id'], thumbnail_path)
-
-        print(Fore.GREEN + f"Short uploaded successfully: {title}")
-        return response
-
-    def validate_video_parameters(self, video_path, title, description, tags, category_id, privacy_status):
-        """Validates parameters for long video uploads."""
-        if not os.path.isfile(video_path):
-            raise ValueError(Fore.RED + "The video file does not exist.")
-        if not title or len(title.strip()) == 0:
-            raise ValueError(Fore.RED + "Video title cannot be empty.")
-        if len(title) > 100:
-            print(Fore.RED + "Video title exceeds 100 characters; it will be truncated.")
-            title = title[:100]  # Truncate title if too long
-        if len(description) > 5000:
-            print(Fore.RED + "Description exceeds 5000 characters; it will be truncated.")
-            description = description[:5000]  # Truncate description if too long
-        if not isinstance(tags, list):
-            raise ValueError(Fore.RED + "Tags must be provided as a list.")
-        if not all(isinstance(tag, str) for tag in tags):
-            raise ValueError(Fore.RED + "All tags must be strings.")
-        if not category_id.isdigit():
-            raise ValueError(Fore.RED + "Category ID must be a valid number.")
-        if privacy_status not in ["public", "private", "unlisted"]:
-            raise ValueError(Fore.RED + "Privacy status must be 'public', 'private', or 'unlisted'.")
+        except Exception as e:
+            self.handle_error(f"Error subiendo video: {title}", e, True)
+            raise
 
     def validate_short_parameters(self, video_path, title, description, tags, default_language, privacy_status):
         """Validates parameters for short video uploads."""
-        if not os.path.isfile(video_path):
-            raise ValueError(Fore.RED + "The video file does not exist.")
-        if not title or len(title.strip()) == 0:
-            raise ValueError(Fore.RED + "Short title cannot be empty.")
-        if len(title) > 100:
-            print(Fore.RED + "Short title exceeds 100 characters; it will be truncated.")
-            title = title[:100]
-        if len(description) > 5000:
-            print(Fore.RED + "Description exceeds 5000 characters; it will be truncated.")
-            description = description[:5000]
-        if not isinstance(tags, list):
-            raise ValueError(Fore.RED + "Tags must be provided as a list.")
-        if not all(isinstance(tag, str) for tag in tags):
-            raise ValueError(Fore.RED + "All tags must be strings.")
-        if default_language not in ['en', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ja', 'ko']:  # Add more as needed
-            raise ValueError(Fore.RED + "Default language must be a valid BCP-47 language code.")
-        if privacy_status not in ["public", "private", "unlisted"]:
-            raise ValueError(Fore.RED + "Privacy status must be 'public', 'private', or 'unlisted'.")
+        try:
+            if not os.path.isfile(video_path):
+                raise ValueError(f"El archivo de video no existe: {video_path}")
+            
+            if not title or len(title.strip()) == 0:
+                raise ValueError("El título no puede estar vacío")
+            
+            if len(title) > 100:
+                raise ValueError(f"Título demasiado largo ({len(title)} caracteres). Máximo permitido: 100 caracteres")
+            
+            if len(description) > 5000:
+                raise ValueError(f"Descripción demasiado larga ({len(description)} caracteres). Máximo permitido: 5000 caracteres")
+            
+            if not isinstance(tags, list):
+                raise ValueError(f"Los tags deben ser una lista. Tipo recibido: {type(tags)}")
+            
+            if len(tags) > 30:
+                raise ValueError(f"Demasiados tags ({len(tags)}). Máximo permitido: 30 tags")
+            
+            invalid_tags = [tag for tag in tags if not isinstance(tag, str)]
+            if invalid_tags:
+                raise ValueError(f"Tags inválidos (deben ser strings): {invalid_tags}")
+            
+            valid_languages = ['en', 'es', 'fr', 'de', 'it', 'pt', 'zh', 'ja', 'ko']
+            if default_language not in valid_languages:
+                raise ValueError(f"Idioma inválido: {default_language}. Opciones válidas: {', '.join(valid_languages)}")
+            
+            if privacy_status not in ["public", "private", "unlisted"]:
+                raise ValueError(f"Estado de privacidad inválido: {privacy_status}. Opciones válidas: public, private, unlisted")
+        
+        except Exception as e:
+            self.handle_error("Validación fallida", e, True)
+            raise
 
     def execute_request_with_retries(self, request, max_attempts=5):
         """Executes a request with retry logic in case of temporary errors."""
         for attempt in range(max_attempts):
             try:
                 return request.execute()
-            except (ssl.SSLEOFError, HttpError) as e:
-                print(Fore.RED + f"Error: {e}, retrying {attempt + 1}/{max_attempts}..." + Style.RESET_ALL)
-                time.sleep(10)  # Wait before retrying
-        raise Exception(Fore.RED + "Failed to execute the request after several attempts." + Style.RESET_ALL)
+            
+            except HttpError as e:
+                error_details = self.parse_http_error(e)
+                print(Fore.RED + f"Error en la API (Intento {attempt + 1}/{max_attempts}):")
+                print(Fore.RED + f"HTTP Status: {e.resp.status}")
+                print(Fore.RED + f"Error Details: {error_details}")
+                
+                if e.resp.status in [403, 429]:  # Quota exceeded or rate limit
+                    wait_time = 2 ** (attempt + 1)
+                    print(Fore.YELLOW + f"Esperando {wait_time} segundos antes de reintentar...")
+                    time.sleep(wait_time)
+                else:
+                    raise
+            
+            except ssl.SSLEOFError as e:
+                print(Fore.RED + f"Error de conexión SSL (Intento {attempt + 1}/{max_attempts}): {str(e)}")
+                print(Fore.YELLOW + "Verifique su conexión a internet y reintentando...")
+                time.sleep(5)
+            
+            except Exception as e:
+                self.handle_error("Error inesperado en la solicitud", e)
+                raise
+        
+        raise Exception(Fore.RED + f"Fallo después de {max_attempts} intentos")
+
+    def parse_http_error(self, error):
+        """Parse HTTP error response for detailed information."""
+        try:
+            error_content = error.content.decode()
+            error_json = json.loads(error_content)
+            return {
+                'code': error.resp.status,
+                'message': error_json.get('error', {}).get('message', 'Unknown error'),
+                'errors': error_json.get('error', {}).get('errors', []),
+                'reason': error_json.get('error', {}).get('errors', [{}])[0].get('reason', 'Unknown')
+            }
+        except Exception as e:
+            return f"No se pudo parsear el error: {str(e)}. Contenido crudo: {error.content}"
 
     def set_thumbnail(self, video_id, thumbnail_path):
-        """
-        Sets a custom thumbnail for a video.
-
-        Parameters:
-            video_id (str): The ID of the video.
-            thumbnail_path (str): Path to the thumbnail image file.
-
-        Returns:
-            dict: The response from the YouTube API.
-        """
-        if not os.path.isfile(thumbnail_path):
-            raise ValueError(Fore.RED + "The thumbnail file does not exist.")
+        try:
+            if not os.path.isfile(thumbnail_path):
+                raise FileNotFoundError(f"Archivo de thumbnail no encontrado: {thumbnail_path}")
+            
+            print(Fore.CYAN + f"Setting thumbnail for video ID: {video_id}")
+            media = MediaFileUpload(thumbnail_path)
+            request = self.youtube.thumbnails().set(videoId=video_id, media_body=media)
+            response = self.execute_request_with_retries(request)
+            
+            print(Fore.GREEN + f"Thumbnail set for video ID: {video_id}")
+            return response
         
-        print(Fore.CYAN + f"Setting thumbnail for video ID: {video_id}")
-        media = MediaFileUpload(thumbnail_path)
-        request = self.youtube.thumbnails().set(videoId=video_id, media_body=media)
-        response = request.execute()
+        except Exception as e:
+            self.handle_error(f"Error estableciendo thumbnail para video {video_id}", e, True)
+            raise
+
+    def handle_error(self, context, error, critical=False):
+        """Maneja y muestra errores de forma consistente."""
+        error_type = type(error).__name__
+        error_message = str(error)
         
-        print(Fore.GREEN + f"Thumbnail set for video ID: {video_id}")
-        return response
+        print(Fore.RED + Style.BRIGHT + f"\n⚠️ ERROR: {context}")
+        print(Fore.RED + f"Tipo: {error_type}")
+        print(Fore.RED + f"Mensaje: {error_message}")
+        
+        if isinstance(error, HttpError):
+            error_details = self.parse_http_error(error)
+            print(Fore.RED + f"Detalles API: {json.dumps(error_details, indent=2)}")
+        
+        if critical:
+            print(Fore.RED + Style.BRIGHT + "❌ Error crítico, deteniendo ejecución")
+            raise
+        else:
+            print(Fore.YELLOW + "⏩ Continuando después de error no crítico")

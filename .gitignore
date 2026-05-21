@@ -20,7 +20,7 @@ venv/
 ENV/
 env/
 *.env
-
+pipeline_config.json
 # Configuración de entornos virtuales y herramientas de Python
 .venv/
 .pip/
@@ -30,7 +30,6 @@ build/
 *.egg
 
 # Archivos de configuración de IDEs
-.vscode/
 .idea/
 *.suo
 *.sw?
@@ -79,3 +78,9 @@ Thumbs.db
 settings.config
 .secrets*
 har_and_cookies*
+config.json
+viral_news.json
+test*.py
+
+config.json
+viral_news.json
