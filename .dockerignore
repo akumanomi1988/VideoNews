@@ -1,0 +1,39 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env # Specific .env file should not be in the image, it's injected by docker-compose
+.git/
+.github/
+.idea/
+*.log
+*.sqlite3
+# Add other files/directories that should not be copied into the Docker image
+# e.g., any local test data, build artifacts from other processes, etc.
+tests/__pycache__/
+bot/__pycache__/
+bot/handlers/__pycache__/
+bot/services/__pycache__/
+bot/utils/__pycache__/
+scripts/__pycache__/
+scripts/AI/__pycache__/
+scripts/DataFetcher/__pycache__/
+scripts/MediaManagers/__pycache__/
+scripts/Uploaders/__pycache__/
+scripts/dbControllers/__pycache__/
+scripts/helpers/__pycache__/
+scripts/services/__pycache__/
+scripts/utils/__pycache__/
+docs/ # Documentation not needed in runtime image
+*.md # Markdown files not needed in runtime image, except potentially for licenses if copied
+pytest.ini # Pytest config not needed for runtime
+# Keep settings.example.json out if config.json is the final name
+# settings.example.json # This will be copied as config.json in Dockerfile, so it's fine to ignore the original here
+# elevenlabsaccounts.payload.json # If this file contains secrets, it should be in .dockerignore and mounted as a secret/volume
+# For now, assuming it's handled by volume mount in docker-compose.yml as exampled.
+# If it's NOT secrets, it can be copied. If it IS secrets, it MUST be ignored and volume mounted.
+# Let's assume it's sensitive for now as per docker-compose example.
+elevenlabsaccounts.payload.json

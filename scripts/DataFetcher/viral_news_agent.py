@@ -1,4 +1,5 @@
 import json
+import logging
 import spacy
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
@@ -19,6 +20,9 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import textstat
 
 from scripts.DataFetcher.news_mapper import parse_rss_to_standard_object
+from .news_api_client import NewsAPIProvider
+from .currents_api_client import CurrentsAPIProvider
+from .news_aggregator import NewsAggregator
 
 # --- Constants ---
 DEFAULT_VIRAL_NEWS_FILE = 'viral_news.json'
@@ -59,6 +63,7 @@ class NewsProcessor:
         self._news_index = 0
         self._ua = UserAgent()
         self._vader_analyzer = SentimentIntensityAnalyzer()
+        self.logger = logging.getLogger(__name__)
         self._load_viral_news()
 
     def process_all_news(self) -> None:
@@ -111,37 +116,27 @@ class NewsProcessor:
         if self._news_index < len(self._processed_news):
             news = self._processed_news[self._news_index]
             self._news_index += 1
-            return {
-                'url': news['url'],
-                'title': news.get('title', ''),
-                'summary': news.get('summary', ''),
-                'sentiment_polarity_textblob': news.get('sentiment_polarity_textblob', 0),
-                'sentiment_compound_vader': news.get('sentiment_compound_vader', 0),
-                'sentiment_compound_title': news.get('sentiment_compound_title', 0),
-                'keyword_count': news.get('keyword_count', 0),
-                'title_length': news.get('title_length', 0),
-                'readability_score': news.get('readability_score', 0),
-                'virality_score': news.get('virality_score', 0)
-            }
+            return news
         return None
 
     def _load_viral_news(self) -> None:
         """Loads viral news from file if it exists."""
         try:
-            with open(self._viral_news_file, 'r', encoding='utf-8') as f:
+            with open(self.viral_news_file, 'r', encoding='utf-8') as f:
                 self._processed_news = json.load(f)
-            print(Fore.GREEN + f"Loaded {len(self._processed_news)} viral news from {self._viral_news_file}.")
+            print(Fore.GREEN + f"Loaded {len(self._processed_news)} viral news from {self.viral_news_file}")
         except FileNotFoundError:
-            print(Fore.YELLOW + f"File {self._viral_news_file} not found. No viral news loaded.")
+            print(Fore.YELLOW + f"File {self.viral_news_file} not found. Starting fresh.")
         except json.JSONDecodeError:
-            print(Fore.RED + f"Error decoding JSON from {self._viral_news_file}. No viral news loaded.")
+            print(Fore.RED + f"Error decoding {self.viral_news_file}. Starting fresh.")
+            self._processed_news = []
 
     def _save_viral_news(self) -> None:
         """Saves processed viral news to file."""
         try:
-            with open(self._viral_news_file, 'w', encoding='utf-8') as f:
+            with open(self.viral_news_file, 'w', encoding='utf-8') as f:
                 json.dump(self._processed_news, f, ensure_ascii=False, indent=4)
-            print(Fore.MAGENTA + f"Stored {len(self._processed_news)} viral news in {self._viral_news_file}.")
+            print(Fore.GREEN + f"Saved {len(self._processed_news)} viral news to {self.viral_news_file}")
         except Exception as e:
             print(Fore.RED + f"Error saving viral news to {self._viral_news_file}: {e}")
 
@@ -504,7 +499,6 @@ class NewsAPIClient:
             except Exception as e:
                 print(Fore.RED + f"An error occurred: {e}")
         return all_articles
-
 def main():
     """Main entry point for running the news processor."""
     # Load configuration from config.json

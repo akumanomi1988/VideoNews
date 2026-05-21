@@ -185,7 +185,9 @@ class NewsVideoProcessor:
             shutil.rmtree(directory)
             print(Fore.RED + f"Deleted {directory} after releasing locks.")
         except Exception as e:
-            print(Fore.YELLOW + f"Could not delete {directory} even after releasing locks: {e}.")
+            self.send_progress(f"❌ Unexpected error: {e}")
+            self.logger.exception("Unexpected error in short format processing")
+            raise
 
     @staticmethod
     def clean_filename(topic_title: str, max_length: int = DEFAULT_MAX_FILENAME_LENGTH) -> str:

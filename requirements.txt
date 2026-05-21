@@ -40,5 +40,17 @@ lxml[html_clean]
 akumaimageeffect
 akumasubtitler
 
-# Dependencias adicionales (no se instalan con pip):
-# - ffmpeg: Necesario para la manipulación de video y audio. Puedes descargarlo de https://ffmpeg.org/download.html y agregarlo al PATH del sistema.
+# For media processing
+ffmpeg-python>=0.2.0
+
+# For AI/ML features
+torch>=2.0.0
+transformers>=4.30.0
+nltk>=3.8.1
+
+# For audio processing
+scipy>=1.10.0
+librosa>=0.10.0
+
+# Additional dependencies that need manual installation:
+# - ffmpeg: Required for video/audio processing. Install from https://ffmpeg.org/download.html
