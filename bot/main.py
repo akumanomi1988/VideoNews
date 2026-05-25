@@ -12,6 +12,7 @@ from telegram.ext import (
 from bot.config import get_telegram_token
 from bot.dispatcher import command_handlers, callback_query_handlers, message_handlers
 from bot.handlers.error_handler import error_handler
+from scripts.utils.app_logger import setup_logging
 
 
 # Create a logger instance for this module
@@ -20,29 +21,9 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     """
     Initializes and runs the Telegram bot application.
-
-    This function performs the following steps:
-    1. Configures basic logging for the application.
-    2. Applies `nest_asyncio` to allow asyncio event loops to be nested,
-       which is useful in environments like Jupyter notebooks or when an
-       event loop is already running.
-    3. Retrieves the Telegram bot token using `get_telegram_token()`.
-       If the token is not found, it logs an error and exits.
-    4. Builds the `telegram.ext.Application` using the token.
-    5. Registers command, callback query, and message handlers loaded from
-       `bot.dispatcher`.
-    6. Registers the global error handler (`telegram_bot.error_handler`).
-    7. Starts the bot by polling for updates.
-    8. Logs when the bot has stopped.
     """
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[logging.StreamHandler()]
-    )
-    # Optional: Set a higher log level for noisy libraries
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Configure logging with SQLite + console output
+    setup_logging()
     logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
     nest_asyncio.apply()

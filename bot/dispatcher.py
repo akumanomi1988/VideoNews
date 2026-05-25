@@ -5,25 +5,20 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler, f
 from bot.handlers import news_handler, settings_handler, utility_handler
 
 command_handlers = [
+    CommandHandler("start", utility_handler.help_command_handler),
     CommandHandler("help", utility_handler.help_command_handler),
     CommandHandler("settings", settings_handler.configure_setting),
     CommandHandler("show_settings", settings_handler.list_settings),
     CommandHandler("news_category", news_handler.show_category_selection),
     CommandHandler("topic_shortnews", news_handler.short_news_topic),
-    CommandHandler("detailed_news", news_handler.long_news),
     CommandHandler("topic_longnews", news_handler.long_news_topic),
+    CommandHandler("detailed_news", news_handler.long_news),
     CommandHandler("headless", news_handler.headless),
+    CommandHandler("url_shortnews", news_handler.url_short_news),
+    CommandHandler("url_longnews", news_handler.url_long_news),
 ]
 
 callback_query_handlers = [
-    CallbackQueryHandler(
-        settings_handler.settings_category_selection_handler,
-        pattern=r"^([a-zA-Z_]+|cancel_config)$",
-    ),
-    CallbackQueryHandler(
-        settings_handler.setting_selection_handler,
-        pattern=r"^.+:.+$",
-    ),
     CallbackQueryHandler(
         news_handler.news_category_selection_handler,
         pattern=r"^(business|entertainment|general|health|science|sports|technology|cancel_news_category)$",
@@ -31,6 +26,14 @@ callback_query_handlers = [
     CallbackQueryHandler(
         news_handler.news_selection_handler,
         pattern=r"^(news_[0-9]+|cancel_news_selection)$",
+    ),
+    CallbackQueryHandler(
+        settings_handler.settings_category_selection_handler,
+        pattern=r"^([a-zA-Z_]+|cancel_config)$",
+    ),
+    CallbackQueryHandler(
+        settings_handler.setting_selection_handler,
+        pattern=r"^.+:.+$",
     ),
 ]
 

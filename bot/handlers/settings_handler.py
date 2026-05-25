@@ -23,10 +23,12 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Callbac
 from telegram.ext import CallbackContext
 from bot.services.settings_service import SettingsService
 from bot.utils.message_sender import MessageSender # Added MessageSender
+from scripts.utils.app_logger import trace
 
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
 
+@trace()
 async def configure_setting(update: Update, context: CallbackContext) -> None:
     """
     Initiates the process for configuring settings (old JSON-based system).
@@ -52,6 +54,7 @@ async def configure_setting(update: Update, context: CallbackContext) -> None:
         reply_markup=reply_markup
     )
 
+@trace()
 async def settings_category_selection_handler(update: Update, context: CallbackContext) -> None:
     """
     Handles the user's selection of a settings category.
@@ -91,6 +94,7 @@ async def settings_category_selection_handler(update: Update, context: CallbackC
     
     await message_sender.send_message(update=update, text=response_text, reply_markup=reply_markup_settings)
 
+@trace()
 async def setting_selection_handler(update: Update, context: CallbackContext) -> None:
     """
     Handles the user's selection of a specific setting to modify.
@@ -131,6 +135,7 @@ async def setting_selection_handler(update: Update, context: CallbackContext) ->
     context.user_data['category'] = selected_category # type: ignore[attr-defined]
     context.user_data['setting'] = selected_setting # type: ignore[attr-defined]
 
+@trace()
 async def handle_new_value(update: Update, context: CallbackContext) -> None:
     """
     Handles the text message containing the new value for a setting.
@@ -173,6 +178,7 @@ async def handle_new_value(update: Update, context: CallbackContext) -> None:
         # For now, keeping the response as it might indicate a broken conversation flow to the user.
         await message_sender.send_message(update=update, text="No setting selected for update. Please start by using the /settings command. ⚙️")
 
+@trace()
 async def list_settings(update: Update, context: CallbackContext) -> None:
     """
     Handles the /show_settings command.

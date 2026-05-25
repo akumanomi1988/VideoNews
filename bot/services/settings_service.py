@@ -12,6 +12,7 @@ import json
 import os
 import logging 
 from typing import Dict, Any # For type hinting
+from scripts.utils.app_logger import trace
 
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class SettingsService:
     SETTINGS_FILE: str = 'settings.json'
 
     @staticmethod
+    @trace()
     def load_settings() -> Dict[str, Any]:
         """
         Load settings from the JSON file specified by `SETTINGS_FILE`.

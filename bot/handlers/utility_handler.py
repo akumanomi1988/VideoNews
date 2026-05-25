@@ -10,10 +10,12 @@ from typing import Optional # For type hinting User
 from telegram import Update, User as TelegramUser # Renamed User to avoid conflict
 from telegram.ext import CallbackContext
 from bot.utils.message_sender import MessageSender
+from scripts.utils.app_logger import trace
 
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
 
+@trace()
 async def unknown_command_handler(update: Update, context: CallbackContext) -> None:
     """
     Handles unrecognized commands sent to the bot.
@@ -31,6 +33,7 @@ async def unknown_command_handler(update: Update, context: CallbackContext) -> N
         text="Sorry, I didn't understand that command. Try /help to see available commands. 🤔"
     )
 
+@trace()
 async def help_command_handler(update: Update, context: CallbackContext) -> None:
     """
     Handles the /help command.
@@ -42,21 +45,20 @@ async def help_command_handler(update: Update, context: CallbackContext) -> None
     logger.info(f"Help command used by user {user_id_log}")
 
     help_text: str = (
-        "Here are the available commands:\n\n"
-        "📰 *News Commands:*\n"
-        "  /news_category - Get news by selecting a category.\n"
-        "  /topic_shortnews <topic> - Get a short news video on a specific topic.\n"
-        "  /detailed_news - Get detailed news by selecting a category (long format video).\n"
-        "  /topic_longnews <topic> - Get a long news video on a specific topic.\n"
-        "  /headless [number] - Process viral news (admins only, optional number).\n\n"
-        "⚙️ *Settings Commands (Old System - Use with caution):*\n"
-        "  /settings - Configure bot settings (e.g., API keys - uses old JSON system).\n"
-        "  /show_settings - Show current settings from the JSON file.\n\n"
-        "🛠️ *Utility Commands:*\n"
-        "  /help - Show this help message.\n\n"
-        "Please note: The settings commands currently interact with an older JSON-based configuration system "
-        "which is being phased out. Essential configurations like API keys should ideally be managed via "
-        "environment variables (.env file)."
+        "Comandos disponibles:\n\n"
+        "[NOTICIAS]\n"
+        "  /topic_shortnews <tema> - Video corto de noticias sobre un tema (FLUJO A)\n"
+        "  /topic_longnews <tema> - Video largo de noticias sobre un tema\n"
+        "  /url_shortnews <url> - Video corto desde enlace de noticia (FLUJO B)\n"
+        "  /url_longnews <url> - Video largo desde enlace de noticia\n"
+        "  /news_category - Elegir categoria y obtener noticias\n"
+        "  /detailed_news - Noticia detallada por categoria (video largo)\n"
+        "  /headless [num] - Procesar noticias virales (solo admins)\n\n"
+        "[CONFIGURACION]\n"
+        "  /settings - Configurar opciones del bot\n"
+        "  /show_settings - Mostrar configuracion actual\n\n"
+        "[UTILES]\n"
+        "  /help - Mostrar esta ayuda\n"
     )
     
     await message_sender.send_message(

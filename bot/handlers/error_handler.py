@@ -10,10 +10,12 @@ from telegram.error import BadRequest, Forbidden
 from telegram.ext import CallbackContext
 
 from bot.utils.message_sender import MessageSender
+from scripts.utils.app_logger import trace
 
 logger = logging.getLogger(__name__)
 
 
+@trace()
 async def error_handler(update: Optional[Update], context: CallbackContext) -> None:
     """Log errors and notify the user when possible."""
     error_id = uuid.uuid4()

@@ -1,7 +1,9 @@
 import sqlite3
 from telegram import Update
+from scripts.utils.app_logger import trace
 
 class UserController:
+    @trace()
     def __init__(self, db_name='users.db'):
         self.db_name = db_name
         self.init_db()

@@ -1,19 +1,20 @@
-from time import sleep
+from time import sleep, time
 import uuid
+import base64
 from enum import Enum
 from huggingface_hub import InferenceClient
 import os
 from colorama import Fore, init
 import random
-from g4f.client import Client
 import requests
 
-# Initialize colorama
 init(autoreset=True)
+
 
 class AspectRatio(Enum):
     LANDSCAPE = (1920, 1080)
     PORTRAIT = (1080, 1920)
+
 
 class StylePreset(Enum):
     NONE = "NO TEXT."
@@ -40,20 +41,49 @@ class StylePreset(Enum):
     CHIBI = "NO TEXT. Super-deformed, cute characters with oversized heads and eyes, tiny bodies, and bright, pastel colors, inspired by Japanese chibi art."
     DREAMWORKS = "NO TEXT. 3D animated style with expressive, slightly exaggerated characters, dynamic lighting, and a cinematic, adventurous atmosphere, inspired by DreamWorks Animation films."
 
+
+class RateLimiter:
+    """Simple token-bucket rate limiter"""
+
+    def __init__(self, max_calls: int, period: float):
+        self.max_calls = max_calls
+        self.period = period
+        self.tokens = max_calls
+        self.last_refill = time()
+
+    def _refill(self):
+        now = time()
+        elapsed = now - self.last_refill
+        self.tokens = min(self.max_calls, self.tokens + elapsed * (self.max_calls / self.period))
+        self.last_refill = now
+
+    def acquire(self):
+        while True:
+            self._refill()
+            if self.tokens >= 1:
+                self.tokens -= 1
+                return
+            sleep(self.period / self.max_calls)
+
+
 class FluxImageGenerator:
-    def __init__(self, token=None, output_dir="output_images", model="black-forest-labs/FLUX.1-schnell"):
+    def __init__(self, token=None, output_dir="output_images", model="black-forest-labs/FLUX.1-schnell",
+                 azure_endpoint=None, azure_api_key=None, azure_model="MAI-Image-2e"):
         self.hf_client = InferenceClient(token=token) if token else None
-        self.g4f_client = Client()
         self.model = model
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
+        self.azure_endpoint = azure_endpoint
+        self.azure_api_key = azure_api_key
+        self.azure_model = azure_model
+        self.azure_limiter = RateLimiter(max_calls=20, period=60.0)
+
     @staticmethod
     def getImagePresets():
         return {preset.name: preset.value for preset in StylePreset}
-    
+
     def generate_image(self, custom_prompt, style_preset: StylePreset, aspect_ratio: AspectRatio):
-        # Construir el prompt final
         if style_preset == StylePreset.YOUTUBE_THUMBNAIL:
             final_prompt = style_preset.value
         elif style_preset == StylePreset.NONE:
@@ -64,23 +94,23 @@ class FluxImageGenerator:
         width, height = aspect_ratio.value
         print(Fore.BLUE + f"Image prompt\t ::-> {final_prompt}")
 
-        # Sistema de reintentos con fallback
-        while True:
-            # Intentar con Hugging Face 3 veces
-            for _ in range(10):
-                image_path = self._generate_with_g4f(final_prompt, width, height)
-                # image_path = self._generate_with_huggingface(final_prompt, width, height)
-                if image_path:
-                    return image_path
-                sleep(10)  # Esperar entre intentos
+        for attempt in range(5):
+            image_path = self._generate_with_huggingface(final_prompt, width, height)
             if image_path:
                 return image_path
-            sleep(10)  # Esperar antes de reiniciar el ciclo
+            print(Fore.YELLOW + f"HF attempt {attempt + 1} failed, trying Azure...")
+            image_path = self._generate_with_azure(final_prompt, width, height)
+            if image_path:
+                return image_path
+            if attempt < 4:
+                sleep(5)
+
+        raise RuntimeError("All image generation attempts failed (HF + Azure)")
 
     def _generate_with_huggingface(self, prompt, width, height):
         if not self.hf_client:
             return None
-            
+
         try:
             image = self.hf_client.text_to_image(
                 prompt,
@@ -89,7 +119,7 @@ class FluxImageGenerator:
                 width=width,
                 seed=random.randint(0, 2**32 - 1)
             )
-            
+
             output_path = os.path.join(self.output_dir, f"hf_{uuid.uuid4()}.png")
             image.save(output_path)
             print(Fore.GREEN + f"Hugging Face image saved to {output_path}")
@@ -98,28 +128,49 @@ class FluxImageGenerator:
             print(Fore.RED + f"Hugging Face Error: {str(e)}")
             return None
 
-    def _generate_with_g4f(self, prompt, width, height):
-        try:
-            response = self.g4f_client.images.generate(
-                model="flux",
-                prompt=prompt,
-                response_format="url",
-                width = width,
-                height = height
-            )
-            
-            if not response.data:
-                return None
+    def _generate_with_azure(self, prompt, width, height):
+        if not self.azure_endpoint or not self.azure_api_key:
+            return None
 
-            image_url = response.data[0].url
-            image_data = requests.get(image_url).content
-            
-            output_path = os.path.join(self.output_dir, f"g4f_{uuid.uuid4()}.png")
-            with open(output_path, 'wb') as f:
-                f.write(image_data)
-                
-            print(Fore.GREEN + f"g4f image saved to {output_path}")
+        try:
+            self.azure_limiter.acquire()
+
+            max_dim = 1024
+            min_dim = 768
+            if width > max_dim or height > max_dim:
+                ratio = min(max_dim / width, max_dim / height)
+                width = int(width * ratio)
+                height = int(height * ratio)
+            if width < min_dim or height < min_dim:
+                ratio = max(min_dim / width, min_dim / height)
+                width = int(width * ratio)
+                height = int(height * ratio)
+
+            resp = requests.post(
+                self.azure_endpoint,
+                headers={
+                    "Content-Type": "application/json",
+                    "api-key": self.azure_api_key,
+                },
+                json={
+                    "prompt": prompt,
+                    "width": width,
+                    "height": height,
+                    "n": 1,
+                    "model": self.azure_model,
+                },
+                timeout=120,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            b64 = data["data"][0]["b64_json"]
+            img_bytes = base64.b64decode(b64)
+
+            output_path = os.path.join(self.output_dir, f"azure_{uuid.uuid4()}.png")
+            with open(output_path, "wb") as f:
+                f.write(img_bytes)
+            print(Fore.GREEN + f"Azure image saved to {output_path}")
             return output_path
         except Exception as e:
-            print(Fore.RED + f"g4f Error: {str(e)}")
+            print(Fore.RED + f"Azure Error: {str(e)}")
             return None

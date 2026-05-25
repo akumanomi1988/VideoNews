@@ -1,5 +1,6 @@
 import sqlite3
 from contextlib import contextmanager
+from scripts.utils.app_logger import trace
 
 # Añadir al principio del código
 DATABASE_NAME = 'processed_news.db'
@@ -36,12 +37,14 @@ def initialize_database():
 # Ejecutar al inicio
 initialize_database()
 
+@trace()
 def is_url_processed(url):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT url FROM processed_news WHERE url = ?', (url,))
         return cursor.fetchone() is not None
 
+@trace()
 def save_processed_news(news_data):
     with get_db_connection() as conn:
         cursor = conn.cursor()

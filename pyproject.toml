@@ -1,0 +1,129 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "videonews"
+version = "1.0.0"
+description = "Automated news-to-video generation pipeline with Telegram bot"
+requires-python = ">=3.11,<3.12"
+readme = "README.md"
+license = {text = "MIT"}
+
+dependencies = [
+    # Bot
+    "python-telegram-bot>=20.0,<21.0",
+    "nest-asyncio>=1.6.0",
+    "python-dotenv>=1.0.0",
+
+    # HTTP / Networking
+    "requests>=2.31.0",
+    "urllib3>=2.0.0,<3.0.0",
+    "httpx>=0.25.0",
+    "fake-useragent>=1.0.0",
+
+    # News fetching
+    "newsapi-python>=0.2.7",
+    "newspaper3k>=0.2.8",
+    "feedparser>=6.0.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "lxml_html_clean>=0.4.0",
+
+    # AI / NLG
+    "ollama>=0.4.0",
+    "groq>=0.12.0",
+
+    # TTS
+    "edge-tts>=6.0.0",
+    "elevenlabs>=2.0.0",
+
+    # STT
+    "openai-whisper>=20231101",
+
+    # Media processing
+    "moviepy==1.0.3",
+    "Pillow>=10.0.0,<11.0.0",
+    "opencv-python>=4.8.0",
+    "pydub>=0.25.0",
+    "ffmpeg-python>=0.2.0",
+    "numpy<2.0.0",
+    "scipy>=1.10.0,<2.0.0",
+
+    # Text processing / NLP
+    "nltk>=3.8.0",
+    "textblob>=0.17.0",
+    "vaderSentiment>=3.3.0",
+    "textstat>=0.7.0",
+    "spacy>=3.7.0",
+
+    # AI/ML
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "tokenizers>=0.15.0",
+    "safetensors>=0.4.0",
+    "tqdm>=4.66.0",
+
+    # Audio
+    "librosa>=0.10.0",
+
+    # Utilities
+    "tenacity>=8.2.0",
+    "psutil>=5.9.0",
+    "colorama>=0.4.6",
+    "pysrt>=1.1.0",
+    "python-dateutil>=2.8.0",
+    "configparser>=7.0.0",
+
+    # Custom packages (installed with --no-deps, see bootstrap.ps1)
+    "akumasubtitler",
+
+    # Web framework (for dashboard)
+    "flask>=3.0.0",
+
+    # Google APIs (YouTube upload)
+    "google-api-python-client>=2.180.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-auth-httplib2>=0.2.0",
+
+    # Text-to-speech (offline fallback)
+    "pyttsx3>=2.90",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0",
+    "coverage>=7.4.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["bot", "bot.*", "scripts", "scripts.*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true

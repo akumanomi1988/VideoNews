@@ -3,6 +3,7 @@ from colorama import Fore, init
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from .interfaces import NewsProvider
+from scripts.utils.app_logger import trace
 
 # Inicializar Colorama
 init(autoreset=True)
@@ -10,11 +11,13 @@ init(autoreset=True)
 class NewsAPIProvider(NewsProvider):
     """Implementación de NewsProvider para NewsAPI"""
     
+    @trace()
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.client = NewsApiClient(api_key=self.api_key)
         self.countries = ['es', 'us', 'gb', 'fr', 'ru']  # Países por defecto
     
+    @trace()
     def get_latest_news(self, 
                        category: Optional[str] = None,
                        language: Optional[str] = None,
@@ -41,6 +44,7 @@ class NewsAPIProvider(NewsProvider):
                 
         return all_articles[:limit]
 
+    @trace()
     def get_latest_headlines(
         self,
         country: str = 'us',

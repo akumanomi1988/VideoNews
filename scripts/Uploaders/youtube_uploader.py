@@ -201,15 +201,29 @@ class YoutubeMediaUploader:
         try:
             if not os.path.isfile(thumbnail_path):
                 raise FileNotFoundError(f"Archivo de thumbnail no encontrado: {thumbnail_path}")
-            
+
+            max_size = 2 * 1024 * 1024
+            size = os.path.getsize(thumbnail_path)
+            if size > max_size:
+                from PIL import Image
+                img = Image.open(thumbnail_path)
+                img.save(thumbnail_path, quality=85, optimize=True)
+                size = os.path.getsize(thumbnail_path)
+                while size > max_size:
+                    img = Image.open(thumbnail_path)
+                    w, h = img.size
+                    img = img.resize((int(w * 0.8), int(h * 0.8)), Image.LANCZOS)
+                    img.save(thumbnail_path, quality=80, optimize=True)
+                    size = os.path.getsize(thumbnail_path)
+
             print(Fore.CYAN + f"Setting thumbnail for video ID: {video_id}")
-            media = MediaFileUpload(thumbnail_path)
+            media = MediaFileUpload(thumbnail_path, resumable=True)
             request = self.youtube.thumbnails().set(videoId=video_id, media_body=media)
             response = self.execute_request_with_retries(request)
-            
+
             print(Fore.GREEN + f"Thumbnail set for video ID: {video_id}")
             return response
-        
+
         except Exception as e:
             self.handle_error(f"Error estableciendo thumbnail para video {video_id}", e, True)
             raise
@@ -218,17 +232,23 @@ class YoutubeMediaUploader:
         """Maneja y muestra errores de forma consistente."""
         error_type = type(error).__name__
         error_message = str(error)
+
+        def safe_print(text):
+            try:
+                print(text)
+            except UnicodeEncodeError:
+                print(text.encode('ascii', 'replace').decode('ascii'))
         
-        print(Fore.RED + Style.BRIGHT + f"\n⚠️ ERROR: {context}")
-        print(Fore.RED + f"Tipo: {error_type}")
-        print(Fore.RED + f"Mensaje: {error_message}")
-        
+        safe_print(Fore.RED + Style.BRIGHT + f"\n[!] ERROR: {context}")
+        safe_print(Fore.RED + f"Tipo: {error_type}")
+        safe_print(Fore.RED + f"Mensaje: {error_message}")
+
         if isinstance(error, HttpError):
             error_details = self.parse_http_error(error)
-            print(Fore.RED + f"Detalles API: {json.dumps(error_details, indent=2)}")
-        
+            safe_print(Fore.RED + f"Detalles API: {json.dumps(error_details, indent=2)}")
+
         if critical:
-            print(Fore.RED + Style.BRIGHT + "❌ Error crítico, deteniendo ejecución")
+            safe_print(Fore.RED + Style.BRIGHT + "[X] Error critico, deteniendo ejecucion")
             raise
         else:
-            print(Fore.YELLOW + "⏩ Continuando después de error no crítico")
+            safe_print(Fore.YELLOW + "[>] Continuando despues de error no critico")

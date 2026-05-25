@@ -11,6 +11,7 @@ import textstat
 
 from .interfaces import NewsProvider
 from .news_extractor import NewsExtractor, ArticleData
+from scripts.utils.app_logger import trace
 
 # Initialize colorama
 init(autoreset=True)
@@ -27,6 +28,7 @@ except OSError:
 class NewsAggregator:
     """Clase que maneja la agregación y scoring de noticias de múltiples fuentes"""
     
+    @trace()
     def __init__(self, 
                  providers: List[NewsProvider],
                  config: Dict[str, Any],
@@ -37,6 +39,7 @@ class NewsAggregator:
         self.extractor = NewsExtractor()
         self.vader_analyzer = SentimentIntensityAnalyzer()
         
+    @trace()
     def get_viral_news(self,
                       category: Optional[str] = None,
                       language: Optional[str] = None,

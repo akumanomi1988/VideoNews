@@ -23,6 +23,7 @@ from scripts.DataFetcher.news_mapper import parse_rss_to_standard_object
 from .news_api_client import NewsAPIProvider
 from .currents_api_client import CurrentsAPIProvider
 from .news_aggregator import NewsAggregator
+from scripts.utils.app_logger import trace
 
 # --- Constants ---
 DEFAULT_VIRAL_NEWS_FILE = 'viral_news.json'
@@ -44,9 +45,9 @@ def load_spacy_model(model_name: str = "es_core_news_sm"):
     try:
         return spacy.load(model_name)
     except OSError:
-        print(Fore.RED + f"Modelo {model_name} not found. Downloading...")
-        import spacy.cli
-        spacy.cli.download(model_name)
+        print(Fore.RED + f"Model {model_name} not found. Downloading...")
+        from spacy.cli import download as _spacy_download
+        _spacy_download(model_name)
         return spacy.load(model_name)
 
 nlp = load_spacy_model()
@@ -56,6 +57,7 @@ class NewsProcessor:
     Processes news articles from various sources, evaluates their virality,
     and stores viral news for later retrieval.
     """
+    @trace()
     def __init__(self, config: Dict[str, Any], viral_news_file: str = DEFAULT_VIRAL_NEWS_FILE):
         self._config = config
         self._viral_news_file = viral_news_file
@@ -66,6 +68,7 @@ class NewsProcessor:
         self.logger = logging.getLogger(__name__)
         self._load_viral_news()
 
+    @trace()
     def process_all_news(self) -> None:
         """
         Processes all news from configured sources, evaluates virality,
@@ -109,6 +112,7 @@ class NewsProcessor:
         print(f"- Artículos procesados: {len(all_news)}")
         print(f"- Artículos virales encontrados: {len(self._processed_news)}")
 
+    @trace()
     def get_next_viral_news(self) -> Optional[Dict[str, Any]]:
         """
         Returns the next processed viral news article, or None if none left.
@@ -122,21 +126,21 @@ class NewsProcessor:
     def _load_viral_news(self) -> None:
         """Loads viral news from file if it exists."""
         try:
-            with open(self.viral_news_file, 'r', encoding='utf-8') as f:
+            with open(self._viral_news_file, 'r', encoding='utf-8') as f:
                 self._processed_news = json.load(f)
-            print(Fore.GREEN + f"Loaded {len(self._processed_news)} viral news from {self.viral_news_file}")
+            print(Fore.GREEN + f"Loaded {len(self._processed_news)} viral news from {self._viral_news_file}")
         except FileNotFoundError:
-            print(Fore.YELLOW + f"File {self.viral_news_file} not found. Starting fresh.")
+            print(Fore.YELLOW + f"File {self._viral_news_file} not found. Starting fresh.")
         except json.JSONDecodeError:
-            print(Fore.RED + f"Error decoding {self.viral_news_file}. Starting fresh.")
+            print(Fore.RED + f"Error decoding {self._viral_news_file}. Starting fresh.")
             self._processed_news = []
 
     def _save_viral_news(self) -> None:
         """Saves processed viral news to file."""
         try:
-            with open(self.viral_news_file, 'w', encoding='utf-8') as f:
+            with open(self._viral_news_file, 'w', encoding='utf-8') as f:
                 json.dump(self._processed_news, f, ensure_ascii=False, indent=4)
-            print(Fore.GREEN + f"Saved {len(self._processed_news)} viral news to {self.viral_news_file}")
+            print(Fore.GREEN + f"Saved {len(self._processed_news)} viral news to {self._viral_news_file}")
         except Exception as e:
             print(Fore.RED + f"Error saving viral news to {self._viral_news_file}: {e}")
 

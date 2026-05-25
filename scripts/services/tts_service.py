@@ -8,6 +8,7 @@ from scripts.AI.text_to_speech import TTSFactory, TTSProvider
 from ..interfaces import TextToSpeech
 from ..utils.retry import retry_with_backoff, is_transient_error
 from .subtitle_service import SubtitleProcessor
+from ..utils.app_logger import trace
 
 class TTSError(Exception):
     """Custom exception for TTS failures"""
@@ -52,6 +53,7 @@ class ChunkProcessor:
 class EdgeTTSService(TextToSpeech):
     """Microsoft Edge TTS implementation with parallel processing"""
     
+    @trace()
     def __init__(self, output_dir: str, voice: str, language: str):
         self.logger = logging.getLogger(__name__)
         self.tts = TTSFactory(TTSProvider.EDGE, output_dir=output_dir)
@@ -60,6 +62,7 @@ class EdgeTTSService(TextToSpeech):
         self.output_dir = Path(output_dir)
         self.chunk_processor = ChunkProcessor()
 
+    @trace()
     @retry_with_backoff(
         retries=3,
         backoff_in_seconds=1,

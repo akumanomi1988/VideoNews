@@ -1,56 +1,6 @@
-google-api-python-client
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-colorama
-pydub
-moviepy==1.0.3
-openai-whisper
-ffmpeg-python
-configparser
-uuid
-elevenlabs
-pyttsx3
-whisper
-requests
-Pillow
-newsapi-python
-g4f[all]
-edge_tts
-python-telegram-bot==20.0
-nest_asyncio
-flask
-newspaper3k
-opencv-python
-psutil
-pysrt
-newspaper3k[lxml]
-textblob
-spacy
-fake-useragent
-beautifulsoup4
-vaderSentiment
-textstat
-bark
-python-dateutil
-tenacity
-urllib3>=2.0.0
-requests[security]
-lxml[html_clean]
-akumaimageeffect
-akumasubtitler
+# VideoNews dependencies
+# For development, use: pip install -e ".[dev]"
+# For production, use: pip install -e .
+# For reproducible builds: pip install -r requirements.lock.txt
 
-# For media processing
-ffmpeg-python>=0.2.0
-
-# For AI/ML features
-torch>=2.0.0
-transformers>=4.30.0
-nltk>=3.8.1
-
-# For audio processing
-scipy>=1.10.0
-librosa>=0.10.0
-
-# Additional dependencies that need manual installation:
-# - ffmpeg: Required for video/audio processing. Install from https://ffmpeg.org/download.html
+-e .

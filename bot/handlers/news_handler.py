@@ -9,8 +9,9 @@ This module contains handlers for functionalities such as:
 - Initiating the long news processing flow.
 - Handling the headless mode for processing viral news.
 """
-import logging 
-from typing import List, Dict, Any, Optional # For type hinting
+import asyncio
+import logging
+from typing import List, Dict, Any, Optional, Callable
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from telegram.ext import CallbackContext
 
@@ -22,11 +23,32 @@ from bot.config import (
 )
 from bot.services.news_service import NewsService
 from bot.services.video_service import VideoService
-from bot.utils.message_sender import MessageSender # Added MessageSender
+from bot.utils.message_sender import MessageSender
+from scripts.utils.app_logger import trace
+
+def _make_progress_sender(update: Update, context: CallbackContext) -> Callable[[Dict], None]:
+    """Build a sync callback that bridges pipeline progress to Telegram messages"""
+    loop = asyncio.get_event_loop()
+    chat_id = update.effective_chat.id
+
+    def _send(progress: Dict):
+        stage = progress.get('current_stage', {})
+        msg = stage.get('message', '')
+        err = stage.get('error')
+        if not msg and not err:
+            return
+        text = f"❌ {err}" if err else f"🔄 {msg}"
+        asyncio.run_coroutine_threadsafe(
+            context.bot.send_message(chat_id=chat_id, text=text),
+            loop
+        )
+
+    return _send
 
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
 
+@trace()
 def get_news_service_instance() -> NewsService:
     """Helper to get a NewsService instance with current config."""
     logger.debug("Creating NewsService instance.")
@@ -35,12 +57,14 @@ def get_news_service_instance() -> NewsService:
     page_size: int = get_news_api_page_size()
     return NewsService(api_key=api_key, default_language=tts_lang, default_page_size=page_size)
 
+@trace()
 def get_video_service_instance() -> VideoService:
     """Helper to get a VideoService instance."""
     logger.debug("Creating VideoService instance.")
     return VideoService()
 
 
+@trace()
 async def show_category_selection(update: Update, context: CallbackContext) -> None:
     """
     Displays an inline keyboard with news categories for the user to select.
@@ -62,6 +86,7 @@ async def show_category_selection(update: Update, context: CallbackContext) -> N
         reply_markup=reply_markup
     )
 
+@trace()
 async def news_category_selection_handler(update: Update, context: CallbackContext):
     """
     Handles the user's selection of a news category from the inline keyboard.
@@ -91,8 +116,9 @@ async def news_category_selection_handler(update: Update, context: CallbackConte
 
     await message_sender.send_message(update=update, text=f"Fetching the latest news in category: {selected_category}... 📰")
     
-    latest_news: List[Dict[str, Any]] = news_service.fetch_news(category=selected_category) 
-        
+    latest_news: List[Dict[str, Any]] = news_service.fetch_news(category=selected_category)
+    context.user_data["cached_news"] = latest_news
+
     if not latest_news:
         logger.info(f"No news found for category: {selected_category}.")
         await message_sender.send_message(update=update, text=f"No news found for category: {selected_category}. Try again later. 😕")
@@ -110,6 +136,7 @@ async def news_category_selection_handler(update: Update, context: CallbackConte
         reply_markup=reply_markup
     )
 
+@trace()
 async def news_selection_handler(update: Update, context: CallbackContext) -> None:
     """
     Handles the user's selection of a specific news item from the list.
@@ -137,8 +164,10 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
         return
         
     logger.info(f"User selected news item at index: {selected_index}")
-    news_service = get_news_service_instance() 
-    selected_news_item: Optional[Dict[str, Any]] = news_service.get_cached_news_item(selected_index)
+    cached_news: List[Dict[str, Any]] = context.user_data.get("cached_news", [])
+    selected_news_item: Optional[Dict[str, Any]] = (
+        cached_news[selected_index] if 0 <= selected_index < len(cached_news) else None
+    )
 
     if not selected_news_item:
         logger.warning(f"Could not find cached news item at index: {selected_index}")
@@ -153,17 +182,17 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
     logger.info(f"Processing news item: '{news_title}' as {'long' if news_type_long else 'short'} format.")
 
     try:
-        response_data: Dict[str, Any] # Define type for response
+        response_data: Dict[str, Any]
         if news_type_long:
-            await message_sender.send_message(update=update, text=f"Processing long news: {news_title}... ⏳")
-            response_data = video_service.process_long_news(
+            await message_sender.send_message(update=update, text=f"⏳ Processing long news: {news_title}...")
+            response_data = await video_service.process_long_news(
                 news_item_title=news_title,
                 news_item_description=news_description,
                 callback_query=query 
             )
         else:
-            await message_sender.send_message(update=update, text=f"Processing short news: {news_title}... ⏳")
-            response_data = video_service.process_short_news(
+            await message_sender.send_message(update=update, text=f"⏳ Processing short news: {news_title}...")
+            response_data = await video_service.process_short_news(
                 news_item_title=news_title,
                 news_item_description=news_description,
                 callback_query=query
@@ -176,6 +205,7 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
     finally:
         context.user_data.pop('news_type', None)
 
+@trace()
 def format_youtube_message(response: Optional[Dict[str, Any]]) -> str:
     """
     Formats the YouTube video information from a dictionary into a
@@ -225,6 +255,7 @@ def format_youtube_message(response: Optional[Dict[str, Any]]) -> str:
         message += f"\n🖼️ [Thumbnail]({thumbnail_url})" 
     return message
 
+@trace()
 async def short_news_topic(update: Update, context: CallbackContext) -> None:
     """
     Handles the /topic_shortnews command.
@@ -238,16 +269,17 @@ async def short_news_topic(update: Update, context: CallbackContext) -> None:
         await message_sender.send_message(update=update, text=f"Processing short news with headline: {headline}... 📰")
         video_service = get_video_service_instance()
         try:
-            response_data: Dict[str, Any] = video_service.process_short_news(news_item_title=headline, news_item_description="")
+            response_data: Dict[str, Any] = await video_service.process_short_news(news_item_title=headline, news_item_description="")
             logger.info(f"Successfully processed short_news_topic for headline: {headline}")
             await message_sender.send_message(update=update, text=f"News processing completed: {format_youtube_message(response_data)} ✅")
         except Exception as e:
             logger.error(f"Error processing short_news_topic for headline '{headline}': {e}", exc_info=True)
-            await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later. 🛠️")
+            await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later.")
     else:
         logger.info("short_news_topic called without arguments.")
         await message_sender.send_message(update=update, text="Please provide a topic after the command. Usage: /topic_shortnews <your topic>")
 
+@trace()
 async def long_news_topic(update: Update, context: CallbackContext) -> None:
     """
     Handles the /topic_longnews command.
@@ -261,16 +293,17 @@ async def long_news_topic(update: Update, context: CallbackContext) -> None:
         await message_sender.send_message(update=update, text=f"Processing long news with headline: {headline}... ⏳")
         video_service = get_video_service_instance()
         try:
-            response_data: Dict[str, Any] = video_service.process_long_news(news_item_title=headline, news_item_description="")
+            response_data: Dict[str, Any] = await video_service.process_long_news(news_item_title=headline, news_item_description="")
             logger.info(f"Successfully processed long_news_topic for headline: {headline}")
             await message_sender.send_message(update=update, text=f"Long news processing completed: {format_youtube_message(response_data)} ✅")
         except Exception as e:
             logger.error(f"Error processing long_news_topic for headline '{headline}': {e}", exc_info=True)
-            await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later. 🛠️")
+            await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later.")
     else:
         logger.info("long_news_topic called without arguments.")
         await message_sender.send_message(update=update, text="Please provide a topic after the command. Usage: /topic_longnews <your topic>")
 
+@trace()
 async def long_news(update: Update, context: CallbackContext) -> None:
     """
     Handles the /detailed_news command.
@@ -282,6 +315,7 @@ async def long_news(update: Update, context: CallbackContext) -> None:
     context.user_data['news_type'] = 'long' # type: ignore[attr-defined] # context.user_data is dict-like
     await show_category_selection(update, context) 
 
+@trace()
 async def headless(update: Update, context: CallbackContext) -> None:
     """
     Handles the /headless command for processing viral news.
@@ -328,3 +362,47 @@ async def headless(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         logger.error(f"Unexpected error during headless command execution via handler: {e}", exc_info=True)
         await message_sender.send_message(update=update, text="An unexpected error occurred during headless processing. Please check logs. 🛠️")
+
+@trace()
+async def url_short_news(update: Update, context: CallbackContext) -> None:
+    """Handles /url_shortnews command - FLUJO B: URL to short video"""
+    message_sender = MessageSender(context=context)
+    if not context.args:
+        await message_sender.send_message(update=update, text="Please provide a URL. Usage: /url_shortnews <article_url>")
+        return
+
+    url = context.args[0]
+    logger.info(f"url_short_news called with URL: {url}")
+    await message_sender.send_message(update=update, text=f"⏳ Processing URL into short video: {url}...")
+
+    video_service = get_video_service_instance()
+    progress = _make_progress_sender(update, context) if update.effective_chat else None
+    try:
+        result_url = await video_service.process_url_short(url=url, progress_callback=progress)
+        logger.info(f"Successfully processed url_short_news for URL: {url}")
+        await message_sender.send_message(update=update, text=f"✅ Short video created and uploaded!\n{result_url}")
+    except Exception as e:
+        logger.error(f"Error processing url_short_news for URL '{url}': {e}", exc_info=True)
+        await message_sender.send_message(update=update, text=f"❌ Sorry, an error occurred while processing the URL. Please check logs.")
+
+@trace()
+async def url_long_news(update: Update, context: CallbackContext) -> None:
+    """Handles /url_longnews command - FLUJO B: URL to long video"""
+    message_sender = MessageSender(context=context)
+    if not context.args:
+        await message_sender.send_message(update=update, text="Please provide a URL. Usage: /url_longnews <article_url>")
+        return
+
+    url = context.args[0]
+    logger.info(f"url_long_news called with URL: {url}")
+    await message_sender.send_message(update=update, text=f"⏳ Processing URL into long video: {url}...")
+
+    video_service = get_video_service_instance()
+    progress = _make_progress_sender(update, context) if update.effective_chat else None
+    try:
+        result_url = await video_service.process_url_long(url=url, progress_callback=progress)
+        logger.info(f"Successfully processed url_long_news for URL: {url}")
+        await message_sender.send_message(update=update, text=f"✅ Long video created and uploaded!\n{result_url}")
+    except Exception as e:
+        logger.error(f"Error processing url_long_news for URL '{url}': {e}", exc_info=True)
+        await message_sender.send_message(update=update, text=f"❌ Sorry, an error occurred while processing the URL. Please check logs.")

@@ -10,6 +10,7 @@ import random
 import re
 import tempfile
 from enum import Enum
+from typing import Optional
 from pathlib import Path
 from uuid import uuid4
 import uuid
@@ -18,8 +19,13 @@ from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
 from pydub import AudioSegment
 # from scipy.io.wavfile import write as write_wav
-from bark import generate_audio, preload_models, SAMPLE_RATE
+try:
+    from bark import generate_audio, preload_models, SAMPLE_RATE
+    _BARK_AVAILABLE = True
+except ImportError:
+    _BARK_AVAILABLE = False
 import edge_tts
+from scripts.utils.app_logger import trace
 
 # Initialize colorama
 init(autoreset=True)
@@ -30,6 +36,7 @@ class TTSProvider(Enum):
     BARK = "bark"
 
 class TTSFactory:
+    @trace()
     def __init__(self, tts_provider: TTSProvider, *args, **kwargs):
         """
         Initializes the TTSFactory object with the specified TTS provider.
@@ -42,10 +49,15 @@ class TTSFactory:
         elif tts_provider == TTSProvider.ELEVENLABS:
             self.tts = TTSElevenlabs(*args, **kwargs)
         elif tts_provider == TTSProvider.BARK:
+            if not _BARK_AVAILABLE:
+                raise ImportError(
+                    "Bark TTS is not available. Install it with: pip install bark"
+                )
             self.tts = TTSBark(*args, **kwargs)
         else:
             raise ValueError(f"Invalid TTS provider: {tts_provider}")
 
+    @trace()
     def text_to_speech_file(self, text: str, *args, **kwargs) -> str:
         """
         Converts the text to speech using the selected TTS provider and saves the result as an audio file.
@@ -122,13 +134,13 @@ class TTSEdge:
         voices = await edge_tts.list_voices()
         return {f"{v['ShortName']} - {v['Locale']} ({v['Gender']})": v['ShortName'] for v in voices}
 
-    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural') -> str:
+    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural', output_path: Optional[str] = None) -> str:
         """
         Generates TTS audio and returns the path of the saved audio file.
         :param text: The text to convert to speech.
         :param language: The language of the voice (e.g., 'es' for Spanish).
         :param voice: The preferred voice for TTS conversion.
-        :param srt_path: Path where the SRT file will be saved. If None, no SRT file will be generated.
+        :param output_path: Optional explicit path for the output file.
         :return: The path of the saved audio file.
         """
         voices_dict = asyncio.run(self.get_voices())
@@ -151,6 +163,11 @@ class TTSEdge:
         audio_file, error = asyncio.run(self.text_to_speech(text, selected_voice))
         if error:
             raise Exception(Fore.RED + f"Error generating audio: {error}")
+        # Rename to output_path if provided
+        if output_path:
+            import shutil
+            shutil.move(audio_file, output_path)
+            return output_path
         return audio_file
 
 class TTSElevenlabs:
@@ -233,6 +250,10 @@ class TTSBark:
         :param output_dir: Directory where audio files will be saved.
         :param optimize_for_low_vram: If True, activates optimizations for systems with low VRAM.
         """
+        if not _BARK_AVAILABLE:
+            raise ImportError(
+                "Bark TTS is not available. Install it with: pip install bark"
+            )
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         if optimize_for_low_vram:

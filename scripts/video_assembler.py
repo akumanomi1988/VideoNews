@@ -17,10 +17,19 @@ from moviepy.editor import (
 )
 from moviepy.video.fx import resize, crop
 
+import gc
+import contextlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleHelper
+from .interfaces import VideoAssembler as VideoAssemblerInterface, VideoMetadata
+from .utils.app_logger import trace
 from AkumaImageEffect.effect_engine import AkumaEngine, EffectConfig
-# import AkumaImageEffect.effects.core_effects  # Auto-imports and registers effects
-from AkumaSubtitler import AkumaSubtitler
+import AkumaImageEffect.effects.core_effects  # Registers zoom effects
+try:
+    from AkumaSubtitler import AkumaSubtitler
+except ModuleNotFoundError:
+    from akumasubtitler import AkumaSubtitler
 
 # Initialize colorama for colored terminal output
 init(autoreset=True)
@@ -31,37 +40,6 @@ DEFAULT_FPS = 30
 DEFAULT_BG_COLOR = (255, 255, 255)
 DEFAULT_INTERPOLATION = cv2.INTER_CUBIC
 
-class VideoAssembler:
-    """
-    Class responsible for assembling a video from images/videos, voiceover, subtitles, and optional background music.
-    """
-    def __init__(
-        self,
-        subtitle_file: str,
-        voiceover_file: str,
-        output_file: str,
-        media_videos: Optional[List[str]] = None,
-        media_images: Optional[List[str]] = None,
-        aspect_ratio: str = "9:16",
-        background_music: str = ""
-    ):
-        self.subtitle_file = subtitle_file
-        self.voiceover_file = voiceover_file
-        self.output_file = output_file
-        self.media_images = media_images or []
-        self.media_videos = media_videos or []
-        self.aspect_ratio = aspect_ratio
-        self.background_music = background_music
-
-from moviepy.editor import CompositeVideoClip, VideoFileClip, ImageClip, AudioFileClip
-import psutil
-import gc
-import contextlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleHelper
-from .interfaces import VideoAssembler as VideoAssemblerInterface, VideoMetadata
-
 class VideoAssemblerError(Exception):
     """Custom exception for video assembly errors"""
     pass
@@ -69,6 +47,7 @@ class VideoAssemblerError(Exception):
 class ResourceManager:
     """Manages video processing resources and cleanup"""
     
+    @trace()
     def __init__(self):
         self.clips = []
         self.audio_clips = []
@@ -111,6 +90,7 @@ class ResourceManager:
 class VideoAssembler(VideoAssemblerInterface):
     """Handles video assembly with memory management"""
 
+    @trace()
     def __init__(
         self,
         subtitle_file: Optional[str] = None,
@@ -130,6 +110,7 @@ class VideoAssembler(VideoAssemblerInterface):
         self.aspect_ratio = aspect_ratio
         self.background_music = background_music
 
+    @trace()
     def get_target_dimensions(self) -> Tuple[int, int]:
         """
         Return target dimensions based on the specified aspect ratio.
@@ -140,6 +121,7 @@ class VideoAssembler(VideoAssemblerInterface):
             return 1920, 1080
         raise ValueError(Fore.RED + "❌ Invalid aspect ratio. Use '9:16' or '16:9'.")
 
+    @trace()
     def adjust_aspect_ratio(self, clip: VideoFileClip) -> VideoFileClip:
         """
         Resize and crop the video/image clip to match the target aspect ratio.
@@ -264,6 +246,7 @@ class VideoAssembler(VideoAssemblerInterface):
         """
         return '\n'.join(textwrap.wrap(subtitle_text, width=width))
 
+    @trace()
     def assemble_video(
         self,
         style: Style = Style.DEFAULT,
@@ -358,7 +341,8 @@ class VideoAssembler(VideoAssemblerInterface):
         Write the final video file to disk.
         """
         try:
-            final_video = video.subclip(0, duration).fadeout(2)
+            end_time = min(duration, video.duration)
+            final_video = video.subclip(0, end_time).fadeout(2)
             final_video.write_videofile(self.output_file, write_logfile=False)
             print(Fore.GREEN + "✅ Video processing completed successfully.")
         except Exception as e:
@@ -444,6 +428,7 @@ class VideoAssembler(VideoAssemblerInterface):
         if memory.available < 2 * 1024 * 1024 * 1024:  # 2GB minimum
             self.logger.warning("Low memory available, performance may be affected")
 
+    @trace()
     def assemble(
         self,
         media_paths: List[str],
@@ -603,7 +588,7 @@ class VideoAssembler(VideoAssemblerInterface):
             
             subtitles = SubtitlesClip(
                 self.subtitle_file,
-                lambda txt: self.subtitle_helper.generate_subtitle(
+                lambda txt: self.generate_subtitle(
                     txt,
                     video.size,
                     position=position,

@@ -60,8 +60,59 @@ class PipelineContainer(Container):
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__()
-        self.config = config
+        self.config = self._normalize_config(config)
         self._setup_defaults()
+
+    @staticmethod
+    def _normalize_config(config: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize settings.json structure to flat keys expected by container"""
+        normalized: Dict[str, Any] = {}
+
+        settings = config.get("settings", {})
+        normalized["temp_dir"] = config.get("temp_dir") or settings.get("temp_dir", ".temp")
+        normalized["media_source"] = settings.get("media_source", "huggingface")
+
+        pexels = config.get("pexels", {})
+        normalized["pexels_api_key"] = pexels.get("api_key", "")
+
+        huggingface = config.get("huggingface", {})
+        normalized["flux_api_key"] = huggingface.get("api_key", "")
+
+        newsapi = config.get("newsapi", {})
+        normalized["newsapi_api_key"] = newsapi.get("api_key", "")
+
+        tts_edge = config.get("tts_edge", {})
+        normalized["tts_voice"] = tts_edge.get("voice", "en-US-AriaNeural")
+        normalized["tts_language"] = tts_edge.get("language", "en-US")
+
+        article_settings = config.get("article_settings", {})
+        normalized["article_language"] = article_settings.get("language", "en")
+        normalized["article_model"] = article_settings.get("model", "gpt-4o-mini")
+
+        llm_config = config.get("llm", {})
+        normalized["llm_providers"] = llm_config.get("providers", [])
+
+        azure_images = config.get("azure_images", {})
+        normalized["azure_image_endpoint"] = azure_images.get("endpoint", "")
+        normalized["azure_image_api_key"] = azure_images.get("api_key", "")
+        normalized["azure_image_model"] = azure_images.get("model", "MAI-Image-2e")
+
+        youtube = config.get("youtube", {})
+        normalized["youtube_client_secrets"] = youtube.get("credentials_file", "secrets/client_secret.json")
+        normalized["youtube_credentials"] = normalized["youtube_client_secrets"]
+
+        tiktok = config.get("tiktok", {})
+        normalized["tiktok_session"] = tiktok.get("session_file", "")
+
+        normalized["upload_type"] = config.get("upload_type", "youtube")
+        normalized["background_music"] = config.get("video_result", {}).get("background_music", "")
+
+        # Pass through any unrecognized keys for compat
+        for k, v in config.items():
+            if k not in normalized:
+                normalized[k] = v
+
+        return normalized
 
     def _setup_defaults(self):
         """Set up default pipeline component bindings"""
@@ -73,7 +124,7 @@ class PipelineContainer(Container):
             VideoUploader,
             StorageManager
         )
-        from ..services.news_service import NewsService
+        from ..services.news_service import ArticleProcessor as NewsService
         from ..services.media_service import CompositeMediaService
         from ..services.tts_service import EdgeTTSService
         from ..services.video_assembler import VideoAssembler as VideoAssemblerImpl
@@ -82,7 +133,9 @@ class PipelineContainer(Container):
         # Bind default implementations
         self.bind(NewsProcessor, NewsService)
         self.bind(VideoAssembler, VideoAssemblerImpl)
-        self.bind(StorageManager, LocalStorageManager)
+        def storage_factory(**kwargs):
+            return LocalStorageManager(base_dir=self.config['temp_dir'])
+        self.bind_factory(StorageManager, storage_factory)
         
         # Bind text-to-speech with configuration
         def tts_factory(**kwargs):
@@ -101,7 +154,10 @@ class PipelineContainer(Container):
             flux = FluxMediaService(
                 api_key=self.config['flux_api_key'],
                 output_dir=self.config['temp_dir'],
-                cache_dir=str(Path(self.config['temp_dir']) / 'cache' / 'flux')
+                cache_dir=str(Path(self.config['temp_dir']) / 'cache' / 'flux'),
+                azure_endpoint=self.config.get('azure_image_endpoint', ''),
+                azure_api_key=self.config.get('azure_image_api_key', ''),
+                azure_model=self.config.get('azure_image_model', 'MAI-Image-2e'),
             )
             
             pexels = PexelsMediaService(
@@ -137,46 +193,44 @@ class PipelineContainer(Container):
                 
         self.bind_factory(VideoUploader, uploader_factory)
 
-    def create_pipeline(self, pipeline_type: str = 'default'):
+    def create_pipeline(self, pipeline_type: str = 'default',
+                        progress_callback: Optional[Callable[[Dict], None]] = None):
         """Create a pipeline instance of the specified type"""
+        from ..interfaces import (
+            NewsProcessor, MediaGenerator, TextToSpeech,
+            VideoAssembler, VideoUploader, StorageManager
+        )
         from ..pipeline import VideoProcessingPipeline, ShortFormPipeline, LongFormPipeline
         
         # Resolve dependencies
-        news_processor = self.resolve(NewsProcessor)
+        news_processor = self.resolve(
+            NewsProcessor,
+            language=self.config.get("article_language", "en"),
+            model=self.config.get("article_model", "nemotron-3-super:cloud"),
+            providers=self.config.get("llm_providers", []),
+        )
         media_generator = self.resolve(MediaGenerator)
         tts_service = self.resolve(TextToSpeech)
         video_assembler = self.resolve(VideoAssembler)
         video_uploader = self.resolve(VideoUploader)
         storage = self.resolve(StorageManager)
         
+        common_kwargs = dict(
+            news_processor=news_processor,
+            media_generator=media_generator,
+            tts_service=tts_service,
+            video_assembler=video_assembler,
+            video_uploader=video_uploader,
+            storage=storage,
+            config=self.config,
+        )
+        if progress_callback is not None:
+            common_kwargs['progress_callback'] = progress_callback
+
         # Create appropriate pipeline type
         if pipeline_type == 'short':
-            return ShortFormPipeline(
-                news_processor=news_processor,
-                media_generator=media_generator,
-                tts_service=tts_service,
-                video_assembler=video_assembler,
-                video_uploader=video_uploader,
-                storage=storage,
-                config=self.config
-            )
+            return ShortFormPipeline(**common_kwargs)
         elif pipeline_type == 'long':
-            return LongFormPipeline(
-                news_processor=news_processor,
-                media_generator=media_generator,
-                tts_service=tts_service,
-                video_assembler=video_assembler,
-                video_uploader=video_uploader,
-                storage=storage,
-                config=self.config
-            )
+            return LongFormPipeline(**common_kwargs)
         else:
-            return VideoProcessingPipeline(
-                news_processor=news_processor,
-                media_generator=media_generator,
-                tts_service=tts_service,
-                video_assembler=video_assembler,
-                video_uploader=video_uploader,
-                storage=storage,
-                config=self.config
-            )
+            return VideoProcessingPipeline(**common_kwargs)

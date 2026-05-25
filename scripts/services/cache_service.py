@@ -7,10 +7,12 @@ from pathlib import Path
 import time
 import shutil
 from datetime import datetime, timedelta
+from ..utils.app_logger import trace
 
 class CacheManager:
     """Manages caching of generated media assets"""
     
+    @trace()
     def __init__(self, cache_dir: str, max_age_days: int = 7):
         self.logger = logging.getLogger(__name__)
         self.cache_dir = Path(cache_dir)

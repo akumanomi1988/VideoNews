@@ -7,6 +7,7 @@ from scripts.DataFetcher.pexels_media_fetcher import PexelsMediaFetcher
 from ..interfaces import MediaGenerator
 from ..utils.retry import retry_with_backoff, is_transient_error, RetryError
 from .cache_service import CacheManager
+from ..utils.app_logger import trace
 
 class MediaGenerationError(Exception):
     """Custom exception for media generation failures"""
@@ -15,14 +16,23 @@ class MediaGenerationError(Exception):
 class FluxMediaService(MediaGenerator):
     """Handles image generation using Flux API with caching and retry mechanism"""
     
-    def __init__(self, api_key: str, output_dir: str, cache_dir: str = None, model: str = "black-forest-labs/FLUX.1-dev"):
+    @trace()
+    def __init__(self, api_key: str, output_dir: str, cache_dir: str = None, model: str = "black-forest-labs/FLUX.1-dev",
+                 azure_endpoint: str = "", azure_api_key: str = "", azure_model: str = "MAI-Image-2e"):
         self.logger = logging.getLogger(__name__)
-        self.generator = FluxImageGenerator(token=api_key, output_dir=output_dir)
+        self.generator = FluxImageGenerator(
+            token=api_key,
+            output_dir=output_dir,
+            azure_endpoint=azure_endpoint or None,
+            azure_api_key=azure_api_key or None,
+            azure_model=azure_model,
+        )
         self.generator.model = model
         self.cache = CacheManager(
             cache_dir or str(Path(output_dir) / "cache" / "flux")
         )
 
+    @trace()
     @retry_with_backoff(
         retries=5,
         backoff_in_seconds=2,
@@ -64,6 +74,7 @@ class FluxMediaService(MediaGenerator):
 class PexelsMediaService(MediaGenerator):
     """Handles media fetching from Pexels with caching"""
     
+    @trace()
     def __init__(self, api_key: str, output_dir: str, cache_dir: str = None):
         self.logger = logging.getLogger(__name__)
         self.fetcher = PexelsMediaFetcher(api_key=api_key, temp_dir=output_dir)
@@ -71,6 +82,7 @@ class PexelsMediaService(MediaGenerator):
             cache_dir or str(Path(output_dir) / "cache" / "pexels")
         )
 
+    @trace()
     @retry_with_backoff(
         retries=3,
         backoff_in_seconds=1,
@@ -107,14 +119,16 @@ class PexelsMediaService(MediaGenerator):
 class CompositeMediaService(MediaGenerator):
     """Combines multiple media services with smart failover and caching"""
     
+    @trace()
     def __init__(self, services: List[MediaGenerator], cache_dir: str = None):
         self.logger = logging.getLogger(__name__)
         self.services = services
-        self.fallback_index = 0  # Track which service to try next
+        self.fallback_index = 0
         self.cache = CacheManager(
-            cache_dir or str(Path(".") / "cache" / "composite")
+            cache_dir or str(Path("temp") / "cache" / "composite")
         )
 
+    @trace()
     def generate_media(self, prompt: str, **kwargs) -> str:
         """Generate media using multiple services with caching and failover"""
         # Check composite cache first

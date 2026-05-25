@@ -7,10 +7,12 @@ import tempfile
 from datetime import datetime, timedelta
 
 from ..interfaces import StorageManager
+from ..utils.app_logger import trace
 
 class LocalStorageManager(StorageManager):
     """Manages local file storage and cleanup"""
     
+    @trace()
     def __init__(self, base_dir: str, max_age_days: int = 7):
         self.logger = logging.getLogger(__name__)
         self.base_dir = Path(base_dir)
@@ -19,6 +21,7 @@ class LocalStorageManager(StorageManager):
         self._temp_dirs: List[str] = []
         self._managed_files: List[str] = []
 
+    @trace()
     def create_temp_dir(self) -> str:
         """Create a temporary directory for processing"""
         try:

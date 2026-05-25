@@ -11,6 +11,7 @@ import logging
 from typing import List, Dict, Any, Optional # For type hinting
 
 from scripts.DataFetcher.news_api_client import NewsAPIProvider # Assuming this path is correct
+from scripts.utils.app_logger import trace
 
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class NewsService:
     """
     CACHE_TIMEOUT: int = 300  # 5 minutes (300 seconds)
 
+    @trace()
     def __init__(self, api_key: Optional[str], default_language: str = 'en', default_page_size: int = 10):
         """
         Initializes the NewsService.
@@ -53,6 +55,7 @@ class NewsService:
         self.news_provider: NewsAPIProvider = NewsAPIProvider(api_key=self.api_key) 
         logger.debug(f"NewsService initialized with language '{default_language}' and page size {default_page_size}.")
 
+    @trace()
     def is_cache_expired(self) -> bool:
         """Checks if the news cache has expired based on `CACHE_TIMEOUT`."""
         expired: bool = time.time() - self.news_cache["timestamp"] > self.CACHE_TIMEOUT
@@ -62,6 +65,7 @@ class NewsService:
             logger.debug("News cache is still valid.")
         return expired
 
+    @trace()
     def get_news_categories(self) -> List[str]:
         """
         Returns a predefined list of available news categories.
@@ -72,6 +76,7 @@ class NewsService:
         logger.debug("Retrieving news categories.")
         return ['business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology']
 
+    @trace()
     def fetch_news(self, category: str, language: Optional[str] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Fetches news for a given category.
@@ -125,6 +130,7 @@ class NewsService:
         
         return self.news_cache.get("news", [])
 
+    @trace()
     def get_cached_news(self) -> List[Dict[str, Any]]:
         """
         Returns the currently cached list of news items.
@@ -136,6 +142,7 @@ class NewsService:
         logger.debug("Accessing get_cached_news.")
         return self.news_cache.get("news", [])
 
+    @trace()
     def get_cached_news_item(self, index: int) -> Optional[Dict[str, Any]]:
         """
         Retrieves a specific news item from the cache by its index.

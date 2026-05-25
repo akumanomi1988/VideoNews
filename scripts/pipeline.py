@@ -15,6 +15,7 @@ from .interfaces import (
     StorageManager
 )
 from .monitoring import PipelineMonitor, ProcessingStats
+from .utils.app_logger import trace
 from .utils.progress_tracker import ProgressTracker
 
 class VideoProcessingError(Exception):
@@ -24,6 +25,7 @@ class VideoProcessingError(Exception):
 class VideoProcessingPipeline(ProcessingPipeline):
     """Orchestrates the complete video generation process with monitoring"""
     
+    @trace()
     def __init__(
         self,
         news_processor: NewsProcessor,
@@ -47,6 +49,7 @@ class VideoProcessingPipeline(ProcessingPipeline):
         self.monitor = PipelineMonitor()
         self.progress = ProgressTracker(callback=progress_callback)
 
+    @trace()
     def execute(self, input_data: Dict[str, Any]) -> str:
         """Execute the complete video processing pipeline with monitoring"""
         stats = self.monitor.start_monitoring(self.__class__.__name__)
@@ -169,6 +172,7 @@ class VideoProcessingPipeline(ProcessingPipeline):
 class ShortFormPipeline(VideoProcessingPipeline):
     """Pipeline optimized for short-form vertical videos"""
     
+    @trace()
     def execute(self, input_data: Dict[str, Any]) -> str:
         """Execute pipeline for short-form content"""
         input_data.update({
@@ -181,6 +185,7 @@ class ShortFormPipeline(VideoProcessingPipeline):
 class LongFormPipeline(VideoProcessingPipeline):
     """Pipeline optimized for long-form horizontal videos"""
     
+    @trace()
     def execute(self, input_data: Dict[str, Any]) -> str:
         """Execute pipeline for long-form content"""
         input_data.update({

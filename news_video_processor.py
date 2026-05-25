@@ -4,9 +4,10 @@ import json
 import time
 import shutil
 import random
+import logging
+import asyncio
 from typing import Any, Dict, List, Optional, Union
 
-import psutil
 from colorama import Fore, init
 from telegram import CallbackQuery, Message
 from scripts.AI.natural_language_generation import Chatbot
@@ -19,6 +20,7 @@ from scripts.MediaManagers.SRT_Processor import SRTProcessor
 from scripts.video_assembler import VideoAssembler
 from scripts.helpers.media_helper import ImageHelper, Position, Style
 from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+from scripts.utils.app_logger import trace
 
 # Initialize Colorama
 init(autoreset=True)
@@ -42,6 +44,7 @@ class NewsVideoProcessor:
     Handles configuration, media generation, video assembly, and uploading.
     """
 
+    @trace()
     def __init__(
         self,
         config_file: str = DEFAULT_CONFIG_FILE,
@@ -59,9 +62,11 @@ class NewsVideoProcessor:
         self.config = self._load_configuration()
         self.temp_dir = self.config[CONFIG_SETTINGS]['temp_dir']
         self.news_client = NewsAPIClient(api_key=self.config[CONFIG_NEWSAPI]['api_key'])
+        llm_providers = self.config.get("llm", {}).get("providers", [])
         self.article_generator = Chatbot(
             language=self.config[CONFIG_ARTICLE_SETTINGS]['language'],
-            model=self.config[CONFIG_ARTICLE_SETTINGS]['model']
+            model=self.config[CONFIG_ARTICLE_SETTINGS]['model'],
+            providers=llm_providers,
         )
         self.media_fetcher = PexelsMediaFetcher(
             api_key=self.config[CONFIG_PEXELS]['api_key'],
@@ -69,36 +74,47 @@ class NewsVideoProcessor:
         )
         self.stt = stt_whisper()
         self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
+        azure_img = self.config.get("azure_images", {})
         self.image_generator = FluxImageGenerator(
             token=self.config[CONFIG_HUGGINGFACE]['api_key'],
-            output_dir=self.temp_dir
+            output_dir=self.temp_dir,
+            azure_endpoint=azure_img.get("endpoint"),
+            azure_api_key=azure_img.get("api_key"),
+            azure_model=azure_img.get("model", "MAI-Image-2e"),
         )
         self.youtube_uploader = YoutubeMediaUploader(
             client_secrets_file=self.config[CONFIG_YOUTUBE]['credentials_file'],
             channel_description=""
         )
+        self.logger = logging.getLogger(__name__)
         self.video_files: List[str] = []
 
+    @trace()
     def send_progress(self, message_text: str) -> None:
         """
         Send progress messages via a callback if provided.
-
-        Args:
-            message_text (str): The message to send.
+        Safe to call from sync code running in a thread pool.
         """
         if not self.callback_query:
             return
         try:
             msg_obj = getattr(self.callback_query, 'message', self.callback_query)
-            msg_obj.reply_text(message_text, parse_mode='Markdown')
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                msg_obj.reply_text(message_text, parse_mode='Markdown')
         except Exception as e:
             print(Fore.YELLOW + f"Error sending progress message: {str(e)}")
             try:
                 msg_obj = getattr(self.callback_query, 'message', self.callback_query)
-                msg_obj.reply_text(message_text.replace('*', '').replace('_', ''))
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    msg_obj.reply_text(message_text.replace('*', '').replace('_', ''))
             except Exception as ex:
                 print(Fore.RED + f"Failed to send message even without Markdown: {str(ex)}")
 
+    @trace()
     def _load_configuration(self) -> Dict[str, Any]:
         """
         Load the configuration from the specified JSON file.
@@ -138,6 +154,7 @@ class NewsVideoProcessor:
             )
             raise
 
+    @trace()
     def cleanup_temp_folder(self) -> None:
         """
         Cleanup the temporary folder by deleting it and its contents.
@@ -158,38 +175,15 @@ class NewsVideoProcessor:
                 "_Workspace is clean._"
             )
         except Exception as e:
+            self.logger.warning(f"Failed to clean up temp directory: {e}")
             self.send_progress(
                 "⚠️ *Cleanup Warning*\n\n"
-                "Some files are still in use\n"
-                "_Attempting to release locks..._"
+                f"Could not remove all files: {e}\n"
+                "_Manual cleanup may be required._"
             )
-            self._release_locked_files(self.temp_dir)
-
-    def _release_locked_files(self, directory: str) -> None:
-        """
-        Release locked files in the specified directory.
-
-        Args:
-            directory (str): Directory to check for locked files.
-        """
-        for proc in psutil.process_iter(['pid', 'open_files']):
-            try:
-                open_files = proc.info.get('open_files') or []
-                for open_file in open_files:
-                    if open_file.path.startswith(directory):
-                        print(Fore.YELLOW + f"Killing process {proc.info['pid']} holding file {open_file.path}")
-                        proc.kill()
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-        try:
-            shutil.rmtree(directory)
-            print(Fore.RED + f"Deleted {directory} after releasing locks.")
-        except Exception as e:
-            self.send_progress(f"❌ Unexpected error: {e}")
-            self.logger.exception("Unexpected error in short format processing")
-            raise
 
     @staticmethod
+    @trace()
     def clean_filename(topic_title: str, max_length: int = DEFAULT_MAX_FILENAME_LENGTH) -> str:
         """
         Clean and return a valid filename based on the topic title.
@@ -205,6 +199,7 @@ class NewsVideoProcessor:
         clean_title = clean_title[:max_length]
         return f"{clean_title}.mp4"
 
+    @trace()
     def generate_related_media(
         self,
         phrases: Union[str, List[str]],
@@ -242,6 +237,7 @@ class NewsVideoProcessor:
                     time.sleep(60)
         return images
 
+    @trace()
     def fetch_related_media(
         self,
         phrases: Union[str, List[str]],
@@ -278,6 +274,7 @@ class NewsVideoProcessor:
         return media_files
 
     @staticmethod
+    @trace()
     def get_random_style() -> StylePreset:
         """
         Return a random StylePreset (excluding YOUTUBE_THUMBNAIL and NONE).
@@ -288,6 +285,7 @@ class NewsVideoProcessor:
         presets = [s for s in StylePreset if s not in (StylePreset.YOUTUBE_THUMBNAIL, StylePreset.NONE)]
         return random.choice(presets)
 
+    @trace()
     def process_latest_news_in_short_format(self, forze_topic: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Process the latest news, generating articles, media, subtitles, and uploading the videos (short format).
@@ -342,8 +340,7 @@ class NewsVideoProcessor:
                 audio_path = self.tts.text_to_speech_file(
                     article,
                     voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE]['language']
-                    # srt_path=os.path.join(self.temp_dir, 'subtitles.srt')
+                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es')
                 )
 
                 
@@ -401,6 +398,7 @@ class NewsVideoProcessor:
         finally:
             self.cleanup_temp_folder()
 
+    @trace()
     def process_latest_news_in_long_format(self, forze_topic: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Process the latest news, generating articles, media, subtitles, and uploading the videos (long format).
@@ -461,8 +459,8 @@ class NewsVideoProcessor:
                 audio_path = self.tts.text_to_speech_file(
                     article,
                     voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE]['language'],
-                    srt_path=os.path.join(self.temp_dir, 'subtitles.srt')
+                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
+                    srt_path=os.path.join(self.temp_dir, 'subtitles.srt'),
                 )
 
                 subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
@@ -521,6 +519,7 @@ class NewsVideoProcessor:
         finally:
             self.cleanup_temp_folder()
 
+    @trace()
     def _generate_and_enhance_thumbnail(
         self,
         cover_image: Union[str, List[str]],

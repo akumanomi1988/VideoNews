@@ -17,6 +17,7 @@ from typing import Callable, Any, Awaitable, Optional # For type hinting
 from telegram import Update, InlineKeyboardMarkup, Chat, Message as TelegramMessage # Renamed Message
 from telegram.ext import CallbackContext
 from bot.utils.retry_utils import retry_on_telegram_error
+from scripts.utils.app_logger import trace
 
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ class MessageSender:
                                              `context.bot` for sending messages.
     """
 
+    @trace()
     def __init__(self, context: Optional[CallbackContext] = None) -> None:
         """
         Initializes the MessageSender.
@@ -45,6 +47,7 @@ class MessageSender:
         self.context: Optional[CallbackContext] = context
         logger.debug("MessageSender initialized.")
 
+    @trace()
     @retry_on_telegram_error(max_retries=3, delay_seconds=2)
     async def _send_with_retry(self, 
                                message_callable: Callable[..., Awaitable[TelegramMessage]], 
@@ -70,6 +73,7 @@ class MessageSender:
         logger.debug(f"Attempting to send message via {message_callable.__name__} with args: {args}, kwargs: {kwargs}")
         return await message_callable(*args, **kwargs)
 
+    @trace()
     async def send_message(
         self, 
         update: Optional[Update] = None, 
@@ -131,7 +135,7 @@ class MessageSender:
                 logger.info(f"Sending message via callback_query.message.reply_text to {target_description}")
                 # Determine if the original callback message was in a topic
                 is_topic_context = (update.callback_query.message.is_topic_message or 
-                                   (update.effective_chat and update.effective_chat.type == Chat.FORUM))
+                                    (update.effective_chat and update.effective_chat.type == 'forum'))
                 await self._send_with_retry(
                     update.callback_query.message.reply_text, 
                     text=current_text, 
@@ -141,7 +145,7 @@ class MessageSender:
             elif update and update.message:
                 logger.info(f"Sending message via update.message.reply_text to {target_description}")
                 is_topic_context = (update.message.is_topic_message or
-                                   (update.effective_chat and update.effective_chat.type == Chat.FORUM))
+                                    (update.effective_chat and update.effective_chat.type == 'forum'))
                 await self._send_with_retry(
                     update.message.reply_text, 
                     text=current_text, 
