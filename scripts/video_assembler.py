@@ -275,7 +275,7 @@ class VideoAssembler(VideoAssemblerInterface):
             akuma = AkumaSubtitler()
             # Basic usage with auto-generated subtitles
             akuma.forge_video(
-                video_path=self.output_file,
+                video_input=self.output_file,
                 output_path=self.output_file
             )
 

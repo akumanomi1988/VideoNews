@@ -1,0 +1,11 @@
+{
+  "start_time": 1779630531.4621665,
+  "end_time": 1779632253.977466,
+  "duration": 1722.5152995586395,
+  "success": false,
+  "error": "'charmap' codec can't encode characters in position 2-3: character maps to <undefined>",
+  "media_info": {},
+  "metadata": {
+    "pipeline_name": "ShortFormPipeline"
+  }
+}

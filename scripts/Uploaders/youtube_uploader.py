@@ -71,8 +71,14 @@ class YoutubeMediaUploader:
         try:
             self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
 
-            hashtags = [f"{tag}" for tag in tags]
-            full_description = f"{description}\n\n{self.channel_description}\n\n{' #'.join(hashtags)}\n\n#Shorts #news #breakingnews"
+            import re
+            sanitized = []
+            for tag in tags:
+                clean = re.sub(r'[^\w\s-]', '', tag).strip()[:60]
+                if clean and len(clean) >= 3:
+                    sanitized.append(clean)
+            sanitized = sanitized[:30]
+            full_description = f"{description}\n\n{self.channel_description}\n\n{' #'.join(sanitized)}\n\n#Shorts #news #breakingnews"
             
             print(Fore.CYAN + f"Uploading Short with title: '{title}'...")
             
@@ -89,7 +95,7 @@ class YoutubeMediaUploader:
                     "snippet": {
                         "title": title[:90],
                         "description": full_description,
-                        "tags": hashtags,
+                        "tags": sanitized,
                         "categoryId": "25",
                         "defaultLanguage": default_language,
                         "defaultAudioLanguage": default_language,
