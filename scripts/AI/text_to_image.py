@@ -12,8 +12,8 @@ init(autoreset=True)
 
 
 class AspectRatio(Enum):
-    LANDSCAPE = (1920, 1080)
-    PORTRAIT = (1080, 1920)
+    LANDSCAPE = (1024, 768)
+    PORTRAIT = (768, 1024)
 
 
 class StylePreset(Enum):

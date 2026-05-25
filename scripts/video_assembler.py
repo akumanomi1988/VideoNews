@@ -2,7 +2,6 @@ import os
 import textwrap
 from typing import List, Optional, Tuple
 
-import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 from colorama import init, Fore
@@ -20,12 +19,11 @@ from moviepy.video.fx import resize, crop
 import gc
 import contextlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from multiprocessing import cpu_count
 
 from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleHelper
 from .interfaces import VideoAssembler as VideoAssemblerInterface, VideoMetadata
 from .utils.app_logger import trace
-from AkumaImageEffect.effect_engine import AkumaEngine, EffectConfig
-import AkumaImageEffect.effects.core_effects  # Registers zoom effects
 try:
     from AkumaSubtitler import AkumaSubtitler
 except ModuleNotFoundError:
@@ -38,7 +36,6 @@ init(autoreset=True)
 SUPPORTED_IMAGE_FORMATS = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp')
 DEFAULT_FPS = 30
 DEFAULT_BG_COLOR = (255, 255, 255)
-DEFAULT_INTERPOLATION = cv2.INTER_CUBIC
 
 class VideoAssemblerError(Exception):
     """Custom exception for video assembly errors"""
@@ -160,13 +157,10 @@ class VideoAssembler(VideoAssemblerInterface):
 
     def process_image_files(self, audio_duration: float) -> List[VideoFileClip]:
         """
-        Process and convert images to video clips with effects, matching the aspect ratio.
+        Process and convert images to video clips with zoom effect, matching the aspect ratio.
+        Uses moviepy ImageClip directly (avoids slow AkumaEngine per-image rendering).
         """
         adjusted_clips = []
-        config = EffectConfig(
-            background_color=DEFAULT_BG_COLOR,
-            interpolation=DEFAULT_INTERPOLATION
-        )
         num_images = len(self.media_images)
         if num_images == 0:
             return adjusted_clips
@@ -178,14 +172,17 @@ class VideoAssembler(VideoAssemblerInterface):
                 continue
             try:
                 self._verify_image_integrity(image_file)
-                output_path = self._generate_video_from_image(
-                    image_file, config, duration_per_image
-                )
-                video_clip = VideoFileClip(output_path)
-                adjusted_clips.append(self.adjust_aspect_ratio(video_clip))
+                clip = self._create_zoom_clip(image_file, duration_per_image)
+                adjusted_clips.append(self.adjust_aspect_ratio(clip))
             except Exception as e:
                 print(Fore.RED + f"❌ Error processing image {image_file}: {e}")
         return adjusted_clips
+
+    def _create_zoom_clip(self, image_file: str, duration: float) -> ImageClip:
+        """Create an ImageClip with a subtle Ken Burns zoom-in effect."""
+        clip = ImageClip(image_file).set_duration(duration)
+        clip = clip.resize(lambda t: 1 + 0.15 * (t / duration))
+        return clip
 
     def _is_valid_image_file(self, image_file: str) -> bool:
         """
@@ -208,28 +205,6 @@ class VideoAssembler(VideoAssemblerInterface):
                 img.verify()
         except Exception:
             raise ValueError(f"⚠️ Corrupt or unreadable image: {image_file}. Skipping.")
-
-    def _generate_video_from_image(
-        self, image_file: str, config: EffectConfig, duration: float
-    ) -> str:
-        """
-        Generate a video from an image using AkumaEngine.
-        """
-        engine = AkumaEngine(config)
-        output_path = os.path.splitext(image_file)[0] + ".mp4"
-        effect = "akuma_zoom_in"
-        try:
-            engine.generate_video(
-                image_src=image_file,
-                effect=effect,
-                duration=duration,
-                output_path=output_path,
-                fps=DEFAULT_FPS
-            )
-            print(f"Video successfully generated: {output_path}")
-        except Exception as e:
-            raise RuntimeError(f"Error generating video: {e}")
-        return output_path
 
     def adjust_media(self) -> List[VideoFileClip]:
         """
@@ -338,12 +313,21 @@ class VideoAssembler(VideoAssemblerInterface):
 
     def _write_final_video(self, video: CompositeVideoClip, duration: float) -> None:
         """
-        Write the final video file to disk.
+        Write the final video file to disk with optimized encoding.
         """
         try:
             end_time = min(duration, video.duration)
             final_video = video.subclip(0, end_time).fadeout(2)
-            final_video.write_videofile(self.output_file, write_logfile=False)
+            final_video.write_videofile(
+                self.output_file,
+                codec='libx264',
+                audio_codec='aac',
+                fps=24,
+                threads=cpu_count(),
+                preset='ultrafast',
+                bitrate='4M',
+                write_logfile=False
+            )
             print(Fore.GREEN + "✅ Video processing completed successfully.")
         except Exception as e:
             raise ValueError(Fore.RED + f"❌ Error writing final video: {e}")
@@ -602,14 +586,16 @@ class VideoAssembler(VideoAssemblerInterface):
             raise
 
     def _write_video(self, video: mp.VideoClip) -> None:
-        """Write final video file"""
+        """Write final video file with optimized encoding"""
         try:
             video.write_videofile(
                 self.output_file,
                 codec='libx264',
                 audio_codec='aac',
                 fps=24,
-                threads=4,
+                threads=cpu_count(),
+                preset='ultrafast',
+                bitrate='4M',
                 write_logfile=False
             )
             self.logger.info(f"Video saved to: {self.output_file}")

@@ -5,6 +5,7 @@ import json
 import random
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from colorama import Fore, Style, init
 
 from scripts.DataFetcher.news_extractor import NewsExtractor, ArticleData
@@ -484,13 +485,33 @@ class Chatbot:
         folder_path = '.temp'
         file_path = os.path.join(folder_path, f'{file_guid}.json')
 
-        article = self.generate_short_article(topic)  # Specify article length here
-        title = self.generate_title(article)
-        description = self.generate_description(article)
-        image_descriptions = self.generate_image_descriptions(article, count=20)  # Specify number of image descriptions here
-        tags = self.generate_tags(article)
-        cover = self.generate_cover(article)
-        cover_image = self.generate_cover_image(article)
+        article = self.generate_short_article(topic)
+
+        # Parallelize independent LLM calls
+        results = {}
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            future_map = {
+                executor.submit(self.generate_title, article): 'title',
+                executor.submit(self.generate_description, article): 'description',
+                executor.submit(self.generate_image_descriptions, article, 20): 'image_descriptions',
+                executor.submit(self.generate_tags, article): 'tags',
+                executor.submit(self.generate_cover, article): 'cover',
+                executor.submit(self.generate_cover_image, article): 'cover_image',
+            }
+            for future in as_completed(future_map):
+                key = future_map[future]
+                try:
+                    results[key] = future.result()
+                except Exception as e:
+                    print(Fore.RED + f"Error generating {key}: {e}")
+                    results[key] = '' if key != 'image_descriptions' else []
+
+        title = results.get('title', '')
+        description = results.get('description', '')
+        image_descriptions = results.get('image_descriptions', [])
+        tags = results.get('tags', [])
+        cover = results.get('cover', '')
+        cover_image = results.get('cover_image', '')
 
         # Limit the number of short phrases to 10 if more are present
         short_phrases = random.sample(image_descriptions, min(20, len(image_descriptions)))
@@ -531,13 +552,33 @@ class Chatbot:
         folder_path = '.temp'
         file_path = os.path.join(folder_path, f'{file_guid}.json')
 
-        article , short = self.generate_full_article(topic)
-        title = self.generate_title(short)
-        description = self.generate_description(short)
-        image_descriptions = self.generate_image_descriptions(short, count=40)  # Specify number of image descriptions here
-        tags = self.generate_tags(short)
-        cover = self.generate_cover(short)
-        cover_image = self.generate_cover_image(short)
+        article, short = self.generate_full_article(topic)
+
+        # Parallelize independent LLM calls
+        results = {}
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            future_map = {
+                executor.submit(self.generate_title, short): 'title',
+                executor.submit(self.generate_description, short): 'description',
+                executor.submit(self.generate_image_descriptions, short, 40): 'image_descriptions',
+                executor.submit(self.generate_tags, short): 'tags',
+                executor.submit(self.generate_cover, short): 'cover',
+                executor.submit(self.generate_cover_image, short): 'cover_image',
+            }
+            for future in as_completed(future_map):
+                key = future_map[future]
+                try:
+                    results[key] = future.result()
+                except Exception as e:
+                    print(Fore.RED + f"Error generating {key}: {e}")
+                    results[key] = '' if key != 'image_descriptions' else []
+
+        title = results.get('title', '')
+        description = results.get('description', '')
+        image_descriptions = results.get('image_descriptions', [])
+        tags = results.get('tags', [])
+        cover = results.get('cover', '')
+        cover_image = results.get('cover_image', '')
 
         # Limit the number of short phrases to 10 if more are present
         short_phrases = random.sample(image_descriptions, min(40, len(image_descriptions)))

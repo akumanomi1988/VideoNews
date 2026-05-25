@@ -6,6 +6,7 @@ import shutil
 import random
 import logging
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Union
 
 from colorama import Fore, init
@@ -208,7 +209,7 @@ class NewsVideoProcessor:
         orientation: AspectRatio = AspectRatio.PORTRAIT
     ) -> List[str]:
         """
-        Generate images based on the provided phrases.
+        Generate images based on the provided phrases (parallelized).
 
         Args:
             phrases (str or list): Phrases to generate images for.
@@ -221,21 +222,40 @@ class NewsVideoProcessor:
         """
         images = []
         phrase_list = [phrases] if isinstance(phrases, str) else phrases
-        for phrase in phrase_list:
-            while len(images) < max_items:
+        with ThreadPoolExecutor(max_workers=min(8, len(phrase_list))) as executor:
+            future_map = {}
+            for phrase in phrase_list:
+                if len(images) >= max_items:
+                    break
+                future = executor.submit(
+                    self._generate_single_image, phrase, style, orientation
+                )
+                future_map[future] = phrase
+            for future in as_completed(future_map):
                 try:
-                    media_file = self.image_generator.generate_image(
-                        custom_prompt=phrase,
-                        aspect_ratio=orientation,
-                        style_preset=style
-                    )
-                    if media_file:
-                        images.append(media_file)
-                        break
+                    result = future.result()
+                    if result:
+                        images.append(result)
                 except Exception as e:
-                    print(f"Error generating image for phrase '{phrase}': {e}. Retrying...")
-                    time.sleep(60)
-        return images
+                    print(Fore.YELLOW + f"Error generating image: {e}")
+        return images[:max_items]
+
+    def _generate_single_image(
+        self, phrase: str, style: StylePreset, orientation: AspectRatio
+    ) -> Optional[str]:
+        """Generate a single image with retry logic."""
+        for attempt in range(3):
+            try:
+                return self.image_generator.generate_image(
+                    custom_prompt=phrase,
+                    aspect_ratio=orientation,
+                    style_preset=style
+                )
+            except Exception as e:
+                print(f"Error generating image for phrase '{phrase}' (attempt {attempt+1}): {e}")
+                if attempt < 2:
+                    time.sleep(5)
+        return None
 
     @trace()
     def fetch_related_media(

@@ -78,6 +78,8 @@ class TTSFactory:
         return self.tts.get_voices(*args, **kwargs)
 
 class TTSEdge:
+    _voices_cache = None
+
     def __init__(self, api_key: str = None, output_dir="output_audio"):
         """
         Initializes the object TTSEdge with the directory where audio files will be saved.
@@ -143,7 +145,9 @@ class TTSEdge:
         :param output_path: Optional explicit path for the output file.
         :return: The path of the saved audio file.
         """
-        voices_dict = asyncio.run(self.get_voices())
+        if TTSEdge._voices_cache is None:
+            TTSEdge._voices_cache = asyncio.run(self.get_voices())
+        voices_dict = TTSEdge._voices_cache
         # Filter voices to get only those in the requested language
         filtered_voices = {name: short_name for name, short_name in voices_dict.items() if language in name}
         for name, short_name in filtered_voices.items():
