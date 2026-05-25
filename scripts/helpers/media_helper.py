@@ -402,7 +402,7 @@ class SubtitleHelper:
         temp_img = Image.new('RGB', (1, 1))
         temp_draw = ImageDraw.Draw(temp_img)
         bbox = temp_draw.multiline_textbbox((0, 0), txt, font=font)
-        while (bbox[2] - bbox[0]) > max_text_width and max_fontsize > 50:
+        while (bbox[2] - bbox[0]) > max_text_width and max_fontsize > 25:
             max_fontsize = int(max_fontsize * 0.95)
             font = ImageFont.truetype(font_path, max_fontsize)
             txt = SubtitleHelper.split_subtitles(txt, font, max_text_width)
@@ -479,23 +479,23 @@ class SubtitleHelper:
         styles = {
             Style.DEFAULT: {
                 'font_path': FONT_PATHS["helvetica"],
-                'fontsize': 90,
+                'fontsize': 45,
                 'stroke_color': 'black',
-                'stroke_width': 3,
+                'stroke_width': 2,
                 'text_color': 'white',
                 'bg_color': None
             },
             Style.BOLD: {
                 'font_path': FONT_PATHS["sub_otf"],
-                'fontsize': 100,
+                'fontsize': 50,
                 'stroke_color': 'white',
-                'stroke_width': 5,
+                'stroke_width': 3,
                 'text_color': 'yellow',
                 'bg_color': 'black'
             },
             Style.MINIMAL: {
                 'font_path': FONT_PATHS["arial"],
-                'fontsize': 80,
+                'fontsize': 40,
                 'stroke_color': 'black',
                 'stroke_width': 0,
                 'text_color': 'white',
@@ -503,23 +503,23 @@ class SubtitleHelper:
             },
             Style.ELEGANT: {
                 'font_path': FONT_PATHS["times"],
-                'fontsize': 95,
+                'fontsize': 48,
                 'stroke_color': 'gray',
-                'stroke_width': 2,
+                'stroke_width': 1,
                 'text_color': 'white',
                 'bg_color': 'navy'
             },
             Style.VIBRANT: {
                 'font_path': FONT_PATHS["sub_otf"],
-                'fontsize': 115,
+                'fontsize': 58,
                 'stroke_color': 'blue',
-                'stroke_width': 6,
+                'stroke_width': 3,
                 'text_color': 'red',
                 'bg_color': 'yellow'
             },
             Style.CASUAL: {
                 'font_path': FONT_PATHS["comic"],
-                'fontsize': 85,
+                'fontsize': 42,
                 'stroke_color': None,
                 'stroke_width': 0,
                 'text_color': 'orange',
@@ -527,25 +527,25 @@ class SubtitleHelper:
             },
             Style.SUBTLE: {
                 'font_path': FONT_PATHS["sub_otf"],
-                'fontsize': 70,
+                'fontsize': 35,
                 'stroke_color': 'green',
-                'stroke_width': 2,
+                'stroke_width': 1,
                 'text_color': 'green',
                 'bg_color': 'black'
             },
             Style.FORMAL: {
                 'font_path': FONT_PATHS["georgia"],
-                'fontsize': 100,
+                'fontsize': 50,
                 'stroke_color': 'darkblue',
-                'stroke_width': 6,
+                'stroke_width': 3,
                 'text_color': 'white',
                 'bg_color': 'white'
             },
             Style.DRAMATIC: {
                 'font_path': FONT_PATHS["arial_otf"],
-                'fontsize': 120,
+                'fontsize': 60,
                 'stroke_color': 'black',
-                'stroke_width': 6,
+                'stroke_width': 3,
                 'text_color': 'yellow',
                 'bg_color': None
             },

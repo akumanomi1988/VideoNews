@@ -97,7 +97,11 @@ async def news_category_selection_handler(update: Update, context: CallbackConte
         logger.warning("news_category_selection_handler called without query or query.data")
         return
         
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Could not answer callback query (may be expired): {e}")
+
     message_sender = MessageSender(context=context)
 
     if query.data == 'cancel_news_category':
@@ -147,7 +151,11 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
         logger.warning("news_selection_handler called without query or query.data")
         return
 
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Could not answer callback query (may be expired): {e}")
+
     message_sender = MessageSender(context=context)
 
     if query.data == 'cancel_news_selection':

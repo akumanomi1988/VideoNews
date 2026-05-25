@@ -66,7 +66,11 @@ async def settings_category_selection_handler(update: Update, context: CallbackC
         logger.warning("settings_category_selection_handler called without query or query.data")
         return
 
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Could not answer callback query (may be expired): {e}")
+
     message_sender = MessageSender(context=context)
 
     if query.data == 'cancel_config':
@@ -106,7 +110,11 @@ async def setting_selection_handler(update: Update, context: CallbackContext) ->
         logger.warning("setting_selection_handler called without query or query.data")
         return
 
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Could not answer callback query (may be expired): {e}")
+
     message_sender = MessageSender(context=context)
 
     if query.data == 'cancel_config':

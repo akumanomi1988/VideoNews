@@ -112,6 +112,19 @@ class Chatbot:
                                )
         self.ideology = 'Advocating for the transformation of existing structures toward a more just and equitable system'
         self.tone = 'Adapt the tone of the narration based on the nature of the news: if it is serious or tragic, use a somber, reflective style with a dramatic touch to heighten the impact. If the news is light or has humorous potential, adopt a colloquial, street-style, or even profane tone to make it more entertaining and relatable. For topics involving elites, scandals, or high-society situations, use a sarcastic or posh tone to emphasize the irony. If the news carries a mysterious vibe, employ a conspiratorial style with subtle insinuations and unexpected twists to sow controlled doubts.'
+        self.hook_rules = (
+            "The narration MUST open with a direct hook addressed to the viewer "
+            "using the second person ('tú' / 'te') to grab attention immediately. "
+            "Examples of hooks: '¿Sabías que...?', 'Esto te va a enfadar...', "
+            "'No te imaginas lo que pasó con...', 'Si creías que... te equivocas.', "
+            "'Quédate hasta el final porque esto te interesa.', "
+            "'Hay algo que no te están contando sobre...'. "
+            "The tone must be controversial, provocative, and challenge common beliefs. "
+            "Question power structures, expose hypocrisy, and present unexpected angles "
+            "that make the viewer stop scrolling and watch the entire video. "
+            "Every sentence should build tension or curiosity. "
+            "Avoid bland or neutral statements — aim for opinions that spark debate."
+        )
 
     @trace()
     def generate_title(self, topic):
@@ -166,8 +179,9 @@ class Chatbot:
             "}\n\n"
             "Instructions:\n"
             "1. The narration should be concise and engaging for a short video.\n"
-            "2. Focus on the most interesting aspects of the topic.\n"
-            "3. Write in a conversational yet informative tone.\n"
+            "2. Focus on the most controversial and interesting aspects of the topic.\n"
+            "3. Write in a conversational yet provocative tone.\n"
+            f"4. {self.hook_rules}\n"
             f"Parameters:\n"
             f"- Language: [{self.language}]\n"
             f"- Topic: [{topic}]\n"
@@ -193,7 +207,8 @@ class Chatbot:
             "1. The full article should be comprehensive and well-structured for a long-form video.\n"
             "2. Include relevant facts, data, and context.\n"
             "3. The short summary should capture the essence in 2-3 sentences.\n"
-            "4. Write in an engaging journalistic style.\n"
+            "4. Write in an engaging journalistic style with a provocative and controversial edge.\n"
+            f"5. {self.hook_rules}\n"
             f"Parameters:\n"
             f"- Language: [{self.language}]\n"
             f"- Topic: [{topic}]\n"
@@ -212,7 +227,8 @@ class Chatbot:
             "Instructions:\n"
             "1. The conclusion must be a personal perspective; begin with a phrase such as 'In my view...' or its equivalent to clearly indicate that it is your opinion.\n"
             "2. Highlight systemic injustices and question power structures while hinting at future implications.\n"
-            "3. Conclude with one final, thought-provoking rhetorical question that implies deeper systemic issues.\n\n"
+            "3. Conclude with one final, thought-provoking rhetorical question that implies deeper systemic issues.\n"
+            "4. Be provocative and controversial — challenge the reader's assumptions and leave them thinking.\n\n"
             "Formatting Requirements:\n"
             "- Use a serious tone with a slightly conspiratorial undertone (e.g., 'It is striking that...').\n"
             "- All numbers must be written in words (e.g., 'two hundred million' instead of '200M').\n"
