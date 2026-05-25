@@ -39,6 +39,30 @@ CONFIG_SETTINGS = 'settings'
 DEFAULT_CONFIG_FILE = 'settings.json'
 DEFAULT_MAX_FILENAME_LENGTH = 30
 
+class _RateLimiter:
+    """Simple thread-safe token bucket rate limiter."""
+
+    def __init__(self, max_calls: int, period: float):
+        self.max_calls = max_calls
+        self.period = period
+        self.tokens = max_calls
+        self.last_refill = time.time()
+        self._lock = __import__('threading').Lock()
+
+    def acquire(self):
+        with self._lock:
+            now = time.time()
+            elapsed = now - self.last_refill
+            self.tokens = min(self.max_calls, self.tokens + elapsed * (self.max_calls / self.period))
+            self.last_refill = now
+            if self.tokens >= 1:
+                self.tokens -= 1
+                return
+        sleep_time = self.period / self.max_calls
+        time.sleep(sleep_time)
+        self.acquire()
+
+
 class NewsVideoProcessor:
     """
     Main processor for generating news videos from articles.
@@ -62,6 +86,9 @@ class NewsVideoProcessor:
         self.config_file = config_file
         self.config = self._load_configuration()
         self.temp_dir = self.config[CONFIG_SETTINGS]['temp_dir']
+        self.parallel_workers = self.config[CONFIG_SETTINGS].get('parallel_workers', 6)
+        images_per_minute = self.config[CONFIG_SETTINGS].get('images_per_minute', 20)
+        self._img_rate_limiter = _RateLimiter(images_per_minute, 60.0) if images_per_minute else None
         self.news_client = NewsAPIClient(api_key=self.config[CONFIG_NEWSAPI]['api_key'])
         llm_providers = self.config.get("llm", {}).get("providers", [])
         self.article_generator = Chatbot(
@@ -222,7 +249,7 @@ class NewsVideoProcessor:
         """
         images = []
         phrase_list = [phrases] if isinstance(phrases, str) else phrases
-        with ThreadPoolExecutor(max_workers=min(8, len(phrase_list))) as executor:
+        with ThreadPoolExecutor(max_workers=min(self.parallel_workers, len(phrase_list))) as executor:
             future_map = {}
             for phrase in phrase_list:
                 if len(images) >= max_items:
@@ -243,7 +270,9 @@ class NewsVideoProcessor:
     def _generate_single_image(
         self, phrase: str, style: StylePreset, orientation: AspectRatio
     ) -> Optional[str]:
-        """Generate a single image with retry logic."""
+        """Generate a single image with retry logic and rate limiting."""
+        if self._img_rate_limiter:
+            self._img_rate_limiter.acquire()
         for attempt in range(3):
             try:
                 return self.image_generator.generate_image(
