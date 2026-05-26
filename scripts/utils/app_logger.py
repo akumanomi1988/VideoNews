@@ -1,4 +1,5 @@
 import os
+import sys
 import sqlite3
 import logging
 import threading
@@ -6,6 +7,7 @@ import json
 import time
 import functools
 import asyncio
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, TypeVar, ParamSpec
@@ -192,6 +194,37 @@ def trace_module(module, level=logging.DEBUG, skip_if_has_trace=False):
             pass
 
 
+def _global_exception_hook(exc_type, exc_value, exc_traceback):
+    """Logs unhandled exceptions to both console and SQLite before crash."""
+    logger = logging.getLogger('CRASH')
+    tb = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    logger.critical(f"UNHANDLED EXCEPTION:\n{tb}")
+    # Flush SQLite handler before exiting
+    for h in logging.getLogger().handlers:
+        if isinstance(h, SQLiteHandler):
+            h.close()
+
+
+def _setup_global_hooks():
+    """Register global exception hooks for sync and async code."""
+    sys.excepthook = _global_exception_hook
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        def _loop_exception_handler(loop, context):
+            logger = logging.getLogger('CRASH')
+            exc = context.get('exception')
+            msg = context.get('message', '')
+            if exc:
+                tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                logger.critical(f"ASYNC UNHANDLED EXCEPTION: {msg}\n{tb}")
+            else:
+                logger.critical(f"ASYNC ERROR: {msg}")
+        loop.set_exception_handler(_loop_exception_handler)
+    except RuntimeError:
+        pass
+
+
 def setup_logging(level=logging.INFO, sqlite_level=logging.DEBUG, console_level=logging.INFO):
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
@@ -219,5 +252,7 @@ def setup_logging(level=logging.INFO, sqlite_level=logging.DEBUG, console_level=
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("moviepy").setLevel(logging.WARNING)
+
+    _setup_global_hooks()
 
     return root

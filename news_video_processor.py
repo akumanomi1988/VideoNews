@@ -386,14 +386,13 @@ class NewsVideoProcessor:
                     "_This may take a few moments..._"
                 )
 
+                subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
                 audio_path = self.tts.text_to_speech_file(
                     article,
                     voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es')
+                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
+                    srt_path=subtitle_path
                 )
-
-                
-                subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
 
                 self.send_progress(
                     "🖼️ *Media Generation*\n\n"
@@ -413,7 +412,7 @@ class NewsVideoProcessor:
 
                 output_file = os.path.join(self.temp_dir, self.clean_filename(title))
                 video_assembler = VideoAssembler(
-                    subtitle_file=None,
+                    subtitle_file=subtitle_path if os.path.exists(subtitle_path) else None,
                     voiceover_file=audio_path,
                     output_file=output_file,
                     media_images=media_images,

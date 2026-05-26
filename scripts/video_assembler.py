@@ -25,9 +25,9 @@ from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleH
 from .interfaces import VideoAssembler as VideoAssemblerInterface, VideoMetadata
 from .utils.app_logger import trace
 try:
-    from AkumaSubtitler import AkumaSubtitler
+    from AkumaSubtitler import AkumaSubtitler, SubStyle
 except ModuleNotFoundError:
-    from akumasubtitler import AkumaSubtitler
+    from akumasubtitler import AkumaSubtitler, SubStyle
 
 # Initialize colorama for colored terminal output
 init(autoreset=True)
@@ -246,12 +246,12 @@ class VideoAssembler(VideoAssemblerInterface):
             self._write_final_video(video, audio.duration)
         else:
             self._write_final_video(video, audio.duration)
-            # Initialize the subtitler
             akuma = AkumaSubtitler()
-            # Basic usage with auto-generated subtitles
+            subtitle_style = SubStyle(font="Arial", size=12, color="#FFFFFF", border=1, position="bottom-center")
             akuma.forge_video(
                 video_input=self.output_file,
-                output_path=self.output_file
+                output_path=self.output_file,
+                style=subtitle_style
             )
 
 
@@ -353,6 +353,18 @@ class VideoAssembler(VideoAssemblerInterface):
         text_color = style_params['text_color']
         bg_color = style_params['bg_color']
 
+        max_text_width = int(video_size[0] * 0.9)
+        from PIL import ImageFont
+        pil_font = ImageFont.truetype(font, fontsize)
+        temp_img = Image.new('RGB', (1, 1))
+        from PIL import ImageDraw
+        temp_draw = ImageDraw.Draw(temp_img)
+        bbox = temp_draw.multiline_textbbox((0, 0), txt, font=pil_font)
+        while (bbox[2] - bbox[0]) > max_text_width and fontsize > 10:
+            fontsize = int(fontsize * 0.9)
+            pil_font = ImageFont.truetype(font, fontsize)
+            bbox = temp_draw.multiline_textbbox((0, 0), txt, font=pil_font)
+
         text_clip = TextClip(
             txt,
             font=font,
@@ -361,7 +373,7 @@ class VideoAssembler(VideoAssemblerInterface):
             stroke_color=stroke_color,
             stroke_width=stroke_width,
             method='caption',
-            size=(video_size[0] * 0.9, None),
+            size=(max_text_width, None),
             align='center',
         )
 

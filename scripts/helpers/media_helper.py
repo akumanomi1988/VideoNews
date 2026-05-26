@@ -479,23 +479,23 @@ class SubtitleHelper:
         styles = {
             Style.DEFAULT: {
                 'font_path': FONT_PATHS["helvetica"],
-                'fontsize': 45,
+                'fontsize': 22,
                 'stroke_color': 'black',
-                'stroke_width': 2,
+                'stroke_width': 1,
                 'text_color': 'white',
                 'bg_color': None
             },
             Style.BOLD: {
                 'font_path': FONT_PATHS["sub_otf"],
-                'fontsize': 50,
+                'fontsize': 24,
                 'stroke_color': 'white',
-                'stroke_width': 3,
+                'stroke_width': 2,
                 'text_color': 'yellow',
                 'bg_color': 'black'
             },
             Style.MINIMAL: {
                 'font_path': FONT_PATHS["arial"],
-                'fontsize': 40,
+                'fontsize': 20,
                 'stroke_color': 'black',
                 'stroke_width': 0,
                 'text_color': 'white',
@@ -503,7 +503,7 @@ class SubtitleHelper:
             },
             Style.ELEGANT: {
                 'font_path': FONT_PATHS["times"],
-                'fontsize': 48,
+                'fontsize': 22,
                 'stroke_color': 'gray',
                 'stroke_width': 1,
                 'text_color': 'white',
@@ -511,15 +511,15 @@ class SubtitleHelper:
             },
             Style.VIBRANT: {
                 'font_path': FONT_PATHS["sub_otf"],
-                'fontsize': 58,
+                'fontsize': 28,
                 'stroke_color': 'blue',
-                'stroke_width': 3,
+                'stroke_width': 2,
                 'text_color': 'red',
                 'bg_color': 'yellow'
             },
             Style.CASUAL: {
                 'font_path': FONT_PATHS["comic"],
-                'fontsize': 42,
+                'fontsize': 20,
                 'stroke_color': None,
                 'stroke_width': 0,
                 'text_color': 'orange',
@@ -527,7 +527,7 @@ class SubtitleHelper:
             },
             Style.SUBTLE: {
                 'font_path': FONT_PATHS["sub_otf"],
-                'fontsize': 35,
+                'fontsize': 18,
                 'stroke_color': 'green',
                 'stroke_width': 1,
                 'text_color': 'green',
@@ -535,17 +535,17 @@ class SubtitleHelper:
             },
             Style.FORMAL: {
                 'font_path': FONT_PATHS["georgia"],
-                'fontsize': 50,
+                'fontsize': 24,
                 'stroke_color': 'darkblue',
-                'stroke_width': 3,
+                'stroke_width': 2,
                 'text_color': 'white',
                 'bg_color': 'white'
             },
             Style.DRAMATIC: {
                 'font_path': FONT_PATHS["arial_otf"],
-                'fontsize': 60,
+                'fontsize': 30,
                 'stroke_color': 'black',
-                'stroke_width': 3,
+                'stroke_width': 2,
                 'text_color': 'yellow',
                 'bg_color': None
             },

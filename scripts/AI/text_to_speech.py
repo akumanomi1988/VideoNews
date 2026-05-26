@@ -90,7 +90,7 @@ class TTSEdge:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    async def text_to_speech(self, text: str, voice: str = "es-ES-XimenaNeural", rate: int = 0, pitch: int = 0):
+    async def text_to_speech(self, text: str, voice: str = "es-ES-XimenaNeural", rate: int = 0, pitch: int = 0, srt_path: Optional[str] = None):
         """
         Converts text to speech using edge_tts and saves the result as an MP3 file.
         :param text: The content of text to convert to speech.
@@ -112,6 +112,7 @@ class TTSEdge:
 
             # Generate TTS audio using edge_tts
             communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
+            submaker = edge_tts.SubMaker()
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
                 tmp_path = tmp_file.name
@@ -119,6 +120,14 @@ class TTSEdge:
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             audio_file.write(chunk["data"])
+                        elif chunk["type"] == "WordBoundary":
+                            submaker.feed(chunk)
+
+            # Save subtitles if requested
+            if srt_path:
+                os.makedirs(os.path.dirname(srt_path), exist_ok=True)
+                with open(srt_path, "w", encoding="utf-8") as f:
+                    f.write(submaker.get_srt())
 
             # Move the audio file to the output directory with a unique name
             file_name = f"{uuid.uuid4()}.mp3"
@@ -136,13 +145,14 @@ class TTSEdge:
         voices = await edge_tts.list_voices()
         return {f"{v['ShortName']} - {v['Locale']} ({v['Gender']})": v['ShortName'] for v in voices}
 
-    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural', output_path: Optional[str] = None) -> str:
+    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural', output_path: Optional[str] = None, srt_path: Optional[str] = None) -> str:
         """
         Generates TTS audio and returns the path of the saved audio file.
         :param text: The text to convert to speech.
         :param language: The language of the voice (e.g., 'es' for Spanish).
         :param voice: The preferred voice for TTS conversion.
         :param output_path: Optional explicit path for the output file.
+        :param srt_path: Optional path for the subtitle file.
         :return: The path of the saved audio file.
         """
         if TTSEdge._voices_cache is None:
@@ -164,7 +174,7 @@ class TTSEdge:
             selected_voice = random.choice(list(filtered_voices.values()))
             print(Fore.YELLOW + f"Preferred voice not found. Using random voice: {selected_voice}")
         # Call the asynchronous function to generate audio
-        audio_file, error = asyncio.run(self.text_to_speech(text, selected_voice))
+        audio_file, error = asyncio.run(self.text_to_speech(text, selected_voice, srt_path=srt_path))
         if error:
             raise Exception(Fore.RED + f"Error generating audio: {error}")
         # Rename to output_path if provided
