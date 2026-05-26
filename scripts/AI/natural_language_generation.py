@@ -108,7 +108,7 @@ class Chatbot:
         self.llm = LLMProvider(providers or [
             {"type": "ollama", "model": "nemotron-3-super:cloud"},
         ])
-        self.standard_rules = ('Your output must be a properly formatted JSON object, using double quotes for keys and single quotes for values. Ensure proper nesting, avoid trailing commas, and escape special characters when necessary.'
+        self.standard_rules = ('Your output must be a valid JSON object with double quotes for both keys and string values. Ensure proper nesting, avoid trailing commas, and escape special characters when necessary.'
                                'Ensure everything you say is factual and accurate, including years, numbers, and names.'
                                )
         self.ideology = 'Advocating for the transformation of existing structures toward a more just and equitable system'
@@ -403,6 +403,9 @@ class Chatbot:
 
                 start_index = response.find('{')
                 end_index = response.rfind('}')
+                if start_index == -1 or end_index == -1 or end_index < start_index:
+                    print(Fore.RED + "No valid JSON object found in response")
+                    raise json.JSONDecodeError("No JSON object found", response, 0)
                 content = response[start_index:end_index + 1]
 
                 if clean:
@@ -420,7 +423,7 @@ class Chatbot:
                 time.sleep(2)
 
         print(Fore.RED + "Max retries reached. Could not generate valid JSON.")
-        return None
+        return {}
 
     def clean_and_load_json(self, json_string: str):
         """
