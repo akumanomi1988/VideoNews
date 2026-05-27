@@ -395,7 +395,7 @@ class Chatbot:
         retries = 5
         for attempt in range(retries):
             try:
-                response = self.llm.complete(prompt_template, max_tokens=2048)
+                response = self.llm.complete(prompt_template, max_tokens=8192)
                 try:
                     print(Fore.YELLOW + f"Response (attempt {attempt + 1}): {response[:200]}...")
                 except (UnicodeEncodeError, UnicodeError):
