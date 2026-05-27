@@ -132,7 +132,8 @@ class TTSEdge:
             # Move the audio file to the output directory with a unique name
             file_name = f"{uuid.uuid4()}.mp3"
             output_path = Path(self.output_dir) / file_name
-            os.rename(tmp_path, output_path)
+            import shutil
+            shutil.move(tmp_path, output_path)
             return str(output_path), None
         except Exception as e:
             return None, str(e)
@@ -145,6 +146,18 @@ class TTSEdge:
         voices = await edge_tts.list_voices()
         return {f"{v['ShortName']} - {v['Locale']} ({v['Gender']})": v['ShortName'] for v in voices}
 
+    def _run_async(self, coro):
+        """Run an async coroutine safely, whether or not a loop is already running."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        if loop.is_running():
+            import nest_asyncio
+            nest_asyncio.apply(loop)
+            return loop.run_until_complete(coro)
+        return loop.run_until_complete(coro)
+
     def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural', output_path: Optional[str] = None, srt_path: Optional[str] = None) -> str:
         """
         Generates TTS audio and returns the path of the saved audio file.
@@ -156,7 +169,7 @@ class TTSEdge:
         :return: The path of the saved audio file.
         """
         if TTSEdge._voices_cache is None:
-            TTSEdge._voices_cache = asyncio.run(self.get_voices())
+            TTSEdge._voices_cache = self._run_async(self.get_voices())
         voices_dict = TTSEdge._voices_cache
         # Filter voices to get only those in the requested language
         filtered_voices = {name: short_name for name, short_name in voices_dict.items() if language in name}
@@ -174,7 +187,7 @@ class TTSEdge:
             selected_voice = random.choice(list(filtered_voices.values()))
             print(Fore.YELLOW + f"Preferred voice not found. Using random voice: {selected_voice}")
         # Call the asynchronous function to generate audio
-        audio_file, error = asyncio.run(self.text_to_speech(text, selected_voice, srt_path=srt_path))
+        audio_file, error = self._run_async(self.text_to_speech(text, selected_voice, srt_path=srt_path))
         if error:
             raise Exception(Fore.RED + f"Error generating audio: {error}")
         # Rename to output_path if provided

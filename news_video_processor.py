@@ -116,6 +116,7 @@ class NewsVideoProcessor:
         )
         self.logger = logging.getLogger(__name__)
         self.video_files: List[str] = []
+        self.cover_path: Optional[str] = None
 
     @trace()
     def send_progress(self, message_text: str) -> None:
@@ -443,6 +444,10 @@ class NewsVideoProcessor:
                 )
 
                 return youtube_response
+        except Exception as e:
+            self.logger.error(f"Short format processing failed: {e}")
+            self.send_progress(f"❌ *Process Failed*\n\nError: `{str(e)}`")
+            return None
         finally:
             self.cleanup_temp_folder()
 

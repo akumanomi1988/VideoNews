@@ -33,6 +33,20 @@ FONT_PATHS = {
     "cartoon": r"Resources\Fonts\Cartoon.ttf",
     "arial_otf": r"Resources\Fonts\Arial.otf"
 }
+
+def _resolve_font_path(font_path: str) -> str:
+    """Resolve a font path with fallback to Arial if the file doesn't exist."""
+    if os.path.exists(font_path):
+        return font_path
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    full_path = os.path.join(project_root, font_path)
+    if os.path.exists(full_path):
+        return full_path
+    arial_path = r"C:\Windows\Fonts\Arial.ttf"
+    if os.path.exists(arial_path):
+        print(Fore.YELLOW + f"⚠️ Font not found: {font_path}. Falling back to Arial.")
+        return arial_path
+    return font_path
 TEMP_DIR = ".temp"
 TEMP_MUSIC_FILENAME = "temp_music.wav"
 
@@ -606,4 +620,6 @@ class SubtitleHelper:
                 'bg_color': None
             }
         }
-        return styles.get(style, styles[Style.DEFAULT])
+        params = styles.get(style, styles[Style.DEFAULT])
+        params['font_path'] = _resolve_font_path(params['font_path'])
+        return params

@@ -210,6 +210,8 @@ class VideoAssembler(VideoAssemblerInterface):
         """
         Process and adjust all media files (videos and images) to match the aspect ratio.
         """
+        if not self.voiceover_file:
+            raise ValueError(Fore.RED + "❌ Voiceover audio file is missing.")
         audio_duration = mp.AudioFileClip(self.voiceover_file).duration
         video_clips = self.process_video_files()
         image_clips = self.process_image_files(audio_duration)
@@ -246,13 +248,18 @@ class VideoAssembler(VideoAssemblerInterface):
             self._write_final_video(video, audio.duration)
         else:
             self._write_final_video(video, audio.duration)
-            akuma = AkumaSubtitler()
-            subtitle_style = SubStyle(font="Arial", size=12, color="#FFFFFF", border=1, position="bottom-center")
-            akuma.forge_video(
-                video_input=self.output_file,
-                output_path=self.output_file,
-                style=subtitle_style
-            )
+            try:
+                akuma = AkumaSubtitler()
+                subtitle_style = SubStyle(font="Arial", size=12, color="#FFFFFF", border=1, position="bottom-center")
+                akuma.forge_video(
+                    video_input=self.output_file,
+                    output_path=self.output_file,
+                    style=subtitle_style
+                )
+            except NameError:
+                self.logger.warning("AkumaSubtitler not available, skipping subtitle forge")
+            except Exception as e:
+                self.logger.warning(f"AkumaSubtitler failed: {e}")
 
 
 
@@ -269,6 +276,8 @@ class VideoAssembler(VideoAssemblerInterface):
         """
         Load the voiceover audio file and apply fadeout.
         """
+        if not self.voiceover_file:
+            raise ValueError(Fore.RED + "❌ Voiceover audio file is missing.")
         try:
             return mp.AudioFileClip(self.voiceover_file).audio_fadeout(2)
         except Exception as e:
@@ -420,6 +429,11 @@ class VideoAssembler(VideoAssemblerInterface):
 
     def _check_memory_requirements(self):
         """Check if system has enough memory for video processing"""
+        try:
+            import psutil
+        except ImportError:
+            self.logger.warning("psutil not available, skipping memory check")
+            return
         memory = psutil.virtual_memory()
         if memory.available < 2 * 1024 * 1024 * 1024:  # 2GB minimum
             self.logger.warning("Low memory available, performance may be affected")
