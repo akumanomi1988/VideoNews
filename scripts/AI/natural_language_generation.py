@@ -68,7 +68,7 @@ class LLMProvider:
                     resp = client.chat(
                         model=model,
                         messages=[{"role": "user", "content": prompt}],
-                        options={"num_predict": kwargs.get("max_tokens", 1024)},
+                        options={"num_predict": kwargs.get("max_tokens", 8192)},
                         format="json",
                     )
                     return resp["message"]["content"]
@@ -78,7 +78,8 @@ class LLMProvider:
                         model=model,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=kwargs.get("temperature", 0.7),
-                        max_tokens=kwargs.get("max_tokens", 1024),
+                        max_tokens=kwargs.get("max_tokens", 8192),
+                        response_format={"type": "json_object"},
                         timeout=timeout,
                     )
                     return resp.choices[0].message.content
@@ -383,6 +384,42 @@ class Chatbot:
 
 
     
+    def _extract_json(self, text: str) -> Optional[str]:
+        """Extract a JSON object from text, trying multiple strategies."""
+        text = text.strip()
+        # Strategy 1: try to parse the whole response as JSON
+        try:
+            json.loads(text)
+            return text
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 2: find outermost { ... } with balanced braces
+        start = text.find('{')
+        if start != -1:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        return text[start:i + 1]
+
+        # Strategy 3: find outermost [ ... ] with balanced brackets
+        start = text.find('[')
+        if start != -1:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '[':
+                    depth += 1
+                elif text[i] == ']':
+                    depth -= 1
+                    if depth == 0:
+                        return text[start:i + 1]
+
+        return None
+
     def _generate_json_element(self, prompt_template, clean: bool = True):
         """
         Helper function to generate a single JSON element based on the provided prompt.
@@ -401,12 +438,10 @@ class Chatbot:
                 except (UnicodeEncodeError, UnicodeError):
                     print(Fore.YELLOW + f"Response (attempt {attempt + 1}): [Unicode response - {len(response)} chars]")
 
-                start_index = response.find('{')
-                end_index = response.rfind('}')
-                if start_index == -1 or end_index == -1 or end_index < start_index:
+                content = self._extract_json(response)
+                if content is None:
                     print(Fore.RED + "No valid JSON object found in response")
                     raise json.JSONDecodeError("No JSON object found", response, 0)
-                content = response[start_index:end_index + 1]
 
                 if clean:
                     content = self.clean_and_load_json(content)
