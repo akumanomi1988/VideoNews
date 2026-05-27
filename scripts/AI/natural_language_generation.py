@@ -6,6 +6,7 @@ import random
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 from colorama import Fore, Style, init
 
 from scripts.DataFetcher.news_extractor import NewsExtractor, ArticleData
