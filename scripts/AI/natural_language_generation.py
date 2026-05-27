@@ -114,6 +114,16 @@ class Chatbot:
                                )
         self.ideology = 'Advocating for the transformation of existing structures toward a more just and equitable system'
         self.tone = 'Adapt the tone of the narration based on the nature of the news: if it is serious or tragic, use a somber, reflective style with a dramatic touch to heighten the impact. If the news is light or has humorous potential, adopt a colloquial, street-style, or even profane tone to make it more entertaining and relatable. For topics involving elites, scandals, or high-society situations, use a sarcastic or posh tone to emphasize the irony. If the news carries a mysterious vibe, employ a conspiratorial style with subtle insinuations and unexpected twists to sow controlled doubts.'
+        self.numbers_as_words = (
+            "IMPORTANT: All numbers, quantities, percentages, dates, and statistics "
+            "MUST be written out fully as words in the spoken language. "
+            "For example: write 'tres mil' instead of '3000', "
+            "'veintiocho por ciento' instead of '28%', "
+            "'dos mil veinticuatro' instead of '2024', "
+            "'ciento treinta y cinco millones' instead of '135M'. "
+            "This is critical because the text is converted to speech and "
+            "digits sound unnatural when read aloud."
+        )
         self.hook_rules = (
             "The narration MUST open with a direct hook addressed to the viewer "
             "using the second person ('tú' / 'te') to grab attention immediately. "
@@ -184,6 +194,7 @@ class Chatbot:
             "2. Focus on the most controversial and interesting aspects of the topic.\n"
             "3. Write in a conversational yet provocative tone.\n"
             f"4. {self.hook_rules}\n"
+            f"5. {self.numbers_as_words}\n"
             f"Parameters:\n"
             f"- Language: [{self.language}]\n"
             f"- Topic: [{topic}]\n"
@@ -211,6 +222,7 @@ class Chatbot:
             "3. The short summary should capture the essence in 2-3 sentences.\n"
             "4. Write in an engaging journalistic style with a provocative and controversial edge.\n"
             f"5. {self.hook_rules}\n"
+            f"6. {self.numbers_as_words}\n"
             f"Parameters:\n"
             f"- Language: [{self.language}]\n"
             f"- Topic: [{topic}]\n"
