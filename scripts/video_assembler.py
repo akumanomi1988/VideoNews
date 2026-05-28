@@ -256,6 +256,12 @@ class VideoAssembler(VideoAssemblerInterface):
         duration_per_img = audio_duration / num_images
         frames_per_img = max(1, int(round(duration_per_img * fps)))
 
+        # --- Copy SRT to CWD to avoid drive-letter colon issues in filter graph ---
+        local_srt = None
+        if self.subtitle_file and os.path.isfile(self.subtitle_file):
+            local_srt = os.path.join(os.getcwd(), f"_subs_{os.getpid()}.srt")
+            shutil.copy2(self.subtitle_file, local_srt)
+
         # --- Build filter_complex ---
         filters = []
         concat_labels = []
@@ -297,10 +303,9 @@ class VideoAssembler(VideoAssemblerInterface):
             filters.append(f"[voice][bg]amix=inputs=2:duration=first[mix]")
             audio_map = "[mix]"
 
-        # --- Subtitle video filter ---
-        vf_list = []
-        if self.subtitle_file and os.path.isfile(self.subtitle_file):
-            escaped = self._escape_filter_path(self.subtitle_file)
+        # --- Subtitles (inside filter_complex, NOT separate -vf) ---
+        has_subtitles = False
+        if local_srt and os.path.isfile(local_srt):
             style_params = SubtitleHelper.get_style_parameters(style)
             font_name = Path(style_params['font_path']).stem
             font_size = min(style_params['fontsize'], 28)
@@ -316,17 +321,22 @@ class VideoAssembler(VideoAssemblerInterface):
                 Position.TOP_RIGHT: '9',
             }
             alignment = align_map.get(position, '2')
-            fs = (
-                f"subtitles=f={escaped}:"
+            # Use POSIX forward slashes for the subtitles filter path
+            srt_posix = local_srt.replace('\\', '/')
+            sub_filter = (
+                f"[vid]subtitles='{srt_posix}':"
                 f"force_style='FontName={font_name},"
                 f"FontSize={font_size},"
                 f"PrimaryColour=&H00FFFFFF,"
                 f"OutlineColour=&H00000000,"
                 f"Outline=2,BorderStyle=1,"
-                f"Alignment={alignment}':"
-                f"original_size={target_w}x{target_h}"
+                f"Alignment={alignment}'"
+                f"[outv]"
             )
-            vf_list.append(fs)
+            filters.append(sub_filter)
+            has_subtitles = True
+
+        last_video_label = "[outv]" if has_subtitles else "[vid]"
 
         # --- Build command ---
         cmd = ['ffmpeg', '-y']
@@ -339,10 +349,7 @@ class VideoAssembler(VideoAssemblerInterface):
             cmd.extend(['-i', str(self.background_music)])
 
         cmd.extend(['-filter_complex', ';'.join(filters)])
-        cmd.extend(['-map', '[vid]', '-map', audio_map])
-
-        if vf_list:
-            cmd.extend(['-vf', ','.join(vf_list)])
+        cmd.extend(['-map', last_video_label, '-map', audio_map])
 
         cmd.extend([
             '-c:v', 'libx264',
@@ -358,12 +365,35 @@ class VideoAssembler(VideoAssemblerInterface):
         self.logger.info(f"FFmpeg assembly: {len(valid_images)} images, "
                          f"{audio_duration:.1f}s audio, "
                          f"{target_w}x{target_h} @ {fps}fps")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        self.logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+
+        debug_log = os.path.join(os.path.dirname(self.output_file or '.'), '_ffmpeg_debug.log')
+        try:
+            with open(debug_log, 'w', encoding='utf-8') as df:
+                df.write(f"Command: {' '.join(cmd)}\n\n")
+                df.write(f"Filter complex:\n{';'.join(filters)}\n\n")
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            with open(debug_log, 'a', encoding='utf-8') as df:
+                df.write(f"\nExit code: {result.returncode}\n")
+                df.write(f"\nStderr:\n{result.stderr}\n")
+                df.write(f"\nStdout:\n{result.stdout}\n")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(Fore.RED + "❌ FFmpeg timed out (>10min).")
+        finally:
+            if local_srt and os.path.isfile(local_srt):
+                try:
+                    os.remove(local_srt)
+                except Exception:
+                    pass
+
         if result.returncode != 0:
-            self.logger.error(f"FFmpeg stderr (truncated): {result.stderr[:2000]}")
+            self.logger.error(f"FFmpeg failed (exit {result.returncode}). "
+                              f"Details in: {debug_log}")
+            self.logger.error(f"FFmpeg stderr (last 3K): {result.stderr[-3000:]}")
             raise RuntimeError(
                 Fore.RED + f"❌ FFmpeg assembly failed (exit {result.returncode}). "
-                f"Check logs for details."
+                f"See {debug_log} for details."
             )
         print(Fore.GREEN + f"✅ Video assembled via ffmpeg: {self.output_file}")
 
