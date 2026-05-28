@@ -80,6 +80,10 @@ settings.config
 har_and_cookies*
 config.json
 viral_news.json
+
+# FFmpeg temp files
+_subs_*.srt
+_ffmpeg_debug.log
 test*.py
 
 config.json
