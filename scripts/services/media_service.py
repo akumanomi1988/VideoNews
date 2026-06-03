@@ -104,7 +104,7 @@ class PexelsMediaService(MediaGenerator):
             
             # Fetch new media if not in cache
             self.logger.info(f"Fetching new media from Pexels: {prompt[:100]}...")
-            result = self.fetcher.fetch_and_save_media(prompt)
+            result = self.fetcher.fetch_and_save_media(prompt, media_type="photo")
             
             if not result:
                 raise MediaGenerationError("Failed to fetch media: no result returned")

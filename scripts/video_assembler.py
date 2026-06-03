@@ -2,6 +2,7 @@ import os
 import re
 import json
 import math
+import time
 import textwrap
 import subprocess
 import logging
@@ -248,19 +249,27 @@ class VideoAssembler(VideoAssemblerInterface):
         if not self.voiceover_file or not os.path.isfile(self.voiceover_file):
             raise ValueError(Fore.RED + "❌ Voiceover audio file is missing.")
 
+        IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif'}
+        filtered = []
+        for media in valid_images:
+            ext = os.path.splitext(media)[1].lower()
+            if ext in IMAGE_EXTS:
+                filtered.append(media)
+            else:
+                self.logger.warning(f"Skipping non-image media: {os.path.basename(media)}")
+        if not filtered:
+            raise ValueError(Fore.RED + "🚨 All media files are non-image (videos?). Use photos only.")
+        valid_images = filtered
+
         target_w, target_h = self.get_target_dimensions()
         fps = 24
 
         audio_duration = self._ffprobe_duration(self.voiceover_file)
         num_images = len(valid_images)
-        duration_per_img = audio_duration / num_images
-        frames_per_img = max(1, int(round(duration_per_img * fps)))
-
-        # --- Copy SRT to CWD to avoid drive-letter colon issues in filter graph ---
-        local_srt = None
-        if self.subtitle_file and os.path.isfile(self.subtitle_file):
-            local_srt = os.path.join(os.getcwd(), f"_subs_{os.getpid()}.srt")
-            shutil.copy2(self.subtitle_file, local_srt)
+        total_frames = max(num_images, int(round(audio_duration * fps)))
+        frames_per_img_base = total_frames // num_images
+        extra_frames = total_frames % num_images
+        frame_counts = [frames_per_img_base + (1 if i < extra_frames else 0) for i in range(num_images)]
 
         # --- Build filter_complex ---
         filters = []
@@ -268,13 +277,14 @@ class VideoAssembler(VideoAssemblerInterface):
 
         for i, img in enumerate(valid_images):
             self.logger.info(f"  Image {i+1}/{num_images}: {os.path.basename(img)}")
-            if frames_per_img > 1:
-                zoom_expr = f"1+0.15*on/({frames_per_img}-1)"
+            fc = frame_counts[i]
+            if fc > 1:
+                zoom_expr = f"1+0.15*on/({fc}-1)"
             else:
                 zoom_expr = "1"
             filters.append(
                 f"[{i}:v]zoompan=z='{zoom_expr}':"
-                f"d={frames_per_img}:fps={fps}:"
+                f"d={fc}:fps={fps}:"
                 f"s={target_w}x{target_h},"
                 f"setpts=PTS-STARTPTS[s{i}]"
             )
@@ -303,46 +313,59 @@ class VideoAssembler(VideoAssemblerInterface):
             filters.append(f"[voice][bg]amix=inputs=2:duration=first[mix]")
             audio_map = "[mix]"
 
-        # --- Subtitles (inside filter_complex, NOT separate -vf) ---
+        # --- Subtitles: copy to CWD with simple name (no colons) + quoted force_style (for commas) ---
         has_subtitles = False
-        if local_srt and os.path.isfile(local_srt):
-            style_params = SubtitleHelper.get_style_parameters(style)
-            font_name = Path(style_params['font_path']).stem
-            font_size = min(style_params['fontsize'], 28)
-            align_map = {
-                Position.BOTTOM_CENTER: '2',
-                Position.BOTTOM_LEFT: '1',
-                Position.BOTTOM_RIGHT: '3',
-                Position.MIDDLE_CENTER: '10',
-                Position.MIDDLE_LEFT: '4',
-                Position.MIDDLE_RIGHT: '6',
-                Position.TOP_CENTER: '8',
-                Position.TOP_LEFT: '7',
-                Position.TOP_RIGHT: '9',
-            }
-            alignment = align_map.get(position, '2')
-            # Use POSIX forward slashes for the subtitles filter path
-            srt_posix = local_srt.replace('\\', '/')
-            sub_filter = (
-                f"[vid]subtitles='{srt_posix}':"
-                f"force_style='FontName={font_name},"
-                f"FontSize={font_size},"
-                f"PrimaryColour=&H00FFFFFF,"
-                f"OutlineColour=&H00000000,"
-                f"Outline=2,BorderStyle=1,"
-                f"Alignment={alignment}'"
-                f"[outv]"
-            )
-            filters.append(sub_filter)
-            has_subtitles = True
+        _local_srt = None
+        if self.subtitle_file and os.path.isfile(self.subtitle_file):
+            srt_size = os.path.getsize(self.subtitle_file)
+            self.logger.info(f"SRT: path={self.subtitle_file!r}, size={srt_size}")
+            if srt_size == 0:
+                self.logger.warning("SRT is empty (0 bytes), skipping subtitles")
+            else:
+                is_short = self.aspect_ratio == '9:16'
+                style_params = SubtitleHelper.get_style_parameters(style)
+                font_name = Path(style_params['font_path']).stem
+                font_size = min(style_params['fontsize'], 48 if is_short else 28)
+                margin_v = 80 if is_short else 40
+                align_map = {
+                    Position.BOTTOM_CENTER: '2',
+                    Position.BOTTOM_LEFT: '1',
+                    Position.BOTTOM_RIGHT: '3',
+                    Position.MIDDLE_CENTER: '10',
+                    Position.MIDDLE_LEFT: '4',
+                    Position.MIDDLE_RIGHT: '6',
+                    Position.TOP_CENTER: '8',
+                    Position.TOP_LEFT: '7',
+                    Position.TOP_RIGHT: '9',
+                }
+                alignment = align_map.get(position, '2')
+                # Copy SRT to a simple name in CWD (guarantees no colons, no path issues in filter)
+                _local_srt = f"_vid_srt_{os.getpid()}.srt"
+                shutil.copy2(self.subtitle_file, _local_srt)
+                # Simple basename in filter, force_style quoted for comma protection
+                sub_filter = (
+                    f"[vid]subtitles={_local_srt}:"
+                    f"force_style='FontName={font_name},"
+                    f"FontSize={font_size},"
+                    f"PrimaryColour=&H00FFFFFF,"
+                    f"OutlineColour=&H00000000,"
+                    f"Outline=2,BorderStyle=1,"
+                    f"MarginV={margin_v},"
+                    f"Alignment={alignment}'"
+                    f"[outv]"
+                )
+                self.logger.info(f"Subtitle filter: {sub_filter}")
+                filters.append(sub_filter)
+                has_subtitles = True
 
         last_video_label = "[outv]" if has_subtitles else "[vid]"
+        self.logger.info(f"Subtitles: {'ON' if has_subtitles else 'OFF'} (map label: {last_video_label})")
 
         # --- Build command ---
         cmd = ['ffmpeg', '-y']
 
         for img in valid_images:
-            cmd.extend(['-loop', '1', '-t', str(duration_per_img), '-i', img])
+            cmd.extend(['-i', img])
         cmd.extend(['-i', str(self.voiceover_file)])
 
         if self.background_music and os.path.isfile(self.background_music):
@@ -373,6 +396,7 @@ class VideoAssembler(VideoAssemblerInterface):
                 df.write(f"Command: {' '.join(cmd)}\n\n")
                 df.write(f"Filter complex:\n{';'.join(filters)}\n\n")
 
+            time.sleep(1)
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             with open(debug_log, 'a', encoding='utf-8') as df:
                 df.write(f"\nExit code: {result.returncode}\n")
@@ -381,11 +405,8 @@ class VideoAssembler(VideoAssemblerInterface):
         except subprocess.TimeoutExpired:
             raise RuntimeError(Fore.RED + "❌ FFmpeg timed out (>10min).")
         finally:
-            if local_srt and os.path.isfile(local_srt):
-                try:
-                    os.remove(local_srt)
-                except Exception:
-                    pass
+            if _local_srt and os.path.isfile(_local_srt):
+                os.remove(_local_srt)
 
         if result.returncode != 0:
             self.logger.error(f"FFmpeg failed (exit {result.returncode}). "
@@ -411,89 +432,8 @@ class VideoAssembler(VideoAssemblerInterface):
     ) -> None:
         """
         Assemble and create the final video using direct ffmpeg subprocess.
-        Replaces slow MoviePy write_videofile pipe-based rendering.
         """
         self._assemble_with_ffmpeg(style, position)
-
-
-
-    def _concatenate_clips(self, clips: List[VideoFileClip]) -> CompositeVideoClip:
-        """
-        Concatenate video clips into a single video.
-        """
-        try:
-            return mp.concatenate_videoclips(clips)
-        except Exception as e:
-            raise ValueError(Fore.RED + f"❌ Error concatenating video clips: {e}")
-
-    def _load_voiceover_audio(self) -> mp.AudioFileClip:
-        """
-        Load the voiceover audio file and apply fadeout.
-        """
-        if not self.voiceover_file:
-            raise ValueError(Fore.RED + "❌ Voiceover audio file is missing.")
-        try:
-            return mp.AudioFileClip(self.voiceover_file).audio_fadeout(2)
-        except Exception as e:
-            raise ValueError(Fore.RED + f"❌ Error loading voiceover: {e}")
-
-    def _add_background_music(
-        self, video: CompositeVideoClip, voiceover_audio: mp.AudioFileClip
-    ) -> CompositeVideoClip:
-        """
-        Add background music to the video, mixing it with the voiceover.
-        """
-        try:
-            music = mp.AudioFileClip(self.background_music)
-            background_audio = mp.CompositeAudioClip([
-                voiceover_audio, music.volumex(0.2)
-            ])
-            return video.set_audio(background_audio)
-        except Exception as e:
-            raise ValueError(Fore.RED + f"❌ Error processing background music: {e}")
-
-    def _add_subtitles(
-        self, video: CompositeVideoClip, style: Style, position: Position
-    ) -> CompositeVideoClip:
-        """
-        Add subtitles to the video at the specified position and style.
-        """
-        try:
-            final_position = SubtitleHelper.calculate_text_position_video(
-                position=position,
-                img_width=video.size[0],
-                img_height=video.size[1],
-                max_text_width=0.95 * video.size[0],
-                total_text_height=video.size[1] / 3
-            )
-            subtitles = SubtitlesClip(
-                self.subtitle_file,
-                lambda txt: self.generate_subtitle(txt, video.size, style=style, position=position)
-            ).set_position(final_position)
-            return CompositeVideoClip([video, subtitles])
-        except Exception as e:
-            raise ValueError(Fore.RED + f"❌ Error adding subtitles: {e}")
-
-    def _write_final_video(self, video: CompositeVideoClip, duration: float) -> None:
-        """
-        Write the final video file to disk with optimized encoding.
-        """
-        try:
-            end_time = min(duration, video.duration)
-            final_video = video.subclip(0, end_time).fadeout(2)
-            final_video.write_videofile(
-                self.output_file,
-                codec='libx264',
-                audio_codec='aac',
-                fps=24,
-                threads=cpu_count(),
-                preset='ultrafast',
-                bitrate='4M',
-                write_logfile=False
-            )
-            print(Fore.GREEN + "✅ Video processing completed successfully.")
-        except Exception as e:
-            raise ValueError(Fore.RED + f"❌ Error writing final video: {e}")
 
     def generate_subtitle(
         self,

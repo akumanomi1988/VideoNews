@@ -42,28 +42,7 @@ class StylePreset(Enum):
     DREAMWORKS = "NO TEXT. 3D animated style with expressive, slightly exaggerated characters, dynamic lighting, and a cinematic, adventurous atmosphere, inspired by DreamWorks Animation films."
 
 
-class RateLimiter:
-    """Simple token-bucket rate limiter"""
-
-    def __init__(self, max_calls: int, period: float):
-        self.max_calls = max_calls
-        self.period = period
-        self.tokens = max_calls
-        self.last_refill = time()
-
-    def _refill(self):
-        now = time()
-        elapsed = now - self.last_refill
-        self.tokens = min(self.max_calls, self.tokens + elapsed * (self.max_calls / self.period))
-        self.last_refill = now
-
-    def acquire(self):
-        while True:
-            self._refill()
-            if self.tokens >= 1:
-                self.tokens -= 1
-                return
-            sleep(self.period / self.max_calls)
+from scripts.utils.rate_limiter import RateLimiter
 
 
 class FluxImageGenerator:
@@ -78,6 +57,8 @@ class FluxImageGenerator:
         self.azure_api_key = azure_api_key
         self.azure_model = azure_model
         self.azure_limiter = RateLimiter(max_calls=20, period=60.0)
+        self._hf_dead = self.hf_client is None
+        self._azure_dead = not self.azure_endpoint or not self.azure_api_key
 
     @staticmethod
     def getImagePresets():
@@ -95,13 +76,23 @@ class FluxImageGenerator:
         print(Fore.BLUE + f"Image prompt\t ::-> {final_prompt}")
 
         for attempt in range(5):
-            image_path = self._generate_with_huggingface(final_prompt, width, height)
-            if image_path:
-                return image_path
-            print(Fore.YELLOW + f"HF attempt {attempt + 1} failed, trying Azure...")
-            image_path = self._generate_with_azure(final_prompt, width, height)
-            if image_path:
-                return image_path
+            if not self._hf_dead:
+                image_path = self._generate_with_huggingface(final_prompt, width, height)
+                if image_path:
+                    return image_path
+                print(Fore.YELLOW + "HF failed, marking as dead for this generation")
+                self._hf_dead = True
+
+            if not self._azure_dead:
+                image_path = self._generate_with_azure(final_prompt, width, height)
+                if image_path:
+                    return image_path
+                print(Fore.YELLOW + "Azure failed, marking as dead for this generation")
+                self._azure_dead = True
+
+            if self._hf_dead and self._azure_dead:
+                print(Fore.RED + "Both providers dead, skipping remaining attempts")
+                break
             if attempt < 4:
                 sleep(5)
 

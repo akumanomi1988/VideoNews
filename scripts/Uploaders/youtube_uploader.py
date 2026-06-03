@@ -2,6 +2,7 @@ import os
 import json
 import ssl
 import time
+import logging
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 from googleapiclient.errors import HttpError
@@ -12,6 +13,8 @@ from colorama import init, Fore, Style
 
 # Initialize colorama
 init(autoreset=True)
+
+log = logging.getLogger(__name__)
 
 class YoutubeMediaUploader:
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
@@ -31,6 +34,12 @@ class YoutubeMediaUploader:
         
         except Exception as e:
             self.handle_error("Error inicializando el uploader", e, True)
+
+    def safe_print(self, text):
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode('ascii', 'replace').decode('ascii'))
 
     def authenticate_youtube(self):
         """Authenticates the user and returns a YouTube API client."""
@@ -72,15 +81,28 @@ class YoutubeMediaUploader:
             self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
 
             import re
+            seen = set()
             sanitized = []
             for tag in tags:
-                clean = re.sub(r'[^\w\s-]', '', tag).strip()[:60]
-                if clean and len(clean) >= 3:
+                clean = re.sub(r'[^\w\s-]', '', tag).strip().lower()
+                clean = re.sub(r'\s+', ' ', clean)[:60]
+                if clean and len(clean) >= 3 and clean not in seen and not clean.isdigit():
+                    seen.add(clean)
                     sanitized.append(clean)
-            sanitized = sanitized[:30]
+            # YouTube total tag character limit is ~500
+            total = 0
+            final_tags = []
+            for tag in sanitized:
+                if len(final_tags) >= 15:
+                    break
+                if total + len(tag) + 1 <= 500:
+                    final_tags.append(tag)
+                    total += len(tag) + 1
+            sanitized = final_tags
+            log.info(f"YouTube tags ({len(sanitized)}, {total}c): {sanitized[:5]}...")
             full_description = f"{description}\n\n{self.channel_description}\n\n{' #'.join(sanitized)}\n\n#Shorts #news #breakingnews"
             
-            print(Fore.CYAN + f"Uploading Short with title: '{title}'...")
+            self.safe_print(Fore.CYAN + f"Uploading Short with title: '{title[:60]}'...")
             
             media = MediaFileUpload(
                     video_path,
@@ -116,7 +138,7 @@ class YoutubeMediaUploader:
             if thumbnail_path:
                 self.set_thumbnail(response['id'], thumbnail_path)
 
-            print(Fore.GREEN + f"Short uploaded successfully: {title}")
+            self.safe_print(Fore.GREEN + f"Short uploaded successfully: {title[:60]}")
             return response
         
         except Exception as e:

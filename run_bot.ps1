@@ -14,5 +14,5 @@ while ($true) {
     } catch {
         "$date - Bot crashed: $_ . Restarting in 3 seconds..." | Out-File -FilePath $LogFile -Append
     }
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 12
 }

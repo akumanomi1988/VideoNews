@@ -120,7 +120,7 @@ async def news_category_selection_handler(update: Update, context: CallbackConte
 
     await message_sender.send_message(update=update, text=f"Fetching the latest news in category: {selected_category}... 📰")
     
-    latest_news: List[Dict[str, Any]] = news_service.fetch_news(category=selected_category)
+    latest_news: List[Dict[str, Any]] = await asyncio.to_thread(news_service.fetch_news, category=selected_category)
     context.user_data["cached_news"] = latest_news
 
     if not latest_news:
@@ -172,7 +172,7 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
         return
         
     logger.info(f"User selected news item at index: {selected_index}")
-    cached_news: List[Dict[str, Any]] = context.user_data.get("cached_news", [])
+    cached_news: List[Dict[str, Any]] = list(context.user_data.get("cached_news", []))
     selected_news_item: Optional[Dict[str, Any]] = (
         cached_news[selected_index] if 0 <= selected_index < len(cached_news) else None
     )
@@ -190,23 +190,29 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
     logger.info(f"Processing news item: '{news_title}' as {'long' if news_type_long else 'short'} format.")
 
     try:
-        response_data: Dict[str, Any]
+        response_data: Optional[Dict[str, Any]]
         if news_type_long:
             await message_sender.send_message(update=update, text=f"⏳ Processing long news: {news_title}...")
             response_data = await video_service.process_long_news(
                 news_item_title=news_title,
                 news_item_description=news_description,
-                callback_query=query 
+                callback_query=query,
+                bot=context.bot,
             )
         else:
             await message_sender.send_message(update=update, text=f"⏳ Processing short news: {news_title}...")
             response_data = await video_service.process_short_news(
                 news_item_title=news_title,
                 news_item_description=news_description,
-                callback_query=query
+                callback_query=query,
+                bot=context.bot,
             )
-        logger.info(f"Successfully processed news item: '{news_title}'")
-        await message_sender.send_message(update=update, text=f"News processing completed: {format_youtube_message(response_data)} ✅")
+        if response_data is None:
+            logger.warning(f"News processing returned None for '{news_title}'")
+            await message_sender.send_message(update=update, text=f"⚠️ The news '{news_title}' was processed but the result is empty. Check logs for details.")
+        else:
+            logger.info(f"Successfully processed news item: '{news_title}'")
+            await message_sender.send_message(update=update, text=f"News processing completed: {format_youtube_message(response_data)} ✅")
     except Exception as e:
         logger.error(f"Error processing news item '{news_title}': {e}", exc_info=True)
         await message_sender.send_message(update=update, text=f"An error occurred while processing the news '{news_title}': {str(e)}. ❌")
@@ -215,19 +221,7 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
 
 @trace()
 def format_youtube_message(response: Optional[Dict[str, Any]]) -> str:
-    """
-    Formats the YouTube video information from a dictionary into a
-    human-readable string for a Telegram message.
-
-    Args:
-        response: A dictionary containing video details, typically from
-                  a video processing service. Expected to have 'snippet'
-                  and 'id' keys if valid.
-
-    Returns:
-        A formatted string message or an error message if formatting fails.
-    """
-    if not isinstance(response, dict) or 'snippet' not in response or 'id' not in response:
+    if not response or not isinstance(response, dict) or 'snippet' not in response or 'id' not in response:
         logger.warning(f"Invalid response structure for formatting YouTube message: {response}")
         return "Could not format YouTube message: Invalid or empty response structure from video processing."
     
@@ -265,11 +259,6 @@ def format_youtube_message(response: Optional[Dict[str, Any]]) -> str:
 
 @trace()
 async def short_news_topic(update: Update, context: CallbackContext) -> None:
-    """
-    Handles the /topic_shortnews command.
-    Processes a user-provided topic into a short news video.
-    Requires context.args to contain the topic.
-    """
     message_sender = MessageSender(context=context)
     if context.args:
         headline: str = " ".join(context.args)
@@ -277,9 +266,17 @@ async def short_news_topic(update: Update, context: CallbackContext) -> None:
         await message_sender.send_message(update=update, text=f"Processing short news with headline: {headline}... 📰")
         video_service = get_video_service_instance()
         try:
-            response_data: Dict[str, Any] = await video_service.process_short_news(news_item_title=headline, news_item_description="")
-            logger.info(f"Successfully processed short_news_topic for headline: {headline}")
-            await message_sender.send_message(update=update, text=f"News processing completed: {format_youtube_message(response_data)} ✅")
+            response_data = await video_service.process_short_news(
+                news_item_title=headline,
+                news_item_description="",
+                bot=context.bot,
+            )
+            if response_data is None:
+                logger.warning(f"short_news_topic returned None for headline: {headline}")
+                await message_sender.send_message(update=update, text=f"⚠️ The news was processed but no video was generated. Check logs.")
+            else:
+                logger.info(f"Successfully processed short_news_topic for headline: {headline}")
+                await message_sender.send_message(update=update, text=f"News processing completed: {format_youtube_message(response_data)} ✅")
         except Exception as e:
             logger.error(f"Error processing short_news_topic for headline '{headline}': {e}", exc_info=True)
             await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later.")
@@ -289,11 +286,6 @@ async def short_news_topic(update: Update, context: CallbackContext) -> None:
 
 @trace()
 async def long_news_topic(update: Update, context: CallbackContext) -> None:
-    """
-    Handles the /topic_longnews command.
-    Processes a user-provided topic into a long news video.
-    Requires context.args to contain the topic.
-    """
     message_sender = MessageSender(context=context)
     if context.args:
         headline: str = " ".join(context.args)
@@ -301,9 +293,17 @@ async def long_news_topic(update: Update, context: CallbackContext) -> None:
         await message_sender.send_message(update=update, text=f"Processing long news with headline: {headline}... ⏳")
         video_service = get_video_service_instance()
         try:
-            response_data: Dict[str, Any] = await video_service.process_long_news(news_item_title=headline, news_item_description="")
-            logger.info(f"Successfully processed long_news_topic for headline: {headline}")
-            await message_sender.send_message(update=update, text=f"Long news processing completed: {format_youtube_message(response_data)} ✅")
+            response_data = await video_service.process_long_news(
+                news_item_title=headline,
+                news_item_description="",
+                bot=context.bot,
+            )
+            if response_data is None:
+                logger.warning(f"long_news_topic returned None for headline: {headline}")
+                await message_sender.send_message(update=update, text=f"⚠️ The news was processed but no video was generated. Check logs.")
+            else:
+                logger.info(f"Successfully processed long_news_topic for headline: {headline}")
+                await message_sender.send_message(update=update, text=f"Long news processing completed: {format_youtube_message(response_data)} ✅")
         except Exception as e:
             logger.error(f"Error processing long_news_topic for headline '{headline}': {e}", exc_info=True)
             await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later.")

@@ -90,7 +90,7 @@ class TTSEdge:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    async def text_to_speech(self, text: str, voice: str = "es-ES-XimenaNeural", rate: int = 0, pitch: int = 0, srt_path: Optional[str] = None):
+    async def text_to_speech(self, text: str, voice: str = "es-ES-XimenaNeural", rate: int = 0, pitch: int = 0, srt_path: Optional[str] = None, boundary_type: str = "WordBoundary"):
         """
         Converts text to speech using edge_tts and saves the result as an MP3 file.
         :param text: The content of text to convert to speech.
@@ -111,7 +111,7 @@ class TTSEdge:
             pitch_str = f"{pitch:+d}Hz"
 
             # Generate TTS audio using edge_tts
-            communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
+            communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str, boundary=boundary_type)
             submaker = edge_tts.SubMaker()
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
@@ -120,7 +120,7 @@ class TTSEdge:
                     async for chunk in communicate.stream():
                         if chunk["type"] == "audio":
                             audio_file.write(chunk["data"])
-                        elif chunk["type"] == "WordBoundary":
+                        elif chunk["type"] in ("WordBoundary", "SentenceBoundary"):
                             submaker.feed(chunk)
 
             # Save subtitles if requested
@@ -158,39 +158,36 @@ class TTSEdge:
             return loop.run_until_complete(coro)
         return loop.run_until_complete(coro)
 
-    def text_to_speech_file(self, text: str, language: str = 'es', voice: str = 'es-ES-XimenaNeural', output_path: Optional[str] = None, srt_path: Optional[str] = None) -> str:
-        """
-        Generates TTS audio and returns the path of the saved audio file.
-        :param text: The text to convert to speech.
-        :param language: The language of the voice (e.g., 'es' for Spanish).
-        :param voice: The preferred voice for TTS conversion.
-        :param output_path: Optional explicit path for the output file.
-        :param srt_path: Optional path for the subtitle file.
-        :return: The path of the saved audio file.
-        """
+    def text_to_speech_file(
+        self,
+        text: str,
+        language: str = 'es',
+        voice: str = 'es-ES-XimenaNeural',
+        output_path: Optional[str] = None,
+        srt_path: Optional[str] = None,
+        rate: int = 0,
+        pitch: int = 0,
+        boundary_type: str = "WordBoundary",
+    ) -> str:
         if TTSEdge._voices_cache is None:
             TTSEdge._voices_cache = self._run_async(self.get_voices())
         voices_dict = TTSEdge._voices_cache
-        # Filter voices to get only those in the requested language
-        filtered_voices = {name: short_name for name, short_name in voices_dict.items() if language in name}
-        for name, short_name in filtered_voices.items():
-            print(Fore.BLUE + f"- {name} (Short name: {short_name})")
-        # Handle voice selection
-        if not filtered_voices:
-            raise Exception(Fore.RED + "No voices available for the selected language.")
-        # Verify if the preferred voice exists in the filtered voices
-        if voice in filtered_voices:
-            selected_voice = voice.split(" - ")[0]  # Get the short name of the voice
-            print(Fore.GREEN + f"Using preferred voice: {voice}")
-        else:
-            # Choose a random voice from the filtered voices
-            selected_voice = random.choice(list(filtered_voices.values()))
-            print(Fore.YELLOW + f"Preferred voice not found. Using random voice: {selected_voice}")
-        # Call the asynchronous function to generate audio
-        audio_file, error = self._run_async(self.text_to_speech(text, selected_voice, srt_path=srt_path))
+        # Filter voices that start with the text language locale (e.g. 'es' → 'es-ES', 'es-MX', etc.)
+        lang_prefix = f"{language.lower()}-"
+        filtered = {}
+        for display, short in voices_dict.items():
+            if short.lower().startswith(lang_prefix):
+                filtered[display] = short
+        if not filtered:
+            raise Exception(Fore.RED + f"No voices available for language '{language}'.")
+        # Always pick a random voice from the matching language pool
+        selected = random.choice(list(filtered.values()))
+        print(Fore.GREEN + f"Voice: {selected} (language: {language})")
+        audio_file, error = self._run_async(
+            self.text_to_speech(text, selected, srt_path=srt_path, rate=rate, pitch=pitch, boundary_type=boundary_type)
+        )
         if error:
             raise Exception(Fore.RED + f"Error generating audio: {error}")
-        # Rename to output_path if provided
         if output_path:
             import shutil
             shutil.move(audio_file, output_path)
@@ -357,7 +354,7 @@ class TTSBark:
             return str(output_path)
         except Exception as e:
             print(Fore.RED + f"Error during TTS generation: {str(e)}")
-            return None
+            raise Exception(f"Bark TTS failed: {e}") from e
 
     def get_voices(self) -> dict:
         """

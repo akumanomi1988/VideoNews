@@ -22,7 +22,7 @@ init(autoreset=True)
 
 # ------------------ CONSTANTES DE CONFIGURACIÓN ------------------
 FONT_PATHS = {
-    "helvetica": r"C:\Windows\Fonts\Helvetica.ttf",
+    "helvetica": r"C:\Windows\Fonts\Arial.ttf",
     "arial": r"C:\Windows\Fonts\Arial.ttf",
     "times": r"C:\Windows\Fonts\Times.ttf",
     "comic": r"C:\Windows\Fonts\ComicSansMS.ttf",
@@ -42,10 +42,18 @@ def _resolve_font_path(font_path: str) -> str:
     full_path = os.path.join(project_root, font_path)
     if os.path.exists(full_path):
         return full_path
-    arial_path = r"C:\Windows\Fonts\Arial.ttf"
-    if os.path.exists(arial_path):
-        print(Fore.YELLOW + f"⚠️ Font not found: {font_path}. Falling back to Arial.")
-        return arial_path
+    font_fallbacks = [
+        r"C:\Windows\Fonts\Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/System/Library/Fonts/Helvetica.ttf",
+    ]
+    for fb in font_fallbacks:
+        if os.path.exists(fb):
+            print(Fore.YELLOW + f"Font not found: {font_path}. Falling back to {fb}.")
+            return fb
+    print(Fore.YELLOW + f"Font not found: {font_path}. No fallback found.")
     return font_path
 TEMP_DIR = ".temp"
 TEMP_MUSIC_FILENAME = "temp_music.wav"

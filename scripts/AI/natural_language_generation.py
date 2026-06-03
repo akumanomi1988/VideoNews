@@ -47,7 +47,15 @@ class LLMProvider:
                 self.logger.info("Groq provider ready (%s)", model)
 
             elif ptype == "azure":
-                self.logger.info("Azure provider placeholder (not configured)")
+                from openai import OpenAI as _OpenAI
+                endpoint = config.get("endpoint", "")
+                api_key = config.get("api_key", "")
+                if not endpoint or not api_key:
+                    self.logger.warning("Azure provider skipped: missing endpoint or api_key")
+                    return
+                client = _OpenAI(base_url=endpoint, api_key=api_key)
+                self._clients.append(("azure", model, client, config))
+                self.logger.info("Azure provider ready (%s @ %s)", model, endpoint)
 
             else:
                 self.logger.warning("Unknown provider type: %s", ptype)
@@ -81,6 +89,16 @@ class LLMProvider:
                         temperature=kwargs.get("temperature", 0.7),
                         max_tokens=kwargs.get("max_tokens", 8192),
                         response_format={"type": "json_object"},
+                        timeout=timeout,
+                    )
+                    return resp.choices[0].message.content
+
+                elif provider_type == "azure":
+                    resp = client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=kwargs.get("temperature", 0.7),
+                        max_tokens=kwargs.get("max_tokens", 8192),
                         timeout=timeout,
                     )
                     return resp.choices[0].message.content
@@ -180,25 +198,34 @@ class Chatbot:
         return description_json.get('description', '')
 
     @trace()
-    def generate_short_article(self, topic, length=50, accept_labels =False):
+    def generate_short_article(self, topic, source="", length=50, accept_labels =False):
         """
         Generates a short article based on the given topic.
         """
         print(Fore.BLUE + 'Generating YouTube narration')
+        source_line = f'The news comes from {source}.' if source else ''
         narration_prompt = (
             "Generate a fully structured JSON object with the following format:\n"
             "{\n"
-            '  "article": ""  // Write a compelling and concise YouTube video narration in ' + self.language + ' about the topic. Keep it engaging, factual, and suitable for a short-form video.'
+            '  "article": ""  // Write a fast-paced, news-bulletin style YouTube Shorts narration in ' + self.language + ' about the topic.\n'
             "}\n\n"
-            "Instructions:\n"
-            "1. The narration should be concise and engaging for a short video.\n"
-            "2. Focus on the most controversial and interesting aspects of the topic.\n"
-            "3. Write in a conversational yet provocative tone.\n"
+            "STRUCTURE (strict order):\n"
+            "1. HOOK (first 5 seconds — ~30-40 words): Open with a direct spoken hook addressing the viewer.\n"
+            '   Examples: "¿Te has enterado de lo que ha pasado con...?" / "Pues resulta que..." / "Acabo de leer en [actual news source] que..."\n'
+            f"   {source_line}\n"
+            "   Mention specifically where you read/heard this to make it organic.\n"
+            "2. EXPLAIN (main body — ~40-60 words): Actually explain WHAT the news is about.\n"
+            "   Give key facts: what happened, who is involved, why it matters.\n"
+            "3. CLOSE (final ~15 words): Quick wrap-up with a provocative question or call to action.\n"
+            "   Examples: '¿Tú qué opinas?' / 'Esto apenas comienza...' / 'Te leo en los comentarios.'\n\n"
             f"4. {self.hook_rules}\n"
             f"5. {self.numbers_as_words}\n"
+            "6. The TOTAL article must be between 80 and 120 words — tight, fast, no filler.\n"
+            "7. Write conversationally, as if telling a friend something shocking you just read.\n"
             f"Parameters:\n"
             f"- Language: [{self.language}]\n"
             f"- Topic: [{topic}]\n"
+            f"- Tone: fast news bulletin, urgent but not alarmist.\n"
             f"{self.standard_rules}\n"
         )
         narration_json = self._generate_json_element(narration_prompt)
@@ -524,19 +551,26 @@ class Chatbot:
         Generates an article and related phrases based on the provided topic.
 
         Parameters:
-            topic (str): The topic for which the article and phrases should be generated.
+            topic (str or dict): The topic for which the article and phrases should be generated.
+                                 Can be a string (title only) or dict with 'title' and optional 'source'.
 
         Returns:
             tuple: A tuple containing the generated article, short phrases, title, description, tags, cover, and cover image.
         """
-        print(Fore.CYAN + f"Generating article and phrases for topic: {topic}")
+        if isinstance(topic, dict):
+            topic_title = topic.get('title', '')
+            topic_source = topic.get('source', '')
+        else:
+            topic_title = str(topic)
+            topic_source = ''
+        print(Fore.CYAN + f"Generating article and phrases for topic: {topic_title}")
 
         # Generate a unique GUID
         file_guid = str(uuid.uuid4())
         folder_path = '.temp'
         file_path = os.path.join(folder_path, f'{file_guid}.json')
 
-        article = self.generate_short_article(topic)
+        article = self.generate_short_article(topic_title, source=topic_source)
 
         # Parallelize independent LLM calls
         results = {}
@@ -577,7 +611,8 @@ class Chatbot:
             "image_descriptions": image_descriptions,
             "tags": tags,
             "cover": cover,
-            "cover_image": cover_image
+            "cover_image": cover_image,
+            "source": topic_source
         }
 
         # Save the JSON to a file

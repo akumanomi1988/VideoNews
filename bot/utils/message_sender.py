@@ -80,7 +80,8 @@ class MessageSender:
         text: str = "", 
         reply_markup: Optional[InlineKeyboardMarkup] = None,
         chat_id: Optional[int | str] = None,
-        message_thread_id: Optional[int] = None
+        message_thread_id: Optional[int] = None,
+        parse_mode: Optional[str] = None,
     ) -> None:
         """
         Sends a message using the most appropriate method based on the provided
@@ -133,24 +134,25 @@ class MessageSender:
         try:
             if update and update.callback_query and update.callback_query.message:
                 logger.info(f"Sending message via callback_query.message.reply_text to {target_description}")
-                # Determine if the original callback message was in a topic
                 is_topic_context = (update.callback_query.message.is_topic_message or 
-                                    (update.effective_chat and update.effective_chat.type == 'forum'))
+                                    (update.effective_chat and getattr(update.effective_chat, 'is_forum', False)))
                 await self._send_with_retry(
                     update.callback_query.message.reply_text, 
                     text=current_text, 
                     reply_markup=reply_markup,
-                    message_thread_id=effective_message_thread_id if is_topic_context else None
+                    message_thread_id=effective_message_thread_id if is_topic_context else None,
+                    parse_mode=parse_mode,
                 )
             elif update and update.message:
                 logger.info(f"Sending message via update.message.reply_text to {target_description}")
                 is_topic_context = (update.message.is_topic_message or
-                                    (update.effective_chat and update.effective_chat.type == 'forum'))
+                                    (update.effective_chat and getattr(update.effective_chat, 'is_forum', False)))
                 await self._send_with_retry(
                     update.message.reply_text, 
                     text=current_text, 
                     reply_markup=reply_markup,
-                    message_thread_id=effective_message_thread_id if is_topic_context else None
+                    message_thread_id=effective_message_thread_id if is_topic_context else None,
+                    parse_mode=parse_mode,
                 )
             elif effective_chat_id and self.context and self.context.bot:
                 logger.info(f"Sending message via context.bot.send_message to {target_description}")
@@ -159,7 +161,8 @@ class MessageSender:
                     chat_id=effective_chat_id, 
                     text=current_text, 
                     reply_markup=reply_markup,
-                    message_thread_id=effective_message_thread_id
+                    message_thread_id=effective_message_thread_id,
+                    parse_mode=parse_mode,
                 )
             elif effective_chat_id: 
                 logger.warning(f"Sending message to chat_id {effective_chat_id} but no CallbackContext (or bot instance) provided to MessageSender. This will likely fail.")

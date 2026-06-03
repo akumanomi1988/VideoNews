@@ -22,7 +22,12 @@ def get_news_api_country() -> str:
 
 def get_news_api_page_size() -> int:
     """Retrieves the News API page size from environment variables, defaulting to 10."""
-    return int(os.getenv("NEWS_API_PAGE_SIZE", 10))
+    val = os.getenv("NEWS_API_PAGE_SIZE", "10")
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        logger.warning("Invalid NEWS_API_PAGE_SIZE: '%s', using default 10", val)
+        return 10
 
 def get_tts_language() -> str:
     """Retrieves the TTS language from environment variables, defaulting to 'en-US'."""

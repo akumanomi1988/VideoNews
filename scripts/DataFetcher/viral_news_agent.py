@@ -180,7 +180,8 @@ class NewsProcessor:
     def _process_newsapi(self) -> List[Dict[str, Any]]:
         """Fetches and filters recent news from NewsAPI."""
         try:
-            newsapi_client = NewsAPIClient(self._config['newsapi_key'])
+            newsapi_key = self._config.get('newsapi_key') or self._config.get('newsapi', {}).get('api_key', '')
+            newsapi_client = NewsAPIClient(newsapi_key)
             print(Fore.CYAN + "Processing news from NewsAPI")
             newsapi_news = newsapi_client.get_latest_headlines(
                 countries=DEFAULT_NEWSAPI_COUNTRIES,
@@ -198,7 +199,11 @@ class NewsProcessor:
     def _process_currentsapi(self) -> List[Dict[str, Any]]:
         """Fetches and filters recent news from CurrentsAPI for multiple languages."""
         try:
-            currents_client = CurrentsClient(self._config['currentsapi_key'])
+            currentsapi_key = self._config.get('currentsapi_key') or self._config.get('currentsapi', {}).get('api_key', '')
+            if not currentsapi_key:
+                print(Fore.YELLOW + "CurrentsAPI key not configured, skipping.")
+                return []
+            currents_client = CurrentsClient(currentsapi_key)
             print(Fore.CYAN + "Processing news from CurrentsAPI")
             all_currents_news = []
             for language in DEFAULT_CURRENTS_LANGUAGES:

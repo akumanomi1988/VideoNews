@@ -1,13 +1,8 @@
 import nest_asyncio
 import logging
 
-from telegram.ext import (
-    ApplicationBuilder,
-    # CommandHandler, # No longer directly used for registration here
-    # CallbackQueryHandler, # No longer directly used for registration here
-    # MessageHandler, # No longer directly used for registration here
-    # filters, # No longer directly used for registration here
-)
+from telegram import Chat
+from telegram.ext import ApplicationBuilder
 
 from bot.config import get_telegram_token
 from bot.dispatcher import command_handlers, callback_query_handlers, message_handlers
@@ -15,14 +10,14 @@ from bot.handlers.error_handler import error_handler
 from scripts.utils.app_logger import setup_logging
 
 
-# Create a logger instance for this module
 logger = logging.getLogger(__name__)
 
+
+if not hasattr(Chat, "FORUM"):
+    Chat.FORUM = "forum"
+
+
 def main() -> None:
-    """
-    Initializes and runs the Telegram bot application.
-    """
-    # Configure logging with SQLite + console output
     setup_logging()
     logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 

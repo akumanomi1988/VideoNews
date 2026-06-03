@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Union
 
 from colorama import Fore, init
-from telegram import CallbackQuery, Message
+from telegram import Bot, CallbackQuery, Message
 from scripts.AI.natural_language_generation import Chatbot
 from scripts.AI.speech_to_text import stt_whisper
 from scripts.AI.text_to_speech import TTSFactory, TTSProvider
@@ -22,6 +22,7 @@ from scripts.video_assembler import VideoAssembler
 from scripts.helpers.media_helper import ImageHelper, Position, Style
 from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
 from scripts.utils.app_logger import trace
+from scripts.utils.rate_limiter import RateLimiter
 
 # Initialize Colorama
 init(autoreset=True)
@@ -39,29 +40,6 @@ CONFIG_SETTINGS = 'settings'
 DEFAULT_CONFIG_FILE = 'settings.json'
 DEFAULT_MAX_FILENAME_LENGTH = 30
 
-class _RateLimiter:
-    """Simple thread-safe token bucket rate limiter."""
-
-    def __init__(self, max_calls: int, period: float):
-        self.max_calls = max_calls
-        self.period = period
-        self.tokens = max_calls
-        self.last_refill = time.time()
-        self._lock = __import__('threading').Lock()
-
-    def acquire(self):
-        with self._lock:
-            now = time.time()
-            elapsed = now - self.last_refill
-            self.tokens = min(self.max_calls, self.tokens + elapsed * (self.max_calls / self.period))
-            self.last_refill = now
-            if self.tokens >= 1:
-                self.tokens -= 1
-                return
-        sleep_time = self.period / self.max_calls
-        time.sleep(sleep_time)
-        self.acquire()
-
 
 class NewsVideoProcessor:
     """
@@ -73,22 +51,24 @@ class NewsVideoProcessor:
     def __init__(
         self,
         config_file: str = DEFAULT_CONFIG_FILE,
-        callback_query: Optional[Union[CallbackQuery, Message]] = None
+        callback_query: Optional[Union[CallbackQuery, Message]] = None,
+        event_loop: Optional[asyncio.AbstractEventLoop] = None,
+        bot: Optional[Bot] = None,
     ):
-        """
-        Initialize the NewsVideoProcessor.
-
-        Args:
-            config_file (str): Path to the configuration file.
-            callback_query: Telegram CallbackQuery or Message object for progress updates.
-        """
         self.callback_query = callback_query
+        self._event_loop = event_loop
+        self._bot = bot
+        if not self._bot and callback_query is not None:
+            try:
+                self._bot = callback_query.get_bot() if hasattr(callback_query, 'get_bot') else None
+            except Exception:
+                self._bot = None
         self.config_file = config_file
         self.config = self._load_configuration()
         self.temp_dir = self.config[CONFIG_SETTINGS]['temp_dir']
         self.parallel_workers = self.config[CONFIG_SETTINGS].get('parallel_workers', 6)
         images_per_minute = self.config[CONFIG_SETTINGS].get('images_per_minute', 20)
-        self._img_rate_limiter = _RateLimiter(images_per_minute, 60.0) if images_per_minute else None
+        self._img_rate_limiter = RateLimiter(images_per_minute, 60.0) if images_per_minute and images_per_minute > 0 else None
         self.news_client = NewsAPIClient(api_key=self.config[CONFIG_NEWSAPI]['api_key'])
         llm_providers = self.config.get("llm", {}).get("providers", [])
         self.article_generator = Chatbot(
@@ -120,28 +100,32 @@ class NewsVideoProcessor:
 
     @trace()
     def send_progress(self, message_text: str) -> None:
-        """
-        Send progress messages via a callback if provided.
-        Safe to call from sync code running in a thread pool.
-        """
-        if not self.callback_query:
+        if not self._bot or not self._event_loop:
             return
+        msg_obj = getattr(self.callback_query, "message", self.callback_query)
+        chat_id = None
+        if msg_obj:
+            chat_id = getattr(msg_obj, "chat_id", None) or getattr(getattr(msg_obj, "chat", None), "id", None)
+        if not chat_id:
+            return
+        loop = self._event_loop
+        if loop.is_closed():
+            return
+        text = message_text
         try:
-            msg_obj = getattr(self.callback_query, 'message', self.callback_query)
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                msg_obj.reply_text(message_text, parse_mode='Markdown')
+            asyncio.run_coroutine_threadsafe(
+                self._bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown"),
+                loop,
+            )
         except Exception as e:
-            print(Fore.YELLOW + f"Error sending progress message: {str(e)}")
+            self.logger.warning("Error sending progress message: %s", e)
             try:
-                msg_obj = getattr(self.callback_query, 'message', self.callback_query)
-                import warnings
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)
-                    msg_obj.reply_text(message_text.replace('*', '').replace('_', ''))
+                asyncio.run_coroutine_threadsafe(
+                    self._bot.send_message(chat_id=chat_id, text=text.replace("*", "").replace("_", "")),
+                    loop,
+                )
             except Exception as ex:
-                print(Fore.RED + f"Failed to send message even without Markdown: {str(ex)}")
+                self.logger.warning("Failed to send message even without Markdown: %s", ex)
 
     @trace()
     def _load_configuration(self) -> Dict[str, Any]:
@@ -211,6 +195,16 @@ class NewsVideoProcessor:
                 "_Manual cleanup may be required._"
             )
 
+    def _write_state(self, step: str, **extra) -> None:
+        state = {"step": step, "timestamp": time.time(), **extra}
+        try:
+            path = os.path.join(self.temp_dir, "process_state.json")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            self.logger.warning(f"Failed to write process state: {e}")
+
     @staticmethod
     @trace()
     def clean_filename(topic_title: str, max_length: int = DEFAULT_MAX_FILENAME_LENGTH) -> str:
@@ -250,7 +244,7 @@ class NewsVideoProcessor:
         """
         images = []
         phrase_list = [phrases] if isinstance(phrases, str) else phrases
-        with ThreadPoolExecutor(max_workers=min(self.parallel_workers, len(phrase_list))) as executor:
+        with ThreadPoolExecutor(max_workers=min(self.parallel_workers, max(len(phrase_list), 1))) as executor:
             future_map = {}
             for phrase in phrase_list:
                 if len(images) >= max_items:
@@ -261,11 +255,11 @@ class NewsVideoProcessor:
                 future_map[future] = phrase
             for future in as_completed(future_map):
                 try:
-                    result = future.result()
+                    result = future.result(timeout=120)
                     if result:
                         images.append(result)
                 except Exception as e:
-                    print(Fore.YELLOW + f"Error generating image: {e}")
+                    self.logger.warning("Error generating image: %s", e)
         return images[:max_items]
 
     def _generate_single_image(
@@ -282,7 +276,7 @@ class NewsVideoProcessor:
                     style_preset=style
                 )
             except Exception as e:
-                print(f"Error generating image for phrase '{phrase}' (attempt {attempt+1}): {e}")
+                self.logger.warning("Error generating image for phrase '%s' (attempt %d): %s", phrase, attempt + 1, e)
                 if attempt < 2:
                     time.sleep(5)
         return None
@@ -295,36 +289,67 @@ class NewsVideoProcessor:
         max_items: int = 10,
         orientation: AspectRatio = AspectRatio.PORTRAIT
     ) -> List[str]:
-        """
-        Fetch related media based on phrases from the specified source.
-
-        Args:
-            phrases (str or list): Phrases to fetch media for.
-            style (StylePreset): Style preset for image generation.
-            max_items (int): Maximum number of media files to fetch.
-            orientation (AspectRatio): Image orientation.
-
-        Returns:
-            list: List of media file paths.
-        """
         media_files = []
-        image_source = self.config[CONFIG_SETTINGS]['media_source']
+        image_source = self.config[CONFIG_SETTINGS].get('media_source', 'huggingface')
         phrase_list = [phrases] if isinstance(phrases, str) else phrases
         for phrase in phrase_list:
+            generated = False
             if image_source == 'huggingface':
-                media_files.extend(
-                    self.generate_related_media(phrase, style, max_items, orientation)
-                )
-            elif image_source == 'pexels':
-                media_file = self.media_fetcher.fetch_and_save_media(phrase)
-                if media_file:
-                    media_files.append(media_file)
+                result = self.generate_related_media(phrase, style, max_items, orientation)
+                if result:
+                    media_files.extend(result)
+                    generated = True
+                    self.logger.debug("Generated %d images from HuggingFace for phrase '%s'", len(result), phrase[:50])
+                else:
+                    self.logger.warning("HuggingFace returned no images for phrase '%s', trying Pexels fallback", phrase[:50])
+            if not generated:
+                pexels_file = None
+                try:
+                    pexels_file = self.media_fetcher.fetch_and_save_media(phrase, media_type="photo")
+                except Exception as e:
+                    self.logger.warning("Pexels fallback failed for phrase '%s': %s", phrase[:50], e)
+                if pexels_file:
+                    media_files.append(pexels_file)
+                    self.logger.debug("Fetched media from Pexels for phrase '%s'", phrase[:50])
+                else:
+                    placeholder = self._generate_placeholder_image(self.temp_dir, phrase, orientation)
+                    if placeholder:
+                        media_files.append(placeholder)
+                        self.logger.warning("Using placeholder image for phrase '%s'", phrase[:50])
             if len(media_files) >= max_items:
                 break
-        return media_files
+        return media_files[:max_items]
+
+    @trace()
+    @staticmethod
+    def _generate_placeholder_image(output_dir: str, text: str = "News", orientation: AspectRatio = AspectRatio.PORTRAIT) -> Optional[str]:
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            import uuid
+            w, h = (1080, 1920) if orientation == AspectRatio.PORTRAIT else (1920, 1080)
+            img = Image.new("RGB", (w, h), (30, 30, 50))
+            draw = ImageDraw.Draw(img)
+            _text = text[:50] if text else "News"
+            font = None
+            for fp in [
+                r"C:\Windows\Fonts\Arial.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ]:
+                if os.path.exists(fp):
+                    font = ImageFont.truetype(fp, 48)
+                    break
+            bbox = draw.textbbox((0, 0), _text, font=font) if font else (0, 0, 200, 30)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            draw.text(((w - tw) / 2, (h - th) / 2), _text, fill=(200, 200, 255), font=font)
+            out = os.path.join(output_dir, f"placeholder_{uuid.uuid4().hex[:8]}.png")
+            os.makedirs(output_dir, exist_ok=True)
+            img.save(out)
+            return out
+        except Exception as e:
+            logging.getLogger(__name__).warning("Failed to generate placeholder image: %s", e)
+            return None
 
     @staticmethod
-    @trace()
     def get_random_style() -> StylePreset:
         """
         Return a random StylePreset (excluding YOUTUBE_THUMBNAIL and NONE).
@@ -368,7 +393,7 @@ class NewsVideoProcessor:
                 )
 
                 article, phrases, title, description, tags, cover_text, cover_image = \
-                    self.article_generator.generate_article_and_phrases_short(topic['title'])
+                    self.article_generator.generate_article_and_phrases_short(topic)
 
                 if not article:
                     self.send_progress(
@@ -379,6 +404,7 @@ class NewsVideoProcessor:
                     )
                     continue
 
+                self._write_state("article_ready", title=title, phrases=len(phrases))
                 self._generate_and_enhance_thumbnail(cover_image, cover_text, StylePreset.REALISM, Position.BOTTOM_CENTER, Style.THUMBNAIL_BOLD)
 
                 self.send_progress(
@@ -392,8 +418,12 @@ class NewsVideoProcessor:
                     article,
                     voice=self.config[CONFIG_TTS_EDGE]['voice'],
                     language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
-                    srt_path=subtitle_path
+                    srt_path=subtitle_path,
+                    rate=self.config[CONFIG_TTS_EDGE].get('speech_rate_adjustment', 0),
+                    pitch=self.config[CONFIG_TTS_EDGE].get('pitch_adjustment', 0),
                 )
+
+                self._write_state("audio_ready", subtitle_path=subtitle_path, audio_path=audio_path)
 
                 self.send_progress(
                     "🖼️ *Media Generation*\n\n"
@@ -404,6 +434,8 @@ class NewsVideoProcessor:
                 self.image_generator.model = "black-forest-labs/FLUX.1-schnell"
                 random_style = self.get_random_style()
                 media_images = self.fetch_related_media(phrases, random_style, len(phrases))
+
+                self._write_state("media_ready", image_count=len(media_images))
 
                 self.send_progress(
                     "🎥 *Video Assembly*\n\n"
@@ -421,6 +453,8 @@ class NewsVideoProcessor:
                     aspect_ratio='9:16'
                 )
                 video_assembler.assemble_video(Style.DEFAULT, position=Position.BOTTOM_CENTER)
+
+                self._write_state("video_ready", output_file=output_file)
 
                 self.send_progress(
                     "📤 *YouTube Upload*\n\n"
@@ -443,13 +477,14 @@ class NewsVideoProcessor:
                     "_Check your YouTube channel._"
                 )
 
+                self._write_state("complete")
+                self.cleanup_temp_folder()
                 return youtube_response
         except Exception as e:
             self.logger.error(f"Short format processing failed: {e}")
             self.send_progress(f"❌ *Process Failed*\n\nError: `{str(e)}`")
+            self.logger.warning(f"Temp files preserved in {self.temp_dir!r} for analysis")
             return None
-        finally:
-            self.cleanup_temp_folder()
 
     @trace()
     def process_latest_news_in_long_format(self, forze_topic: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -496,12 +531,19 @@ class NewsVideoProcessor:
                     )
                     continue
 
-                self._generate_and_enhance_thumbnail(
-                    cover_image, 'NEWSPHERE', StylePreset.NONE, Position.TOP_LEFT, Style.THUMBNAIL_CARTOON, orientation=AspectRatio.LANDSCAPE
-                )
-                self._generate_and_enhance_thumbnail(
-                    cover_image, cover_text, StylePreset.NONE, Position.BOTTOM_CENTER, Style.THUMBNAIL_INTENSA, orientation=AspectRatio.LANDSCAPE
-                )
+                self._write_state("article_ready", title=title, phrases=len(phrases))
+
+                # Generate ONE cover image and overlay both texts
+                self.image_generator.model = "black-forest-labs/FLUX.1-dev"
+                _thumbs = self.fetch_related_media(phrases=cover_image, style=StylePreset.NONE, max_items=1, orientation=AspectRatio.LANDSCAPE)
+                if not _thumbs:
+                    _placeholder = self._generate_placeholder_image(self.temp_dir, title, AspectRatio.LANDSCAPE)
+                    if _placeholder:
+                        _thumbs = [_placeholder]
+                if _thumbs:
+                    self.cover_path = _thumbs[0]
+                    ImageHelper.enhance_thumbnail(self.cover_path, 'NEWSPHERE', Position.TOP_LEFT, Style.THUMBNAIL_CARTOON)
+                    ImageHelper.enhance_thumbnail(self.cover_path, cover_text or title, Position.BOTTOM_CENTER, Style.THUMBNAIL_INTENSA)
 
                 self.send_progress(
                     "🎤 *Audio Production*\n\n"
@@ -514,11 +556,16 @@ class NewsVideoProcessor:
                     voice=self.config[CONFIG_TTS_EDGE]['voice'],
                     language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
                     srt_path=os.path.join(self.temp_dir, 'subtitles.srt'),
+                    rate=self.config[CONFIG_TTS_EDGE].get('speech_rate_adjustment', 0),
+                    pitch=self.config[CONFIG_TTS_EDGE].get('pitch_adjustment', 0),
+                    boundary_type="WordBoundary",
                 )
 
                 subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
-                processor = SRTProcessor(subtitle_path, max_duration=2.0, max_words=5, pause_threshold=0.3)
+                processor = SRTProcessor(subtitle_path, max_duration=4.0, max_words=8, pause_threshold=0.3)
                 processor.process()
+
+                self._write_state("audio_ready", subtitle_path=subtitle_path, audio_path=audio_path)
 
                 self.send_progress(
                     "🖼️ *Visual Content*\n\n"
@@ -530,6 +577,8 @@ class NewsVideoProcessor:
                 random_style = self.get_random_style()
                 media_images = self.fetch_related_media(phrases, random_style, len(phrases), orientation=AspectRatio.LANDSCAPE)
 
+                self._write_state("media_ready", image_count=len(media_images))
+
                 self.send_progress(
                     "🎬 *Video Production*\n\n"
                     "Assembling final video\n"
@@ -538,7 +587,7 @@ class NewsVideoProcessor:
 
                 output_file = os.path.join(self.temp_dir, self.clean_filename(title))
                 video_assembler = VideoAssembler(
-                    subtitle_file=subtitle_path,
+                    subtitle_file=subtitle_path if os.path.exists(subtitle_path) else None,
                     voiceover_file=audio_path,
                     output_file=output_file,
                     media_images=media_images,
@@ -546,6 +595,8 @@ class NewsVideoProcessor:
                     aspect_ratio='16:9'
                 )
                 video_assembler.assemble_video(Style.FORMAL, position=Position.BOTTOM_CENTER)
+
+                self._write_state("video_ready", output_file=output_file)
 
                 self.send_progress(
                     "📤 *Publishing Content*\n\n"
@@ -568,9 +619,14 @@ class NewsVideoProcessor:
                     "_Your content is now live._"
                 )
 
+                self._write_state("complete")
+                self.cleanup_temp_folder()
                 return youtube_response
-        finally:
-            self.cleanup_temp_folder()
+        except Exception as e:
+            self.logger.error(f"Long format processing failed: {e}")
+            self.send_progress(f"❌ *Process Failed*\n\nError: `{str(e)}`")
+            self.logger.warning(f"Temp files preserved in {self.temp_dir!r} for analysis")
+            return None
 
     @trace()
     def _generate_and_enhance_thumbnail(
@@ -584,19 +640,7 @@ class NewsVideoProcessor:
         quality: int = 95,
         orientation: AspectRatio = AspectRatio.PORTRAIT
     ) -> None:
-        """
-        Generate and enhance a thumbnail image.
-
-        Args:
-            cover_image (str or list): Cover image prompt(s).
-            cover_text (str): Text to overlay on the thumbnail.
-            style (StylePreset): Style preset for image generation.
-            position (Position): Position for the overlay text.
-            enhancement_style (Style): Enhancement style for the thumbnail.
-            font_size (int): Font size for the overlay text.
-            quality (int): Quality for the output image.
-            orientation (AspectRatio): Image orientation.
-        """
+        self.cover_path = None
         self.image_generator.model = "black-forest-labs/FLUX.1-dev"
         images = self.fetch_related_media(
             phrases=cover_image,

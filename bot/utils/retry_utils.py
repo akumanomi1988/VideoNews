@@ -12,7 +12,7 @@ import logging
 from functools import wraps
 from typing import Callable, Any, Awaitable, TypeVar
 
-from telegram.error import TelegramError, TimedOut, NetworkError
+from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
@@ -28,9 +28,8 @@ def retry_on_telegram_error(max_retries: int = 3, delay_seconds: float = 1.0) \
     This decorator wraps an asynchronous function and retries its execution
     if `telegram.error.TimedOut` or `telegram.error.NetworkError` occurs.
     It uses an exponential backoff strategy for delays between retries.
-    Other `telegram.error.TelegramError` exceptions are also retried by default,
-    but logged as errors. Non-Telegram exceptions are not retried and are
-    raised immediately.
+    Non-retryable errors (`Forbidden`, `BadRequest`) and non-Telegram
+    exceptions are raised immediately.
 
     Args:
         max_retries: Maximum number of retries before giving up.
@@ -50,25 +49,22 @@ def retry_on_telegram_error(max_retries: int = 3, delay_seconds: float = 1.0) \
             for attempt in range(max_retries):
                 try:
                     return await func(*args, **kwargs)
-                except (TimedOut, NetworkError) as e: 
+                except (TimedOut, NetworkError) as e:
                     last_exception = e
                     logger.warning(
-                        f"Telegram API error ({type(e).__name__}): '{e}' on attempt {attempt + 1}/{max_retries} "
-                        f"for function '{func.__name__}'. Retrying in {current_delay:.2f} seconds..."
-                    )
-                    await asyncio.sleep(current_delay)
-                    current_delay *= 2  # Exponential backoff
-                except TelegramError as e: 
-                    last_exception = e
-                    logger.error(
-                        f"Generic Telegram API error ({type(e).__name__}): '{e}' on attempt {attempt + 1}/{max_retries} "
-                        f"for function '{func.__name__}'. Retrying in {current_delay:.2f} seconds...",
-                        exc_info=True 
+                        "Telegram API error (%s): '%s' on attempt %d/%d for function '%s'. Retrying in %.2fs...",
+                        type(e).__name__, e, attempt + 1, max_retries, func.__name__, current_delay,
                     )
                     await asyncio.sleep(current_delay)
                     current_delay *= 2
-                except Exception as e: 
-                    logger.error(f"Non-Telegram error during {func.__name__}: {e}", exc_info=True)
+                except (Forbidden, BadRequest) as e:
+                    logger.error(
+                        "Non-retryable Telegram API error (%s): '%s' for function '%s'.",
+                        type(e).__name__, e, func.__name__,
+                    )
+                    raise
+                except Exception as e:
+                    logger.error("Non-Telegram error during %s: %s", func.__name__, e, exc_info=True)
                     raise 
 
             final_error_message = (

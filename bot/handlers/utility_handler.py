@@ -46,28 +46,25 @@ async def help_command_handler(update: Update, context: CallbackContext) -> None
 
     help_text: str = (
         "Comandos disponibles:\n\n"
-        "[NOTICIAS]\n"
-        "  /topic_shortnews <tema> - Video corto de noticias sobre un tema (FLUJO A)\n"
-        "  /topic_longnews <tema> - Video largo de noticias sobre un tema\n"
-        "  /url_shortnews <url> - Video corto desde enlace de noticia (FLUJO B)\n"
-        "  /url_longnews <url> - Video largo desde enlace de noticia\n"
-        "  /news_category - Elegir categoria y obtener noticias\n"
-        "  /detailed_news - Noticia detallada por categoria (video largo)\n"
-        "  /headless [num] - Procesar noticias virales (solo admins)\n\n"
-        "[CONFIGURACION]\n"
-        "  /settings - Configurar opciones del bot\n"
-        "  /show_settings - Mostrar configuracion actual\n\n"
-        "[UTILES]\n"
-        "  /help - Mostrar esta ayuda\n"
+        "*NOTICIAS*\n"
+        "  /topic\\_shortnews \\<tema\\> \\- Video corto de noticias sobre un tema \\(FLUJO A\\)\n"
+        "  /topic\\_longnews \\<tema\\> \\- Video largo de noticias sobre un tema\n"
+        "  /url\\_shortnews \\<url\\> \\- Video corto desde enlace de noticia \\(FLUJO B\\)\n"
+        "  /url\\_longnews \\<url\\> \\- Video largo desde enlace de noticia\n"
+        "  /news\\_category \\- Elegir categoria y obtener noticias\n"
+        "  /detailed\\_news \\- Noticia detallada por categoria \\(video largo\\)\n"
+        "  /headless \\[num\\] \\- Procesar noticias virales\n\n"
+        "*CONFIGURACION*\n"
+        "  /settings \\- Configurar opciones del bot\n"
+        "  /show\\_settings \\- Mostrar configuracion actual\n\n"
+        "*UTILES*\n"
+        "  /help \\- Mostrar esta ayuda\n"
     )
     
     await message_sender.send_message(
         update=update,
         text=help_text,
-        # For MarkdownV2, use parse_mode='MarkdownV2'. Ensure special characters are escaped.
-        # For plain text, remove parse_mode or use None.
-        # Given the asterisks, Markdown would be nice. Let's assume MessageSender can handle it or we add it.
-        # For now, sending as plain text to avoid unescaped character issues until MessageSender is enhanced.
+        parse_mode="MarkdownV2",
     )
 
 if __name__ == '__main__':
