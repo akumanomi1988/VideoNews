@@ -1,12 +1,8 @@
-
 venv/
 settings.json
 .temp/
 scripts/__pycache__/
 secrets/
-*.log
-*.mp3
-*.mp4
 # Python
 *.pyc
 *.pyo
@@ -14,14 +10,12 @@ secrets/
 __pycache__/
 *.db
 *.sqlite3
-*.pyc
+
 # Environments
 venv/
 ENV/
 env/
 *.env
-pipeline_config.json
-# Configuración de entornos virtuales y herramientas de Python
 .venv/
 .pip/
 *.egg-info/
@@ -29,62 +23,57 @@ dist/
 build/
 *.egg
 
-# Archivos de configuración de IDEs
+# IDE
 .idea/
 *.suo
 *.sw?
 *.sublime-workspace
 *.sublime-project
 
-# Archivos de logs
+# Logs & cache
 *.log
-
-# Archivos de caché
 *.cache
 *.tmp
 *.bak
 .cache/
-# Archivos de base de datos
-*.db
-*.sqlite3
 
-# Archivos generados por moviepy
+# Media generated files
 *.mp4
 *.avi
 *.mov
-
-# Archivos generados por pydub
 *.wav
 *.mp3
 
-# Archivos de configuración de sistemas de CI/CD
+# CI/CD
 *.yml
 *.yaml
 
-# Archivos de configuración de Git
+# Git
 *.gitconfig
 *.gitignore
 
-# Archivos de caché y temporales del sistema
+# System
 .DS_Store
 Thumbs.db
 
-# Archivos generados por otras herramientas
-*.log
+# Other tools
 *.pid
 *.seed
 
-# Archivos de credenciales
+# Credentials
 settings.config
 .secrets*
 har_and_cookies*
 config.json
 viral_news.json
+pipeline_config.json
 
 # FFmpeg temp files
 _subs_*.srt
 _ffmpeg_debug.log
 test*.py
 
-config.json
-viral_news.json
+# Test/debug scripts and temp artifacts
+_*.py
+_*.mp3
+_*.srt
