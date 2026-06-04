@@ -194,6 +194,10 @@ class YoutubeMediaUploader:
                 print(Fore.RED + f"Error Details: {error_details}")
                 
                 if e.resp.status in [403, 429]:  # Quota exceeded or rate limit
+                    reason = error_details.get('reason', '')
+                    if reason == 'quotaExceeded':
+                        print(Fore.RED + "❌ YouTube quota exceeded. Cannot upload.")
+                        raise
                     wait_time = 2 ** (attempt + 1)
                     print(Fore.YELLOW + f"Esperando {wait_time} segundos antes de reintentar...")
                     time.sleep(wait_time)

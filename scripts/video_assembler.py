@@ -3,6 +3,7 @@ import re
 import json
 import math
 import time
+import uuid
 import textwrap
 import subprocess
 import logging
@@ -112,6 +113,15 @@ class VideoAssembler(VideoAssemblerInterface):
         self.media_videos = media_videos or []
         self.aspect_ratio = aspect_ratio
         self.background_music = background_music
+        self._check_dependencies()
+
+    @staticmethod
+    def _check_dependencies():
+        if not shutil.which("ffmpeg"):
+            raise RuntimeError(
+                Fore.RED + "❌ ffmpeg not found in PATH. "
+                "Install ffmpeg (https://ffmpeg.org/download.html) and ensure it's in your system PATH."
+            )
 
     @trace()
     def get_target_dimensions(self) -> Tuple[int, int]:
@@ -340,7 +350,7 @@ class VideoAssembler(VideoAssemblerInterface):
                 }
                 alignment = align_map.get(position, '2')
                 # Copy SRT to a simple name in CWD (guarantees no colons, no path issues in filter)
-                _local_srt = f"_vid_srt_{os.getpid()}.srt"
+                _local_srt = f"_vid_srt_{uuid.uuid4().hex[:8]}.srt"
                 shutil.copy2(self.subtitle_file, _local_srt)
                 # Simple basename in filter, force_style quoted for comma protection
                 sub_filter = (

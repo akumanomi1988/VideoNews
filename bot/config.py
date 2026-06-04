@@ -73,11 +73,11 @@ if __name__ == '__main__':
     # Basic logging configuration for standalone execution (if any other module doesn't set it up)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
-    logger.info(f"Telegram Bot Token: {get_telegram_token()}")
-    logger.info(f"News API Key: {get_news_api_key()}")
+    logger.info(f"Telegram Bot Token: {'***' if get_telegram_token() else 'NOT SET'}")
+    logger.info(f"News API Key: {'***' if get_news_api_key() else 'NOT SET'}")
     logger.info(f"News API Country: {get_news_api_country()}")
     logger.info(f"News API Page Size: {get_news_api_page_size()}")
     logger.info(f"TTS Language: {get_tts_language()}")
 
     # Example usage with the settings object
-    logger.info(f"Telegram Bot Token from settings object: {settings.TELEGRAM_BOT_TOKEN}")
+    logger.info(f"Telegram Bot Token from settings object: {'***' if settings.TELEGRAM_BOT_TOKEN else 'NOT SET'}")

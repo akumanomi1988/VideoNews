@@ -264,7 +264,7 @@ class TTSElevenlabs:
         selected_api_key, selected_account = random.choice(valid_accounts)
         # Select a random voice from the selected account
         selected_voice = random.choice(selected_account['Voices'])
-        print(Fore.GREEN + f"Usando cuenta con API Key: {selected_api_key[:10]}... y voz ID: {selected_voice['ID']}")
+        print(Fore.GREEN + f"Usando cuenta con API Key: {'***' + selected_api_key[-4:]} y voz ID: {selected_voice['ID']}")
         return selected_api_key, "eleven_multilingual_v2", selected_voice['ID']
 
 class TTSBark:

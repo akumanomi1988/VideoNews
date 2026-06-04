@@ -79,6 +79,7 @@ class LLMProvider:
                         messages=[{"role": "user", "content": prompt}],
                         options={"num_predict": kwargs.get("max_tokens", 8192)},
                         format="json",
+                        timeout=timeout,
                     )
                     return resp["message"]["content"]
 
@@ -105,7 +106,7 @@ class LLMProvider:
 
             except Exception as e:
                 last_error = e
-                self.logger.warning("%s failed: %s", provider_type, e)
+                self.logger.warning("%s failed (model=%s): %s", provider_type, model, e)
                 continue
 
         raise RuntimeError(f"All LLM providers failed: {last_error}")
@@ -434,26 +435,54 @@ class Chatbot:
         except json.JSONDecodeError:
             pass
 
-        # Strategy 2: find outermost { ... } with balanced braces
+        # Strategy 2: find outermost { ... } skipping braces inside strings
         start = text.find('{')
         if start != -1:
             depth = 0
+            in_string = False
+            escape = False
             for i in range(start, len(text)):
-                if text[i] == '{':
+                ch = text[i]
+                if escape:
+                    escape = False
+                    continue
+                if ch == '\\':
+                    escape = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == '{':
                     depth += 1
-                elif text[i] == '}':
+                elif ch == '}':
                     depth -= 1
                     if depth == 0:
                         return text[start:i + 1]
 
-        # Strategy 3: find outermost [ ... ] with balanced brackets
+        # Strategy 3: find outermost [ ... ] skipping brackets inside strings
         start = text.find('[')
         if start != -1:
             depth = 0
+            in_string = False
+            escape = False
             for i in range(start, len(text)):
-                if text[i] == '[':
+                ch = text[i]
+                if escape:
+                    escape = False
+                    continue
+                if ch == '\\':
+                    escape = True
+                    continue
+                if ch == '"':
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == '[':
                     depth += 1
-                elif text[i] == ']':
+                elif ch == ']':
                     depth -= 1
                     if depth == 0:
                         return text[start:i + 1]
@@ -469,14 +498,10 @@ class Chatbot:
             print(Fore.RED + "No LLM providers available.")
             return None
 
-        retries = 5
+        retries = 2
         for attempt in range(retries):
             try:
                 response = self.llm.complete(prompt_template, max_tokens=8192)
-                try:
-                    print(Fore.YELLOW + f"Response (attempt {attempt + 1}): {response[:200]}...")
-                except (UnicodeEncodeError, UnicodeError):
-                    print(Fore.YELLOW + f"Response (attempt {attempt + 1}): [Unicode response - {len(response)} chars]")
 
                 content = self._extract_json(response)
                 if content is None:
@@ -489,7 +514,13 @@ class Chatbot:
                 return json.loads(content)
 
             except (json.JSONDecodeError, ValueError) as e:
+                snippet = response[:200] if attempt < retries - 1 else ""
                 print(Fore.RED + f"JSON error (attempt {attempt + 1}/{retries}): {e}")
+                if snippet:
+                    print(Fore.YELLOW + f"Response: {snippet}...")
+
+            except Exception as e:
+                print(Fore.RED + f"LLM error (attempt {attempt + 1}/{retries}): {e}")
 
             except Exception as e:
                 print(Fore.RED + f"LLM error (attempt {attempt + 1}/{retries}): {e}")

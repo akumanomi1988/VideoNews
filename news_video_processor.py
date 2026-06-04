@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import uuid
 import shutil
 import random
 import logging
@@ -146,12 +147,6 @@ class NewsVideoProcessor:
         try:
             with open(self.config_file, 'r', encoding='utf-8') as file:
                 config = json.load(file)
-            self.send_progress(
-                "✅ *System Ready*\n\n"
-                "Configuration loaded successfully\n"
-                "_Starting process..._"
-            )
-            return config
         except json.JSONDecodeError:
             self.send_progress(
                 "❌ *Invalid Configuration*\n\n"
@@ -159,13 +154,33 @@ class NewsVideoProcessor:
                 "_Please check the JSON format._"
             )
             raise
-        except Exception as e:
-            self.send_progress(
-                "❌ *Configuration Error*\n\n"
-                f"Error: `{str(e)}`\n"
-                "_Check file permissions._"
+
+        missing = []
+        checks = {
+            CONFIG_SETTINGS: ['temp_dir'],
+            CONFIG_NEWSAPI: ['api_key'],
+            CONFIG_PEXELS: ['api_key'],
+            CONFIG_HUGGINGFACE: ['api_key'],
+            CONFIG_YOUTUBE: ['credentials_file'],
+            CONFIG_ARTICLE_SETTINGS: ['language', 'model'],
+        }
+        for section, keys in checks.items():
+            s = config.get(section, {})
+            for k in keys:
+                if not s.get(k):
+                    missing.append(f"{section}.{k}")
+        if missing:
+            raise ValueError(
+                f"Missing required configuration keys: {', '.join(missing)}. "
+                f"Check settings.json."
             )
-            raise
+
+        self.send_progress(
+            "✅ *System Ready*\n\n"
+            "Configuration loaded successfully\n"
+            "_Starting process..._"
+        )
+        return config
 
     @trace()
     def cleanup_temp_folder(self) -> None:
@@ -220,6 +235,8 @@ class NewsVideoProcessor:
         """
         clean_title = re.sub(r'[^a-zA-Z0-9_]', '', topic_title.replace(' ', '_'))
         clean_title = clean_title[:max_length]
+        if not clean_title:
+            clean_title = f"news_{uuid.uuid4().hex[:8]}"
         return f"{clean_title}.mp4"
 
     @trace()
@@ -259,7 +276,8 @@ class NewsVideoProcessor:
                     if result:
                         images.append(result)
                 except Exception as e:
-                    self.logger.warning("Error generating image: %s", e)
+                    phrase_snippet = future_map.get(future, '')[:50]
+                    self.logger.warning("Error generating image for phrase '%s': %s", phrase_snippet, e)
         return images[:max_items]
 
     def _generate_single_image(
@@ -449,7 +467,7 @@ class NewsVideoProcessor:
                     voiceover_file=audio_path,
                     output_file=output_file,
                     media_images=media_images,
-                    background_music=self.config[CONFIG_VIDEO_RESULT]['background_music'],
+                    background_music=self.config.get(CONFIG_VIDEO_RESULT, {}).get('background_music', ''),
                     aspect_ratio='9:16'
                 )
                 video_assembler.assemble_video(Style.DEFAULT, position=Position.BOTTOM_CENTER)
@@ -544,6 +562,8 @@ class NewsVideoProcessor:
                     self.cover_path = _thumbs[0]
                     ImageHelper.enhance_thumbnail(self.cover_path, 'NEWSPHERE', Position.TOP_LEFT, Style.THUMBNAIL_CARTOON)
                     ImageHelper.enhance_thumbnail(self.cover_path, cover_text or title, Position.BOTTOM_CENTER, Style.THUMBNAIL_INTENSA)
+                else:
+                    self.cover_path = None
 
                 self.send_progress(
                     "🎤 *Audio Production*\n\n"
@@ -591,7 +611,7 @@ class NewsVideoProcessor:
                     voiceover_file=audio_path,
                     output_file=output_file,
                     media_images=media_images,
-                    background_music=self.config[CONFIG_VIDEO_RESULT]['background_music'],
+                    background_music=self.config.get(CONFIG_VIDEO_RESULT, {}).get('background_music', ''),
                     aspect_ratio='16:9'
                 )
                 video_assembler.assemble_video(Style.FORMAL, position=Position.BOTTOM_CENTER)
@@ -655,6 +675,5 @@ class NewsVideoProcessor:
                 cover_text,
                 position,
                 enhancement_style,
-                font_size,
-                quality
+                text_size=font_size,
             )

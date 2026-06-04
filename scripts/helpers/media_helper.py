@@ -1,4 +1,5 @@
 import os
+import logging
 from enum import Enum
 from typing import Optional, Tuple, Dict, Any
 
@@ -17,6 +18,8 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from pydub import AudioSegment
 
+log = logging.getLogger(__name__)
+
 # Inicializa colorama para salida en consola coloreada
 init(autoreset=True)
 
@@ -31,7 +34,7 @@ FONT_PATHS = {
     "title_otf": r"Resources\Fonts\title.otf",
     "intensa": r"Resources\Fonts\Intensa.ttf",
     "cartoon": r"Resources\Fonts\Cartoon.ttf",
-    "arial_otf": r"Resources\Fonts\Arial.otf"
+    "arial_otf": r"C:\Windows\Fonts\Arial.ttf"
 }
 
 def _resolve_font_path(font_path: str) -> str:
@@ -290,6 +293,7 @@ class ImageHelper:
             image.save(image_path)
             print(Fore.GREEN + f"✅ Thumbnail updated: {image_path}")
         except Exception as e:
+            log.error("Error enhancing thumbnail %s: %s", image_path, e)
             print(Fore.RED + f"❌ Error enhancing thumbnail: {e}")
 
     @staticmethod
