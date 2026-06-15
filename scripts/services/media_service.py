@@ -21,7 +21,6 @@ class FluxMediaService(MediaGenerator):
                  azure_endpoint: str = "", azure_api_key: str = "", azure_model: str = "MAI-Image-2e"):
         self.logger = logging.getLogger(__name__)
         self.generator = FluxImageGenerator(
-            token=api_key,
             output_dir=output_dir,
             azure_endpoint=azure_endpoint or None,
             azure_api_key=azure_api_key or None,

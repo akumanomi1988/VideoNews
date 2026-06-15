@@ -1,11 +1,9 @@
-from time import sleep, time
+from time import sleep
 import uuid
 import base64
 from enum import Enum
-from huggingface_hub import InferenceClient
 import os
 from colorama import Fore, init
-import random
 import requests
 
 init(autoreset=True)
@@ -14,6 +12,7 @@ init(autoreset=True)
 class AspectRatio(Enum):
     LANDSCAPE = (1024, 768)
     PORTRAIT = (768, 1024)
+    SHORTS = (1080, 1920)
 
 
 class StylePreset(Enum):
@@ -46,9 +45,8 @@ from scripts.utils.rate_limiter import RateLimiter
 
 
 class FluxImageGenerator:
-    def __init__(self, token=None, output_dir="output_images", model="black-forest-labs/FLUX.1-schnell",
+    def __init__(self, output_dir="output_images", model="black-forest-labs/FLUX.1-schnell",
                  azure_endpoint=None, azure_api_key=None, azure_model="MAI-Image-2e"):
-        self.hf_client = InferenceClient(token=token) if token else None
         self.model = model
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
@@ -57,7 +55,6 @@ class FluxImageGenerator:
         self.azure_api_key = azure_api_key
         self.azure_model = azure_model
         self.azure_limiter = RateLimiter(max_calls=20, period=60.0)
-        self._hf_dead = self.hf_client is None
         self._azure_dead = not self.azure_endpoint or not self.azure_api_key
 
     @staticmethod
@@ -75,49 +72,21 @@ class FluxImageGenerator:
         width, height = aspect_ratio.value
         print(Fore.BLUE + f"Image prompt\t ::-> {final_prompt}")
 
-        for attempt in range(5):
-            if not self._hf_dead:
-                image_path = self._generate_with_huggingface(final_prompt, width, height)
-                if image_path:
-                    return image_path
-                print(Fore.YELLOW + "HF failed, marking as dead for this generation")
-                self._hf_dead = True
-
+        for attempt in range(3):
             if not self._azure_dead:
                 image_path = self._generate_with_azure(final_prompt, width, height)
                 if image_path:
                     return image_path
-                print(Fore.YELLOW + "Azure failed, marking as dead for this generation")
+                print(Fore.YELLOW + "Azure failed, marking as dead")
                 self._azure_dead = True
 
-            if self._hf_dead and self._azure_dead:
-                print(Fore.RED + "Both providers dead, skipping remaining attempts")
+            if self._azure_dead:
+                print(Fore.RED + "Azure dead, skipping remaining attempts")
                 break
-            if attempt < 4:
+            if attempt < 2:
                 sleep(5)
 
-        raise RuntimeError("All image generation attempts failed (HF + Azure)")
-
-    def _generate_with_huggingface(self, prompt, width, height):
-        if not self.hf_client:
-            return None
-
-        try:
-            image = self.hf_client.text_to_image(
-                prompt,
-                model=self.model,
-                height=height,
-                width=width,
-                seed=random.randint(0, 2**32 - 1)
-            )
-
-            output_path = os.path.join(self.output_dir, f"hf_{uuid.uuid4()}.png")
-            image.save(output_path)
-            print(Fore.GREEN + f"Hugging Face image saved to {output_path}")
-            return output_path
-        except Exception as e:
-            print(Fore.RED + f"Hugging Face Error: {str(e)}")
-            return None
+        raise RuntimeError("All image generation attempts failed (Azure)")
 
     def _generate_with_azure(self, prompt, width, height):
         if not self.azure_endpoint or not self.azure_api_key:

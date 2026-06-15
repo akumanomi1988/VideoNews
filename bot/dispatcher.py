@@ -16,6 +16,8 @@ command_handlers = [
     CommandHandler("headless", news_handler.headless),
     CommandHandler("url_shortnews", news_handler.url_short_news),
     CommandHandler("url_longnews", news_handler.url_long_news),
+    CommandHandler("text_shortnews", news_handler.text_shortnews),
+    CommandHandler("text_longnews", news_handler.text_longnews),
 ]
 
 callback_query_handlers = [
@@ -28,6 +30,10 @@ callback_query_handlers = [
         pattern=r"^(news_[0-9]+|cancel_news_selection)$",
     ),
     CallbackQueryHandler(
+        news_handler.style_selection_handler,
+        pattern=r"^(style_[A-Z_]+|cancel_style)$",
+    ),
+    CallbackQueryHandler(
         settings_handler.settings_category_selection_handler,
         pattern=r"^([a-zA-Z_]+|cancel_config)$",
     ),
@@ -38,6 +44,10 @@ callback_query_handlers = [
 ]
 
 message_handlers = [
+    MessageHandler(
+        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+        news_handler.handle_article_text,
+    ),
     MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
         settings_handler.handle_new_value,

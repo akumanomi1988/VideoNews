@@ -1,7 +1,7 @@
 from newsapi import NewsApiClient
 from colorama import Fore, init
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from .interfaces import NewsProvider
 from scripts.utils.app_logger import trace
 
@@ -16,6 +16,7 @@ class NewsAPIProvider(NewsProvider):
         self.api_key = api_key
         self.client = NewsApiClient(api_key=self.api_key)
         self.countries = ['es', 'us', 'gb', 'fr', 'ru']  # Países por defecto
+        self.default_days_back = 7  # Ventana por defecto para noticias recientes
     
     @trace()
     def get_latest_news(self, 
@@ -27,10 +28,11 @@ class NewsAPIProvider(NewsProvider):
         
         for country in self.countries:
             try:
-                print(Fore.CYAN + f"Fetching news from NewsAPI: {country}, {category}")
+                print(Fore.CYAN + f"Fetching news from NewsAPI: {country}, {category}, {language}")
                 top_headlines = self.client.get_top_headlines(
                     country=country,
                     category=category,
+                    language=language,
                     page_size=min(limit, 100)  # NewsAPI tiene un límite de 100
                 )
                 
@@ -54,10 +56,11 @@ class NewsAPIProvider(NewsProvider):
     ) -> List[Dict[str, Any]]:
         """Compatibility wrapper used by legacy callers."""
         try:
-            print(Fore.CYAN + f"Fetching headlines from NewsAPI: {country}, {category}")
+            print(Fore.CYAN + f"Fetching headlines from NewsAPI: {country}, {category}, {language}")
             top_headlines = self.client.get_top_headlines(
                 country=country,
                 category=category,
+                language=language,
                 page_size=min(page_size, 100)
             )
 
@@ -79,17 +82,19 @@ class NewsAPIProvider(NewsProvider):
                    limit: int = 20) -> List[Dict[str, Any]]:
         """Busca noticias específicas en NewsAPI"""
         try:
+            if start_date is None:
+                start_date = datetime.now() - timedelta(days=self.default_days_back)
+            if end_date is None:
+                end_date = datetime.now()
+
             params = {
                 'q': query,
                 'language': language,
-                'sortBy': 'relevancy',
-                'pageSize': min(limit, 100)
+                'sort_by': 'publishedAt',
+                'page_size': min(limit, 100),
+                'from_param': start_date.isoformat(),
+                'to': end_date.isoformat()
             }
-            
-            if start_date:
-                params['from'] = start_date.isoformat()
-            if end_date:
-                params['to'] = end_date.isoformat()
                 
             response = self.client.get_everything(**params)
             

@@ -20,7 +20,7 @@ class SRTProcessor:
         pattern = re.compile(r"(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n(.+)")
         subtitles = []
 
-        with open(self.input_file, "r") as file:
+        with open(self.input_file, "r", encoding="utf-8") as file:
             content = file.read()
 
         matches = pattern.findall(content)
@@ -86,7 +86,7 @@ class SRTProcessor:
 
     def write_srt(self, grouped_subtitles):
         """Sobrescribe el archivo SRT original con las frases agrupadas."""
-        with open(self.input_file, "w") as file:
+        with open(self.input_file, "w", encoding="utf-8") as file:
             index = 1
             for group in grouped_subtitles:
                 start_time = self.seconds_to_srt_time(group[0]["start"])

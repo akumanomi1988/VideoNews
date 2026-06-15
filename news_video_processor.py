@@ -8,7 +8,7 @@ import random
 import logging
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from colorama import Fore, init
 from telegram import Bot, CallbackQuery, Message
@@ -17,7 +17,7 @@ from scripts.AI.speech_to_text import stt_whisper
 from scripts.AI.text_to_speech import TTSFactory, TTSProvider
 from scripts.AI.text_to_image import FluxImageGenerator, AspectRatio, StylePreset
 from scripts.DataFetcher.pexels_media_fetcher import PexelsMediaFetcher
-from scripts.DataFetcher.news_api_client import NewsAPIClient
+from scripts.DataFetcher.serpapi_client import SerpAPIProvider
 from scripts.MediaManagers.SRT_Processor import SRTProcessor
 from scripts.video_assembler import VideoAssembler
 from scripts.helpers.media_helper import ImageHelper, Position, Style
@@ -30,7 +30,7 @@ init(autoreset=True)
 
 # Constants for configuration keys
 CONFIG_ARTICLE_SETTINGS = 'article_settings'
-CONFIG_NEWSAPI = 'newsapi'
+CONFIG_SERPAPI = 'serpapi'
 CONFIG_PEXELS = 'pexels'
 CONFIG_HUGGINGFACE = 'huggingface'
 CONFIG_YOUTUBE = 'youtube'
@@ -70,7 +70,13 @@ class NewsVideoProcessor:
         self.parallel_workers = self.config[CONFIG_SETTINGS].get('parallel_workers', 6)
         images_per_minute = self.config[CONFIG_SETTINGS].get('images_per_minute', 20)
         self._img_rate_limiter = RateLimiter(images_per_minute, 60.0) if images_per_minute and images_per_minute > 0 else None
-        self.news_client = NewsAPIClient(api_key=self.config[CONFIG_NEWSAPI]['api_key'])
+        serpapi_cfg = self.config[CONFIG_SERPAPI]
+        self.news_client = SerpAPIProvider(
+            api_key=serpapi_cfg['api_key'],
+            use_cache=serpapi_cfg.get('use_cache', True),
+            cache_ttl_hours=serpapi_cfg.get('cache_ttl_hours', 24),
+            cache_dir=serpapi_cfg.get('cache_dir', '.temp/cache/serpapi'),
+        )
         llm_providers = self.config.get("llm", {}).get("providers", [])
         self.article_generator = Chatbot(
             language=self.config[CONFIG_ARTICLE_SETTINGS]['language'],
@@ -85,7 +91,6 @@ class NewsVideoProcessor:
         self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
         azure_img = self.config.get("azure_images", {})
         self.image_generator = FluxImageGenerator(
-            token=self.config[CONFIG_HUGGINGFACE]['api_key'],
             output_dir=self.temp_dir,
             azure_endpoint=azure_img.get("endpoint"),
             azure_api_key=azure_img.get("api_key"),
@@ -158,7 +163,7 @@ class NewsVideoProcessor:
         missing = []
         checks = {
             CONFIG_SETTINGS: ['temp_dir'],
-            CONFIG_NEWSAPI: ['api_key'],
+            CONFIG_SERPAPI: ['api_key'],
             CONFIG_PEXELS: ['api_key'],
             CONFIG_HUGGINGFACE: ['api_key'],
             CONFIG_YOUTUBE: ['credentials_file'],
@@ -423,7 +428,14 @@ class NewsVideoProcessor:
                     continue
 
                 self._write_state("article_ready", title=title, phrases=len(phrases))
-                self._generate_and_enhance_thumbnail(cover_image, cover_text, StylePreset.REALISM, Position.BOTTOM_CENTER, Style.THUMBNAIL_BOLD)
+                self._generate_and_enhance_thumbnail(
+                    cover_image, cover_text,
+                    StylePreset.REALISM,
+                    Position.BOTTOM_CENTER,
+                    Style.THUMBNAIL_BOLD,
+                    orientation=AspectRatio.SHORTS,
+                    target_size=(1080, 1920),
+                )
 
                 self.send_progress(
                     "🎤 *Audio Generation*\n\n"
@@ -450,7 +462,11 @@ class NewsVideoProcessor:
                 )
 
                 self.image_generator.model = "black-forest-labs/FLUX.1-schnell"
-                random_style = self.get_random_style()
+                style_name = topic.get('style')
+                if style_name:
+                    random_style = StylePreset[style_name]
+                else:
+                    random_style = self.get_random_style()
                 media_images = self.fetch_related_media(phrases, random_style, len(phrases))
 
                 self._write_state("media_ready", image_count=len(media_images))
@@ -594,7 +610,11 @@ class NewsVideoProcessor:
                 )
 
                 self.image_generator.model = "black-forest-labs/FLUX.1-schnell"
-                random_style = self.get_random_style()
+                style_name = topic.get('style')
+                if style_name:
+                    random_style = StylePreset[style_name]
+                else:
+                    random_style = self.get_random_style()
                 media_images = self.fetch_related_media(phrases, random_style, len(phrases), orientation=AspectRatio.LANDSCAPE)
 
                 self._write_state("media_ready", image_count=len(media_images))
@@ -656,24 +676,30 @@ class NewsVideoProcessor:
         style: StylePreset,
         position: Position,
         enhancement_style: Style,
-        font_size: int = 2000,
+        font_size: int = 0,
         quality: int = 95,
-        orientation: AspectRatio = AspectRatio.PORTRAIT
+        orientation: AspectRatio = AspectRatio.PORTRAIT,
+        target_size: Optional[Tuple[int, int]] = None
     ) -> None:
         self.cover_path = None
+        prev_model = self.image_generator.model
         self.image_generator.model = "black-forest-labs/FLUX.1-dev"
-        images = self.fetch_related_media(
-            phrases=cover_image,
-            style=style,
-            max_items=1,
-            orientation=orientation
-        )
-        if images:
-            self.cover_path = images[0]
-            ImageHelper.enhance_thumbnail(
-                self.cover_path,
-                cover_text,
-                position,
-                enhancement_style,
-                text_size=font_size,
+        try:
+            images = self.fetch_related_media(
+                phrases=cover_image,
+                style=style,
+                max_items=1,
+                orientation=orientation
             )
+            if images:
+                self.cover_path = images[0]
+                ImageHelper.enhance_thumbnail(
+                    self.cover_path,
+                    cover_text,
+                    position,
+                    enhancement_style,
+                    text_size=font_size,
+                    target_size=target_size,
+                )
+        finally:
+            self.image_generator.model = prev_model

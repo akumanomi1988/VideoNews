@@ -11,7 +11,6 @@ from concurrent.futures import ThreadPoolExecutor, Future
 from dateutil import parser
 from fake_useragent import UserAgent
 from newspaper import Article
-from newsapi import NewsApiClient
 from requests.adapters import HTTPAdapter
 from tenacity import retry, stop_after_attempt, wait_exponential
 from textblob import TextBlob
@@ -20,7 +19,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import textstat
 
 from scripts.DataFetcher.news_mapper import parse_rss_to_standard_object
-from .news_api_client import NewsAPIProvider
+from .serpapi_client import SerpAPIProvider
 from .currents_api_client import CurrentsAPIProvider
 from .news_aggregator import NewsAggregator
 from scripts.utils.app_logger import trace
@@ -178,22 +177,33 @@ class NewsProcessor:
             return []
 
     def _process_newsapi(self) -> List[Dict[str, Any]]:
-        """Fetches and filters recent news from NewsAPI."""
+        """Fetches and filters recent news from SerpAPI (replaced NewsAPI)."""
         try:
-            newsapi_key = self._config.get('newsapi_key') or self._config.get('newsapi', {}).get('api_key', '')
-            newsapi_client = NewsAPIClient(newsapi_key)
-            print(Fore.CYAN + "Processing news from NewsAPI")
-            newsapi_news = newsapi_client.get_latest_headlines(
-                countries=DEFAULT_NEWSAPI_COUNTRIES,
-                category='technology',
-                page_size=20
-            )
-            return [
-                news for news in newsapi_news
-                if self._is_recent(news.get('publishedAt'))
-            ]
+            serpapi_key = self._config.get('serpapi_api_key') or self._config.get('serpapi', {}).get('api_key', '')
+            if not serpapi_key:
+                print(Fore.YELLOW + "SerpAPI key not configured, skipping.")
+                return []
+            serpapi_client = SerpAPIProvider(api_key=serpapi_key, use_cache=True)
+            print(Fore.CYAN + "Processing news from SerpAPI")
+            all_news = []
+            for lang in DEFAULT_CURRENTS_LANGUAGES:
+                try:
+                    news = serpapi_client.fetch_news(
+                        query='technology news',
+                        language=lang,
+                        limit=20,
+                        use_cache=True,
+                    )
+                    recent = [
+                        n for n in news
+                        if self._is_recent(n.get('publishedAt'))
+                    ]
+                    all_news.extend(recent)
+                except Exception as e:
+                    print(Fore.YELLOW + f"SerpAPI error for lang {lang}: {e}")
+            return all_news
         except Exception as e:
-            print(Fore.RED + f"Error processing NewsAPI: {e}")
+            print(Fore.RED + f"Error processing SerpAPI: {e}")
             return []
 
     def _process_currentsapi(self) -> List[Dict[str, Any]]:
@@ -480,34 +490,6 @@ class CurrentsClient:
             print(Fore.RED + f"Unexpected error in search_news: {e}")
             return []
 
-class NewsAPIClient:
-    """
-    Client for interacting with the NewsAPI.
-    """
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.client = NewsApiClient(api_key=self.api_key)
-
-    def get_latest_headlines(
-        self,
-        countries: List[str] = ['es'],
-        category: Optional[str] = None,
-        page_size: int = 20
-    ) -> List[Dict[str, Any]]:
-        """Fetches the latest headlines from NewsAPI for multiple countries."""
-        all_articles = []
-        for country in countries:
-            try:
-                print(Fore.CYAN + f"Fetching the latest headlines for country: {country}, category: {category}, page_size: {page_size}")
-                top_headlines = self.client.get_top_headlines(country=country, category=category, page_size=page_size)
-                if top_headlines.get('status') == 'ok':
-                    print(Fore.GREEN + "Headlines fetched successfully.")
-                    all_articles.extend(top_headlines['articles'])
-                else:
-                    print(Fore.YELLOW + f"Error fetching headlines: {top_headlines.get('message', 'Unknown error')}")
-            except Exception as e:
-                print(Fore.RED + f"An error occurred: {e}")
-        return all_articles
 def main():
     """Main entry point for running the news processor."""
     # Load configuration from config.json

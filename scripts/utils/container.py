@@ -78,6 +78,12 @@ class PipelineContainer(Container):
         huggingface = config.get("huggingface", {})
         normalized["flux_api_key"] = huggingface.get("api_key", "")
 
+        serpapi = config.get("serpapi", {})
+        normalized["serpapi_api_key"] = serpapi.get("api_key", "")
+        normalized["serpapi_use_cache"] = serpapi.get("use_cache", True)
+        normalized["serpapi_cache_ttl_hours"] = serpapi.get("cache_ttl_hours", 24)
+        normalized["serpapi_cache_dir"] = serpapi.get("cache_dir", ".temp/cache/serpapi")
+
         newsapi = config.get("newsapi", {})
         normalized["newsapi_api_key"] = newsapi.get("api_key", "")
 

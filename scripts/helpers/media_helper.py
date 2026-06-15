@@ -247,12 +247,20 @@ class ImageHelper:
         style: Style = Style.THUMBNAIL_BOLD,
         max_size_kb: int = 2000,
         reduction_percentage: int = 5,
-        text_size: int = 0
+        text_size: int = 0,
+        target_size: Optional[Tuple[int, int]] = None
     ) -> None:
         """
         Mejora una miniatura agregando texto en la posición y estilo seleccionados.
+        Si target_size se especifica, redimensiona la imagen a esas dimensiones
+        ANTES de aplicar el texto, asegurando que el texto quede correctamente
+        posicionado para el tamaño final de salida.
         """
         try:
+            image = Image.open(image_path)
+            if target_size:
+                image = image.resize(target_size, Image.Resampling.LANCZOS)
+                image.save(image_path)
             ImageHelper.reduce_image_size(image_path, max_size_kb, reduction_percentage)
             image = Image.open(image_path)
             draw = ImageDraw.Draw(image)

@@ -28,6 +28,7 @@ class VideoService:
         self,
         news_item_title: str,
         news_item_description: str,
+        style: Optional[str] = None,
         callback_query: Optional[CallbackQuery] = None,
         bot: Optional[Bot] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -47,6 +48,8 @@ class VideoService:
                 bot=bot,
             )
             news_data = {"title": news_item_title, "description": news_item_description}
+            if style:
+                news_data["style"] = style
             return processor.process_latest_news_in_short_format(news_data)
 
         try:
@@ -63,6 +66,7 @@ class VideoService:
         self,
         news_item_title: str,
         news_item_description: str,
+        style: Optional[str] = None,
         callback_query: Optional[CallbackQuery] = None,
         bot: Optional[Bot] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -82,6 +86,8 @@ class VideoService:
                 bot=bot,
             )
             news_data = {"title": news_item_title, "description": news_item_description}
+            if style:
+                news_data["style"] = style
             return processor.process_latest_news_in_long_format(news_data)
 
         try:

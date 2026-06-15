@@ -89,7 +89,6 @@ class YoutubeMediaUploader:
                 if clean and len(clean) >= 3 and clean not in seen and not clean.isdigit():
                     seen.add(clean)
                     sanitized.append(clean)
-            # YouTube total tag character limit is ~500
             total = 0
             final_tags = []
             for tag in sanitized:
@@ -100,40 +99,61 @@ class YoutubeMediaUploader:
                     total += len(tag) + 1
             sanitized = final_tags
             log.info(f"YouTube tags ({len(sanitized)}, {total}c): {sanitized[:5]}...")
-            full_description = f"{description}\n\n{self.channel_description}\n\n{' #'.join(sanitized)}\n\n#Shorts #news #breakingnews"
-            
-            self.safe_print(Fore.CYAN + f"Uploading Short with title: '{title[:60]}'...")
-            
-            media = MediaFileUpload(
+
+            tag_line = f"\n\n{' #'.join(sanitized)}" if sanitized else ""
+
+            desc_candidates = [
+                description,
+                re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', description),
+                re.sub(r'[^\x20-\x7E\n\r\t\s]', '', description),
+                f"{title[:200]}",
+            ]
+            desc_candidates = [d for d in desc_candidates if d]
+
+            for idx, desc in enumerate(desc_candidates):
+                full = f"{desc}\n\n{self.channel_description}{tag_line}"
+                full = re.sub(r'\n{3,}', '\n\n', full.strip())[:5000]
+                self.safe_print(Fore.CYAN + f"Uploading Short with title: '{title[:60]}'...")
+
+                media = MediaFileUpload(
                     video_path,
-                    chunksize=1024*1024*8,  # 8MB chunks
+                    chunksize=1024*1024*8,
                     resumable=True,
                     mimetype='video/mp4'
-            )
+                )
 
-            request = self.youtube.videos().insert(
-                part="snippet,status",
-                body={
-                    "snippet": {
-                        "title": title[:90],
-                        "description": full_description,
-                        "tags": sanitized,
-                        "categoryId": "25",
-                        "defaultLanguage": default_language,
-                        "defaultAudioLanguage": default_language,
+                request = self.youtube.videos().insert(
+                    part="snippet,status",
+                    body={
+                        "snippet": {
+                            "title": title[:90],
+                            "description": full,
+                            "tags": sanitized,
+                            "categoryId": "25",
+                            "defaultLanguage": default_language,
+                            "defaultAudioLanguage": default_language,
+                        },
+                        "status": {
+                            "privacyStatus": privacy_status,
+                            "selfDeclaredMadeForKids": False,
+                            "license": "youtube",
+                            "embeddable": True,
+                            "publicStatsViewable": True,
+                        }
                     },
-                    "status": {
-                        "privacyStatus": privacy_status,
-                        "selfDeclaredMadeForKids": False,
-                        "license": "youtube",
-                        "embeddable": True,
-                        "publicStatsViewable": True,
-                    }
-                },
-                media_body=media
-            )
-            
-            response = self.execute_request_with_retries(request)
+                    media_body=media
+                )
+
+                try:
+                    response = self.execute_request_with_retries(request)
+                    break
+                except HttpError as e:
+                    if e.resp.status == 400 and 'invalidDescription' in str(e):
+                        log.warning(f"Description attempt {idx+1} rejected, trying simpler version")
+                        continue
+                    raise
+            else:
+                raise RuntimeError("All description candidates rejected by YouTube API")
 
             if thumbnail_path:
                 self.set_thumbnail(response['id'], thumbnail_path)
@@ -158,7 +178,7 @@ class YoutubeMediaUploader:
                 raise ValueError(f"Título demasiado largo ({len(title)} caracteres). Máximo permitido: 100 caracteres")
             
             if len(description) > 5000:
-                raise ValueError(f"Descripción demasiado larga ({len(description)} caracteres). Máximo permitido: 5000 caracteres")
+                log.warning(f"Descripción larga ({len(description)} chars), se truncará en full_description")
             
             if not isinstance(tags, list):
                 raise ValueError(f"Los tags deben ser una lista. Tipo recibido: {type(tags)}")

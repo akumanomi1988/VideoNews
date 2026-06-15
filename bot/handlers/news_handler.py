@@ -16,9 +16,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, Callbac
 from telegram.ext import CallbackContext
 
 from bot.config import (
-    get_news_api_key,
-    # get_news_api_country, # NewsService will use its default or what's passed
-    get_news_api_page_size,
+    get_serpapi_api_key,
     get_tts_language
 )
 from bot.services.news_service import NewsService
@@ -52,10 +50,9 @@ logger = logging.getLogger(__name__)
 def get_news_service_instance() -> NewsService:
     """Helper to get a NewsService instance with current config."""
     logger.debug("Creating NewsService instance.")
-    api_key: Optional[str] = get_news_api_key()
+    api_key: Optional[str] = get_serpapi_api_key()
     tts_lang: str = get_tts_language()
-    page_size: int = get_news_api_page_size()
-    return NewsService(api_key=api_key, default_language=tts_lang, default_page_size=page_size)
+    return NewsService(api_key=api_key, default_language=tts_lang, default_page_size=10)
 
 @trace()
 def get_video_service_instance() -> VideoService:
@@ -115,7 +112,7 @@ async def news_category_selection_handler(update: Update, context: CallbackConte
 
     if not news_service.api_key: 
         logger.warning("News API key is not configured.")
-        await message_sender.send_message(update=update, text="News API key is not configured. Please set NEWS_API_KEY in the .env file. 🔑")
+        await message_sender.send_message(update=update, text="News API key is not configured. Please set SERPAPI_API_KEY in the .env file or check serpapi.api_key in settings.json. 🔑")
         return
 
     await message_sender.send_message(update=update, text=f"Fetching the latest news in category: {selected_category}... 📰")
@@ -263,23 +260,9 @@ async def short_news_topic(update: Update, context: CallbackContext) -> None:
     if context.args:
         headline: str = " ".join(context.args)
         logger.info(f"short_news_topic called with headline: {headline}")
-        await message_sender.send_message(update=update, text=f"Processing short news with headline: {headline}... 📰")
-        video_service = get_video_service_instance()
-        try:
-            response_data = await video_service.process_short_news(
-                news_item_title=headline,
-                news_item_description="",
-                bot=context.bot,
-            )
-            if response_data is None:
-                logger.warning(f"short_news_topic returned None for headline: {headline}")
-                await message_sender.send_message(update=update, text=f"⚠️ The news was processed but no video was generated. Check logs.")
-            else:
-                logger.info(f"Successfully processed short_news_topic for headline: {headline}")
-                await message_sender.send_message(update=update, text=f"News processing completed: {format_youtube_message(response_data)} ✅")
-        except Exception as e:
-            logger.error(f"Error processing short_news_topic for headline '{headline}': {e}", exc_info=True)
-            await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later.")
+        context.user_data['topic_headline'] = headline
+        context.user_data['topic_type'] = 'short'
+        await show_style_selection(update, context)
     else:
         logger.info("short_news_topic called without arguments.")
         await message_sender.send_message(update=update, text="Please provide a topic after the command. Usage: /topic_shortnews <your topic>")
@@ -290,26 +273,100 @@ async def long_news_topic(update: Update, context: CallbackContext) -> None:
     if context.args:
         headline: str = " ".join(context.args)
         logger.info(f"long_news_topic called with headline: {headline}")
-        await message_sender.send_message(update=update, text=f"Processing long news with headline: {headline}... ⏳")
-        video_service = get_video_service_instance()
-        try:
-            response_data = await video_service.process_long_news(
-                news_item_title=headline,
-                news_item_description="",
-                bot=context.bot,
-            )
-            if response_data is None:
-                logger.warning(f"long_news_topic returned None for headline: {headline}")
-                await message_sender.send_message(update=update, text=f"⚠️ The news was processed but no video was generated. Check logs.")
-            else:
-                logger.info(f"Successfully processed long_news_topic for headline: {headline}")
-                await message_sender.send_message(update=update, text=f"Long news processing completed: {format_youtube_message(response_data)} ✅")
-        except Exception as e:
-            logger.error(f"Error processing long_news_topic for headline '{headline}': {e}", exc_info=True)
-            await message_sender.send_message(update=update, text=f"Sorry, an error occurred while processing the news for '{headline}'. Please try again later.")
+        context.user_data['topic_headline'] = headline
+        context.user_data['topic_type'] = 'long'
+        await show_style_selection(update, context)
     else:
         logger.info("long_news_topic called without arguments.")
         await message_sender.send_message(update=update, text="Please provide a topic after the command. Usage: /topic_longnews <your topic>")
+
+@trace()
+async def show_style_selection(update: Update, context: CallbackContext) -> None:
+    from scripts.AI.text_to_image import StylePreset
+    message_sender = MessageSender(context=context)
+
+    presets = [s for s in StylePreset if s not in (StylePreset.NONE, StylePreset.YOUTUBE_THUMBNAIL)]
+    keyboard = []
+    row = []
+    for preset in presets:
+        name = preset.name.replace('_', ' ').title()
+        row.append(InlineKeyboardButton(name, callback_data=f"style_{preset.name}"))
+        if len(row) == 3:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([InlineKeyboardButton("Cancel 🛑", callback_data='cancel_style')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await message_sender.send_message(
+        update=update,
+        text="Choose an image style for the video:",
+        reply_markup=reply_markup
+    )
+
+@trace()
+async def style_selection_handler(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+
+    message_sender = MessageSender(context=context)
+
+    if query.data == 'cancel_style':
+        await message_sender.send_message(update=update, text="Style selection cancelled.")
+        context.user_data.pop('topic_headline', None)
+        context.user_data.pop('topic_type', None)
+        return
+
+    style_name = query.data.replace('style_', '')
+    context.user_data['style'] = style_name
+
+    headline = context.user_data.get('topic_headline', '')
+    article_text = context.user_data.get('article_text', '')
+    topic_type = context.user_data.get('topic_type', 'short')
+    video_title = article_text if article_text else headline
+
+    from scripts.AI.text_to_image import StylePreset
+    style_preset = StylePreset[style_name]
+    display_name = style_preset.name.replace('_', ' ').title()
+
+    await message_sender.send_message(
+        update=update,
+        text=f"Style selected: *{display_name}*. Processing {topic_type} video... 🎬"
+    )
+
+    video_service = get_video_service_instance()
+    try:
+        if topic_type == 'short':
+            response_data = await video_service.process_short_news(
+                news_item_title=video_title,
+                news_item_description="",
+                style=style_name,
+                bot=context.bot,
+            )
+        else:
+            response_data = await video_service.process_long_news(
+                news_item_title=video_title,
+                news_item_description="",
+                style=style_name,
+                bot=context.bot,
+            )
+
+        if response_data is None:
+            await message_sender.send_message(update=update, text="⚠️ The news was processed but no video was generated. Check logs.")
+        else:
+            await message_sender.send_message(update=update, text=f"Video completed: {format_youtube_message(response_data)} ✅")
+    except Exception as e:
+        logger.error(f"Error processing {topic_type} news: {e}", exc_info=True)
+        await message_sender.send_message(update=update, text=f"Sorry, an error occurred. Please try again later.")
+    finally:
+        context.user_data.pop('topic_headline', None)
+        context.user_data.pop('article_text', None)
+        context.user_data.pop('topic_type', None)
+        context.user_data.pop('style', None)
 
 @trace()
 async def long_news(update: Update, context: CallbackContext) -> None:
@@ -414,3 +471,61 @@ async def url_long_news(update: Update, context: CallbackContext) -> None:
     except Exception as e:
         logger.error(f"Error processing url_long_news for URL '{url}': {e}", exc_info=True)
         await message_sender.send_message(update=update, text=f"❌ Sorry, an error occurred while processing the URL. Please check logs.")
+
+@trace()
+async def text_shortnews(update: Update, context: CallbackContext) -> None:
+    """Handles /text_shortnews - full article text to short video"""
+    message_sender = MessageSender(context=context)
+    if context.args:
+        text = " ".join(context.args)
+        context.user_data['article_text'] = text
+        context.user_data['topic_type'] = 'short'
+        logger.info(f"text_shortnews called with inline text ({len(text)} chars)")
+        await show_style_selection(update, context)
+    else:
+        context.user_data['awaiting_article_text'] = 'short'
+        logger.info("text_shortnews called without text, prompting user")
+        await message_sender.send_message(
+            update=update,
+            text="Paste the article text you want to turn into a short video:"
+        )
+
+@trace()
+async def text_longnews(update: Update, context: CallbackContext) -> None:
+    """Handles /text_longnews - full article text to long video"""
+    message_sender = MessageSender(context=context)
+    if context.args:
+        text = " ".join(context.args)
+        context.user_data['article_text'] = text
+        context.user_data['topic_type'] = 'long'
+        logger.info(f"text_longnews called with inline text ({len(text)} chars)")
+        await show_style_selection(update, context)
+    else:
+        context.user_data['awaiting_article_text'] = 'long'
+        logger.info("text_longnews called without text, prompting user")
+        await message_sender.send_message(
+            update=update,
+            text="Paste the article text you want to turn into a long video:"
+        )
+
+@trace()
+async def handle_article_text(update: Update, context: CallbackContext) -> None:
+    """Handles pasted article text when user was prompted by /text_shortnews or /text_longnews"""
+    awaiting = context.user_data.get('awaiting_article_text')
+    if not awaiting:
+        return
+
+    text = update.message.text
+    if not text or len(text.strip()) < 20:
+        message_sender = MessageSender(context=context)
+        await message_sender.send_message(
+            update=update,
+            text="The text seems too short. Please paste a longer article text, or use /topic_shortnews for a headline."
+        )
+        return
+
+    context.user_data['article_text'] = text.strip()
+    context.user_data['topic_type'] = awaiting
+    context.user_data.pop('awaiting_article_text', None)
+    logger.info(f"handle_article_text: received {len(text)} chars for {awaiting} format")
+    await show_style_selection(update, context)

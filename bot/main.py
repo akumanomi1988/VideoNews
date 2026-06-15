@@ -28,7 +28,15 @@ def main() -> None:
         logger.error("Error: TELEGRAM_BOT_TOKEN is not set. Bot cannot start.")
         return
 
-    application = ApplicationBuilder().token(telegram_token).build()
+    application = (
+        ApplicationBuilder()
+        .token(telegram_token)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .pool_timeout(30)
+        .build()
+    )
 
     for handler in command_handlers:
         application.add_handler(handler)
@@ -42,7 +50,11 @@ def main() -> None:
     application.add_error_handler(error_handler)
 
     logger.info("Bot is starting...")
-    application.run_polling()
+    application.run_polling(
+        timeout=30,
+        poll_interval=1.0,
+        drop_pending_updates=True,
+    )
     logger.info("Bot has stopped.")
 
 if __name__ == '__main__':

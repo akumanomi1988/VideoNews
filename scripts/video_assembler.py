@@ -296,6 +296,8 @@ class VideoAssembler(VideoAssemblerInterface):
                 f"[{i}:v]zoompan=z='{zoom_expr}':"
                 f"d={fc}:fps={fps}:"
                 f"s={target_w}x{target_h},"
+                f"scale=w={target_w}:h={target_h}:force_original_aspect_ratio=1,"
+                f"pad=w={target_w}:h={target_h}:x=(ow-iw)/2:y=(oh-ih)/2:color=black,"
                 f"setpts=PTS-STARTPTS[s{i}]"
             )
             concat_labels.append(f"[s{i}]")
@@ -406,7 +408,6 @@ class VideoAssembler(VideoAssemblerInterface):
                 df.write(f"Command: {' '.join(cmd)}\n\n")
                 df.write(f"Filter complex:\n{';'.join(filters)}\n\n")
 
-            time.sleep(1)
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             with open(debug_log, 'a', encoding='utf-8') as df:
                 df.write(f"\nExit code: {result.returncode}\n")

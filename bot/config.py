@@ -1,4 +1,5 @@
 import os
+import json
 import logging # Added for logging
 from dotenv import load_dotenv
 
@@ -28,6 +29,28 @@ def get_news_api_page_size() -> int:
     except (ValueError, TypeError):
         logger.warning("Invalid NEWS_API_PAGE_SIZE: '%s', using default 10", val)
         return 10
+
+def get_serpapi_api_key() -> str | None:
+    key = os.getenv("SERPAPI_API_KEY")
+    if key:
+        return key
+    try:
+        with open('settings.json', 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+        return cfg.get('serpapi', {}).get('api_key')
+    except Exception:
+        return None
+
+def get_serpapi_use_cache() -> bool:
+    val = os.getenv("SERPAPI_USE_CACHE", "true")
+    return val.lower() in ("true", "1", "yes")
+
+def get_serpapi_cache_ttl_hours() -> int:
+    val = os.getenv("SERPAPI_CACHE_TTL_HOURS", "24")
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return 24
 
 def get_tts_language() -> str:
     """Retrieves the TTS language from environment variables, defaulting to 'en-US'."""

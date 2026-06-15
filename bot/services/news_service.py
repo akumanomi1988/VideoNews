@@ -4,13 +4,13 @@ Service layer for handling news-related operations.
 This module provides the `NewsService` class, which encapsulates the logic for
 fetching news articles from external APIs, managing a cache of these articles,
 and providing access to news categories and individual news items.
-It uses a news provider (e.g., `NewsAPIProvider`) for external communication.
+It uses a news provider (e.g., `SerpAPIProvider`) for external communication.
 """
 import time
 import logging 
 from typing import List, Dict, Any, Optional # For type hinting
 
-from scripts.DataFetcher.news_api_client import NewsAPIProvider # Assuming this path is correct
+from scripts.DataFetcher.serpapi_client import SerpAPIProvider
 from scripts.utils.app_logger import trace
 
 # Create a logger instance for this module
@@ -26,7 +26,7 @@ class NewsService:
         default_page_size (int): Default number of news items to fetch.
         news_cache (Dict[str, Any]): In-memory cache for news articles.
             Structure: {"timestamp": float, "news": List[Dict[str, Any]], "category": Optional[str]}
-        news_provider (NewsAPIProvider): Instance of the news provider client.
+        news_provider (SerpAPIProvider): Instance of the news provider client.
         CACHE_TIMEOUT (int): Static variable for cache expiration time in seconds.
     """
     CACHE_TIMEOUT: int = 300  # 5 minutes (300 seconds)
@@ -49,10 +49,7 @@ class NewsService:
         
         if not self.api_key:
             logger.warning("NewsService initialized without an API key. News fetching will not work.")
-        # NewsAPIProvider might raise an error if api_key is None.
-        # Depending on NewsAPIProvider's behavior, this might need a try-except or conditional instantiation.
-        # For now, assume NewsAPIProvider can handle api_key=None or it's checked before use.
-        self.news_provider: NewsAPIProvider = NewsAPIProvider(api_key=self.api_key) 
+        self.news_provider: SerpAPIProvider = SerpAPIProvider(api_key=self.api_key) 
         logger.debug(f"NewsService initialized with language '{default_language}' and page size {default_page_size}.")
 
     @trace()

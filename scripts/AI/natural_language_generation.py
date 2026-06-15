@@ -157,6 +157,26 @@ class Chatbot:
             "Every sentence should build tension or curiosity. "
             "Avoid bland or neutral statements — aim for opinions that spark debate."
         )
+        self.spanish_spain_rules = (
+            "IMPORTANTE: Escribe en español de España (no de Latinoamérica). "
+            "Usa vocabulario, expresiones y pronunciación propias de España. "
+            "Ejemplos: 'coche' (no 'carro'/'auto'), 'ordenador' (no 'computadora'), "
+            "'móvil' (no 'celular'), 'vale' (no 'ok'), 'tío/tía' (no 'wey/güey'), "
+            "'joder' (no 'carajo'), 'guay' (no 'chido/bacán'), "
+            "'echar un vistazo' (no 'dar un vistazo'). "
+            "Usa 'vosotros' para la segunda persona del plural. "
+            "La redacción debe sonar natural para un hablante nativo de España. "
+        )
+        self.cta_rules = (
+            "IMPORTANTE: Incluye obligatoriamente llamadas a la acción (CTA) naturales "
+            "a lo largo de la narración y sobre todo al final. Ejemplos de CTAs: "
+            "'Si te ha gustado, dale a like y suscríbete al canal para no perderte nada.' "
+            "'No olvides compartir este vídeo con tus amigos.' "
+            "'Activa la campanita para enterarte de todas las novedades.' "
+            "'Déjame en los comentarios qué opinas sobre este tema.' "
+            "'Suscríbete para más contenido como este.' "
+            "'Compártelo si crees que más gente debería saber esto.' "
+        )
 
     @trace()
     def generate_title(self, topic):
@@ -187,7 +207,7 @@ class Chatbot:
             'generate a response that must be a fully structured JSON object with the following format:\n'
             '{\n'
             '  "description": ""  // Write a brief, SEO-optimized video description in ' + self.language + ' that highlights key points while keeping the most intriguing details hidden.'
-                                    ' Use relevant keywords to enhance search visibility and create curiosity, enticing viewers to watch the video for the full story.'
+                                     ' Maximum 1000 characters. Use relevant keywords to enhance search visibility and create curiosity, enticing viewers to watch the video for the full story.'
             '}\n'
             f'{self.standard_rules}'
             f'Parameters:\n'
@@ -211,18 +231,27 @@ class Chatbot:
             '  "article": ""  // Write a fast-paced, news-bulletin style YouTube Shorts narration in ' + self.language + ' about the topic.\n'
             "}\n\n"
             "STRUCTURE (strict order):\n"
-            "1. HOOK (first 5 seconds — ~30-40 words): Open with a direct spoken hook addressing the viewer.\n"
+            "1. HOOK (first 5-8 seconds — ~40-50 words): Open with a direct spoken hook addressed to the viewer.\n"
             '   Examples: "¿Te has enterado de lo que ha pasado con...?" / "Pues resulta que..." / "Acabo de leer en [actual news source] que..."\n'
             f"   {source_line}\n"
             "   Mention specifically where you read/heard this to make it organic.\n"
-            "2. EXPLAIN (main body — ~40-60 words): Actually explain WHAT the news is about.\n"
-            "   Give key facts: what happened, who is involved, why it matters.\n"
-            "3. CLOSE (final ~15 words): Quick wrap-up with a provocative question or call to action.\n"
-            "   Examples: '¿Tú qué opinas?' / 'Esto apenas comienza...' / 'Te leo en los comentarios.'\n\n"
-            f"4. {self.hook_rules}\n"
-            f"5. {self.numbers_as_words}\n"
-            "6. The TOTAL article must be between 80 and 120 words — tight, fast, no filler.\n"
-            "7. Write conversationally, as if telling a friend something shocking you just read.\n"
+            "2. EXPLAIN (main body — ~70-100 words): Actually explain WHAT the news is about.\n"
+            "   Give key facts: what happened, who is involved, why it matters, contexto relevante.\n"
+            "   Desarrolla la noticia con detalles concretos, datos y fuentes.\n"
+            "3. CTA natural a mitad del vídeo — ~15-20 words): "
+            "Haz una pausa natural para pedir like o suscripción de forma orgánica.\n"
+            "   Ejemplo: 'Si te está gustando el vídeo, no te olvides de darle a like y suscribirte.'\n"
+            "4. CLOSE (final ~20-30 words): Cierre con resumen impactante y CTA final.\n"
+            "   Incluye: resumen provocador + llamado a la acción final.\n"
+            "   Ejemplos: 'Esto apenas comienza, así que ya sabes: like, suscríbete y comparte.' "
+            "/ 'Y tú, ¿qué opinas? Te leo en los comentarios.'\n\n"
+            f"5. {self.hook_rules}\n"
+            f"6. {self.numbers_as_words}\n"
+            f"7. {self.spanish_spain_rules}\n"
+            f"8. {self.cta_rules}\n"
+            "9. The TOTAL article must be between 180 and 250 words — desarrolla bien la noticia pero sin relleno.\n"
+            "10. Write conversationally, as if telling a friend something shocking you just read.\n"
+            "11. La narrativa debe tener ritmo: sube y baja la intensidad para mantener la atención.\n"
             f"Parameters:\n"
             f"- Language: [{self.language}]\n"
             f"- Topic: [{topic}]\n"
@@ -243,18 +272,32 @@ class Chatbot:
             "Generate a fully structured JSON object with the following format:\n"
             "{\n"
             '  "full_article": "",  // Write a detailed, in-depth news narration in ' + self.language + ' about the topic. Cover key details, background context, and implications.'
-            '  "short_summary": ""  // Write a brief 2-3 sentence summary of the key points.'
+            '  "short_summary": ""  // Write a brief 3-4 sentence summary of the key points.'
             "}\n\n"
             "Instructions:\n"
-            "1. The full article should be comprehensive and well-structured for a long-form video.\n"
-            "2. Include relevant facts, data, and context.\n"
-            "3. The short summary should capture the essence in 2-3 sentences.\n"
-            "4. Write in an engaging journalistic style with a provocative and controversial edge.\n"
-            f"5. {self.hook_rules}\n"
-            f"6. {self.numbers_as_words}\n"
+            "1. The full article must be comprehensive, well-structured, and suitable for a long-form video of 3-5 minutes.\n"
+            "2. STRUCTURE (strict order):\n"
+            "   a) INTRO HOOK (~60-80 words): Gancho inicial directo al espectador que enganche desde el primer segundo.\n"
+            "      Presenta el tema de forma provocadora y promete revelar información clave.\n"
+            "   b) CONTEXTO (~80-100 words): Explica los antecedentes necesarios para entender la noticia.\n"
+            "      Por qué está pasando, qué llevó a esta situación, quiénes son los actores principales.\n"
+            "   c) DESARROLLO (~150-200 words): El núcleo de la noticia con datos, cifras, declaraciones.\n"
+            "      Desglosa la información de forma clara pero impactante. Incluye detalles exclusivos.\n"
+            "   d) IMPLICACIONES (~60-80 words): Qué significa esto para el futuro, quién sale ganando y perdiendo.\n"
+            "   e) CIERRE + CTA (~40-50 words): Resumen provocador + llamado a la acción (like, suscríbete, comentario).\n"
+            "3. Incluye una CTA natural a mitad del vídeo y otra al final, obligatoriamente.\n"
+            "4. The total article should be between 500 and 700 words — desarrollo profundo pero dinámico.\n"
+            "5. Escribe con ritmo narrativo: alterna frases cortas impactantes con explicaciones más detalladas.\n"
+            "6. Incluye preguntas retóricas al espectador para mantener su atención.\n"
+            "7. La short_summary debe capturar la esencia en 3-4 frases impactantes.\n"
+            f"8. {self.hook_rules}\n"
+            f"9. {self.numbers_as_words}\n"
+            f"10. {self.spanish_spain_rules}\n"
+            f"11. {self.cta_rules}\n"
             f"Parameters:\n"
             f"- Language: [{self.language}]\n"
             f"- Topic: [{topic}]\n"
+            f"- Tone: periodístico, provocador, con ritmo narrativo.\n"
             f"{self.standard_rules}\n"
         )
         print(Fore.BLUE + 'Full article')
@@ -294,23 +337,30 @@ class Chatbot:
         Genera descripciones de imágenes basadas en un texto narrativo.
         
         Args:
-            text (str): Texto narrativo del que extraer las imágenes (cuento, noticia, biografía, etc.).
+            text (str): Texto narrativo del que extraer las imágenes (noticia, etc.).
             count (int): Número de descripciones de imágenes a generar.
             
         Returns:
             list: Lista de descripciones breves y concretas.
         """
         image_descriptions_prompt = (
-            'You are a visual storyteller. Based on the given narrative, extract the most relevant elements '
-            'such as people, locations, objects, and key moments. Generate a structured JSON object in the '
-            'following format:\n'
+            'You are a visual storyteller specializing in news content. Based on the given news narrative, '
+            'extract the most relevant visual elements directly related to the story. '
+            'Each description MUST be SPECIFICALLY tied to the actual news content — '
+            'people mentioned, locations described, events referenced, objects of relevance. '
+            'Generate a structured JSON object in the following format:\n'
             '{\n'
             '  "image_descriptions": ["", "", "..."]  // Generate ' + str(count) + ' image descriptions. '
-            'Each description should be concise, describing what is seen in the image as if it were a real photograph. '
-            'Focus on who or what appears, where they are, and what they are doing. Avoid unnecessary details or artistic interpretations.\n'
+            'Each description should be detailed and concrete, describing what is seen in the image as if it were a real photograph. '
+            'CRITICAL: Tie every description to specific elements from the news story. '
+            'Avoid generic phrases like "a person" — instead say "a Spanish businessman in a suit" or '
+            '"a scientist in a lab coat holding a vaccine vial" based on what the article says. '
+            'Include relevant settings from the story (e.g., "outside the European Parliament in Brussels", '
+            '"in an office in Madrid", "in the middle of a flooded street"). '
+            'Each description must be usable as a text-to-image prompt for AI image generation.\n'
             '}\n\n'
             'Parameters:\n'
-            '- Narrative text: """' + text + '"""'
+            '- News narrative text: """' + text + '"""'
         )
 
         print(Fore.BLUE + 'Generating image descriptions...')
@@ -320,15 +370,19 @@ class Chatbot:
     def generate_scene_descriptions(self, text, count=10):
         """Generate scene/visual descriptions from narrative text for media prompts."""
         prompt = (
-            'You are a visual director. Based on the narrative text, extract the most relevant visual scenes. '
+            'You are a visual director for news videos. Based on the news narrative text, '
+            'extract the most relevant visual scenes that are DIRECTLY related to the story. '
+            'Each scene must be SPECIFIC to the news content — not generic stock footage prompts. '
             'Generate a structured JSON object:\n'
             '{\n'
-            '  "scenes": ["", "", "..."]  // Generate ' + str(count) + ' concise visual scene descriptions '
+            '  "scenes": ["", "", "..."]  // Generate ' + str(count) + ' detailed visual scene descriptions '
             'suitable for searching stock video footage. Each description should be a concrete visual scene '
-            '(e.g., "a person typing on a laptop in a modern office", "sunset over a crowded city street").\n'
+            'tied to elements from the news story (e.g., if the story is about Amazon deforestation, '
+            'describe "aerial view of burning Amazon rainforest with smoke plumes rising" instead of '
+            'just "a forest"). Include specific people, locations, objects, and actions from the story.\n'
             '}\n\n'
             'Parameters:\n'
-            '- Narrative text: """' + text + '"""'
+            '- News narrative text: """' + text + '"""'
         )
         print(Fore.BLUE + 'Generating scene descriptions...')
         scenes_json = self._generate_json_element(prompt)
@@ -410,10 +464,14 @@ class Chatbot:
 
     def generate_cover_image(self, topic):
         cover_image_prompt = (
-            'Describe an image for a cover that includes all key elements in a single, cohesive description string:\n'
+            'Describe an image for a YouTube thumbnail cover that includes all key elements from the news '
+            'in a single, cohesive description string perfect for AI image generation:\n'
             '{\n'
-            '  "coverImage": "" // Describe in english, the scene for the cover image, combining elements such as the main person (a man or woman conveying emotions relevant to the news topic), '
-            'background setting related to the topic, and any additional details that evoke the intended emotions.\n'
+            '  "coverImage": "" // Describe in english, the scene for the cover image. CRITICAL: Include the main person '
+            '(a man or woman conveying emotions relevant to the news topic, with specific facial expression), '
+            'a background setting DIRECTLY related to the news topic, and visual elements that tell the story '
+            'at a glance. Make it dramatic, visually striking, and newsworthy. '
+            'Avoid generic backgrounds — tie it to the specific news location or context.\n'
             '}\n'
             f"{self.standard_rules}\n"
             f'Parameters:\n'
@@ -495,7 +553,7 @@ class Chatbot:
         Tries each LLM provider (Ollama -> Groq -> Azure) until one succeeds.
         """
         if not self.llm.available:
-            print(Fore.RED + "No LLM providers available.")
+            self.logger.error("No LLM providers available.")
             return None
 
         retries = 2
@@ -505,7 +563,7 @@ class Chatbot:
 
                 content = self._extract_json(response)
                 if content is None:
-                    print(Fore.RED + "No valid JSON object found in response")
+                    self.logger.warning("No valid JSON object found in response")
                     raise json.JSONDecodeError("No JSON object found", response, 0)
 
                 if clean:
@@ -515,20 +573,17 @@ class Chatbot:
 
             except (json.JSONDecodeError, ValueError) as e:
                 snippet = response[:200] if attempt < retries - 1 else ""
-                print(Fore.RED + f"JSON error (attempt {attempt + 1}/{retries}): {e}")
+                self.logger.warning("JSON error (attempt %d/%d): %s", attempt + 1, retries, e)
                 if snippet:
-                    print(Fore.YELLOW + f"Response: {snippet}...")
+                    self.logger.debug("Response: %s...", snippet)
 
             except Exception as e:
-                print(Fore.RED + f"LLM error (attempt {attempt + 1}/{retries}): {e}")
-
-            except Exception as e:
-                print(Fore.RED + f"LLM error (attempt {attempt + 1}/{retries}): {e}")
+                self.logger.error("LLM error (attempt %d/%d): %s", attempt + 1, retries, e)
 
             if attempt < retries - 1:
                 time.sleep(2)
 
-        print(Fore.RED + "Max retries reached. Could not generate valid JSON.")
+        self.logger.error("Max retries reached. Could not generate valid JSON.")
         return {}
 
     def clean_and_load_json(self, json_string: str):
