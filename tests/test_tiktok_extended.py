@@ -71,6 +71,8 @@ def test_new_oauth_token_file_is_not_world_readable(tmp_path):
     instance = tik.TiktokMediaUploader(token_file=str(file))
     instance.access_token = "secret"
     instance.save_tokens()
+    if os.name == "nt":
+        pytest.skip("NTFS permissions are ACL-based; POSIX mode bits are not reliable on Windows")
     assert file.stat().st_mode & 0o077 == 0
 
 def test_token_exchange_uses_only_expected_oauth_endpoint(uploader, monkeypatch):
