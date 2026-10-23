@@ -59,6 +59,31 @@ copy `settings.example.json`, but **do not put production API keys in JSON**.
 Environment variables take precedence for all sensitive provider keys. The
 Telegram settings editor only allows non-secret values.
 
+## Run diagnostics before any production job
+
+The CLI and Telegram share the same production engine. Before attempting an
+end-to-end job, validate installation, codecs and required environment variables:
+
+```sh
+python -m scripts.doctor --mode cli
+python -m scripts.doctor --mode telegram
+```
+
+Diagnostics never print API key values and do not call external APIs. They only
+confirm configuration and local executable availability, not service reachability.
+
+For direct command-line production (no Telegram credentials required):
+
+```sh
+python -m scripts.cli --title "A factual news headline" --format short
+python -m scripts.cli --url https://example.com/article --format long
+python -m scripts.cli --text-file article.txt --format short --style REALISM
+```
+
+Set `VIDEO_RENDER_RESOLUTION=360p` for quick video previews, `720p` for
+drafts or `1080p` (default) for full resolution. Both 9:16 and 16:9 formats
+preserve their aspect ratio.
+
 ## Run
 
 ```sh
@@ -128,7 +153,7 @@ to retain data and credentials between container restarts. Do not embed
 pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_url_safety.py tests/test_tiktok_uploader.py
 ```
 
-These are unit regression tests; they do **not** replace an end-to-end render
+Additional `test_offline_render_integration.py` uses the real engine and FFmpeg to render playable vertical and horizontal MP4s with deterministic provider fixtures. It is run in the GitHub pull request workflow. These tests still do **not** replace an end-to-end render
 against real news, LLM, media and publishing APIs.
 
 ## Security and operational notes
