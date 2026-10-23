@@ -155,8 +155,31 @@ class NewsVideoProcessor:
             self.send_progress(f"Video saved locally: {output_path}")
             return {"id": "local", "local_path": output_path, "snippet": {"title": title}}
 
+        platform = os.getenv("VIDEO_UPLOAD_PLATFORM", "youtube").lower()
+        if platform == "tiktok":
+            from scripts.Uploaders.tiktok_uploader import TiktokMediaUploader
+            upload = TiktokMediaUploader().upload_media(output_file)
+            return {
+                "id": upload["publish_id"],
+                "platform": "tiktok",
+                "publish_id": upload["publish_id"],
+                "status": upload["status"],
+                "snippet": {"title": title},
+            }
+        if platform != "youtube":
+            raise ValueError(f"Unsupported VIDEO_UPLOAD_PLATFORM: {platform}")
+
+        configured_path = self.config[CONFIG_YOUTUBE]["credentials_file"]
+        secrets_dir = os.path.join(os.getcwd(), ".secrets")
+        os.makedirs(secrets_dir, exist_ok=True)
+        if os.path.isfile(configured_path):
+            target_path = os.path.join(secrets_dir, "client_secret.json")
+            if os.path.abspath(configured_path) != os.path.abspath(target_path):
+                shutil.copy2(configured_path, target_path)
+        else:
+            raise FileNotFoundError("YouTube client secrets are missing")
         uploader = YoutubeMediaUploader(
-            client_secrets_file=self.config[CONFIG_YOUTUBE]["credentials_file"],
+            client_secrets_file="client_secret.json",
             channel_description="",
         )
         return uploader.upload(
