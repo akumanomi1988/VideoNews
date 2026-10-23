@@ -1,185 +1,167 @@
-# 📺 VideoNews 📰 - Telegram Bot Edition
+# VideoNews
 
-![Banner](https://img.shields.io/badge/Project%20Status-Active-green) ![Python Version](https://img.shields.io/badge/Python-3.10+-blue) ![License](https://img.shields.io/badge/License-MIT-lightgrey)
+A local-first, Python 3.11 news-to-video production engine controlled through Telegram.
+Create narrated, illustrated, subtitled vertical shorts and horizontal news videos
+from category feeds, headlines, article text, URLs or ranked viral news.
 
-</br>
-<a href="https://www.buymeacoffee.com/akumanomi"><img src="https://img.buymeacoffee.com/button-api/?text=Fuel my creativity! 💸&emoji=🍺&slug=akumanomi&button_colour=FF3737&font_colour=000000&font_family=Inter&outline_colour=000000&coffee_colour=FF3737" /></a>
+> Migration note: Telegram now uses **one rendering engine**
+> (`NewsVideoProcessor`) for every input type. The older
+> `scripts/pipeline.py` abstractions remain in the repository for
+> compatibility, but they are not invoked by Telegram.
 
-[🔗 Join the VideoNews Community on Telegram](https://t.me/VideoNewsCommunity)
+## Features
 
-## 🎯 Overview
+| Input | Telegram command | Output |
+| --- | --- | --- |
+| News categories | `/news_category` | Select a news item and generate a video |
+| Headline/topic | `/topic_shortnews`, `/topic_longnews` | 9:16 or 16:9 |
+| Full article | `/text_shortnews`, `/text_longnews` | 9:16 or 16:9 |
+| Public article URL | `/url_shortnews URL`, `/url_longnews URL` | 9:16 or 16:9 |
+| Viral discovery | `/headless [1-20]` | Scored stories; ignores published URLs |
+| Settings | `/settings`, `/show_settings` | Non-secret preferences only |
 
-VideoNews is an advanced automation framework that transforms news articles into engaging video content using a sophisticated multi-stage pipeline architecture. This version focuses on the Telegram bot interface for interacting with the VideoNews system. The bot allows users to fetch news, process it into videos, and manage configurations.
+Also includes optional visual styles, automatic thumbnail generation, narration,
+SRT subtitles, FFmpeg video assembly, local exports, YouTube uploads, TikTok
+creator inbox transfers, SQLite deduplication and a lightweight monitoring UI.
 
-Key improvements in this version include a structured logging system, enhanced error handling with unique error IDs, a service-oriented architecture for better maintainability, and utility commands for improved user experience.
+## Installation (recommended)
 
-## 📚 Documentation
+Requires **Python 3.11** and **FFmpeg** available in PATH. For some legacy text
+effects, ImageMagick may also be needed.
 
-Detailed documentation for the core VideoNews pipeline is available in the following sections:
-
-- [AI Components](docs/AI.md) - Natural language, speech, and image generation capabilities
-- [Database Architecture](docs/DATABASE.md) - Data models and storage systems
-- [API Integration](docs/API.md) - External service integrations
-- [Pipeline System](docs/PIPELINE.md) - Video processing pipeline architecture
-
-## ⚙️ Core Features (Bot Interface)
-
-- 🤖 **News Interaction**:
-  - Fetch news by category.
-  - Process news articles into short or long-form videos based on selected topics or user-provided headlines.
-- ⚙️ **Configuration Management (Legacy)**:
-  - Interface to view and modify settings stored in `settings.json` (Note: This is an older system; primary configuration is via `.env` file).
-- 🛠️ **Utility Commands**:
-  - `/help`: Displays available commands and their usage.
-  - Unknown command handling: Guides users when a command is not recognized.
-- 📝 **Enhanced Backend**:
-  - Structured logging for better traceability.
-  - Robust error handling with unique error IDs for support.
-  - Service-oriented architecture for improved code organization.
-  - Retry mechanisms for resilient communication with the Telegram API.
-
-## 🏗️ Project Structure (Bot)
-
-The main bot logic resides within the `bot/` directory:
-
-```
-VideoNews/
-├── bot/
-│   ├── __init__.py
-│   ├── main.py             # Main application runner for the bot
-│   ├── config.py           # Handles loading of environment variables
-│   ├── dispatcher.py       # Centralized registration of command/message handlers
-│   ├── handlers/           # Request handlers for different bot commands
-│   │   ├── __init__.py
-│   │   ├── news_handler.py
-│   │   ├── settings_handler.py
-│   │   └── utility_handler.py
-│   ├── services/           # Business logic (news fetching, video processing)
-│   │   ├── __init__.py
-│   │   ├── news_service.py
-│   │   ├── settings_service.py
-│   │   └── video_service.py
-│   ├── utils/              # Utility modules (e.g., message sending, retries)
-│   │   ├── __init__.py
-│   │   ├── message_sender.py
-│   │   └── retry_utils.py
-│   └── models/             # Data models (currently placeholder)
-│       └── __init__.py
-├── tests/                  # Pytest tests for the bot
-│   ├── __init__.py
-│   ├── conftest.py
-│   ├── handlers/
-│   ├── services/
-│   └── utils/
-├── .env.example            # Example environment variables file
-├── requirements.txt        # Python dependencies
-├── telegram_bot.py         # Main entry point for the bot application
-├── pipeline_config.json    # Configuration for the video processing pipeline
-├── settings.json           # Legacy settings file (managed by /settings command)
-└── ... (other project files and directories for the core pipeline)
+```sh
+git clone https://github.com/akumanomi1988/VideoNews.git
+cd VideoNews
+python -m venv .venv
+# Activate .venv for your platform.
+pip install -e ".[dev]"
+cp .env.example .env
 ```
 
-## 🛠️ Technical Requirements
+The example `.env` must be edited before using the bot:
 
-- Python 3.10+
-- FFmpeg (for core video processing pipeline)
-- Other dependencies as listed in `requirements.txt`
+- `TELEGRAM_BOT_TOKEN`: token issued by Telegram for your bot.
+- `TELEGRAM_ALLOWED_USER_IDS`: **mandatory** comma-separated numeric owner IDs.
+  The bot refuses to start without at least one authorized ID. This restriction
+  protects API quotas, configuration and video publishing.
+- `OLLAMA_URL` and `OLLAMA_MODEL`: default local LLM. Alternatively set
+  `GROQ_API_KEY` or Azure OpenAI credentials and disable Ollama with
+  `OLLAMA_ENABLED=false`.
+- `SERPAPI_API_KEY`: category and headless news discovery.
+- `PEXELS_API_KEY`: stock photos. Missing media falls back to a text card.
+- `TTS_VOICE`: default is `es-ES-ElviraNeural` via Edge TTS.
+- `MEDIA_SOURCE=pexels`: default. To generate with the optional Azure image
+  endpoint, configure `AZURE_IMAGE_ENDPOINT`, `AZURE_IMAGE_API_KEY` and set
+  `MEDIA_SOURCE=huggingface` (historical option name).
 
-## ⚙️ Configuration
+Optional JSON preferences can live in `settings.json`. For a clean template
+copy `settings.example.json`, but **do not put production API keys in JSON**.
+Environment variables take precedence for all sensitive provider keys. The
+Telegram settings editor only allows non-secret values.
 
-1.  **Environment Variables**:
-    Create a `.env` file in the root directory by copying from `.env.example`:
-    ```bash
-    cp .env.example .env
-    ```
-    Edit the `.env` file to include your actual API keys and tokens:
-    *   `TELEGRAM_BOT_TOKEN`: Your Telegram Bot token from BotFather.
-    *   `NEWS_API_KEY`: Your API key from NewsAPI.org (or your chosen news provider).
-    *   `NEWS_API_COUNTRY` (optional, default: `us`): Default country for news.
-    *   `NEWS_API_PAGE_SIZE` (optional, default: `10`): Default number of news articles to fetch.
-    *   `TTS_LANGUAGE` (optional, default: `en-US`): Default language for Text-to-Speech services.
-    *   Other API keys as required by the core VideoNews pipeline (e.g., ElevenLabs, Pexels) should also be managed here if they are integrated via environment variables in the services.
+## Run
 
-2.  **Pipeline Configuration (`pipeline_config.json`)**:
-    This file configures the stages and parameters of the video processing pipeline. Refer to the core VideoNews documentation for details.
-
-3.  **Legacy Settings (`settings.json`)**:
-    Some bot commands (`/settings`, `/show_settings`) interact with a `settings.json` file. This is an older configuration method. For primary bot operations like API keys, the `.env` file takes precedence. If `settings.json` does not exist, it might be created by `SettingsService` or need to be copied from `settings.example.json` if that exists for the core pipeline.
-
-## 📦 Installation
-
-1.  **Clone the Repository**:
-    ```bash
-    git clone https://github.com/akumanomi1988/VideoNews.git
-    cd VideoNews
-    ```
-
-2.  **Create and Activate Virtual Environment**:
-    It is highly recommended to use a virtual environment.
-    ```bash
-    python3 -m venv venv  # Ensure you use python3.10 or higher
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    ```
-
-3.  **Install Dependencies**:
-    Ensure your `pip` is updated, then install the required packages:
-    ```bash
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    ```
-    If you encounter issues, especially with `spacy` models, you might need to download them as per messages during installation (e.g., `python -m spacy download en_core_web_sm`).
-
-4.  **Set up Environment Variables**:
-    Copy `.env.example` to `.env` and fill in your API keys and tokens as described in the **Configuration** section.
-
-## 🚀 Running Locally
-
-To run the Telegram bot:
-
-```bash
+```sh
 python telegram_bot.py
 ```
-This script initializes and starts the bot using the main logic defined in `bot/main.py`.
 
-### Running with Docker (Optional)
+By default, `VIDEO_UPLOAD_ENABLED=false`. Videos are copied into `output/`
+so that generation can be validated without uploading publicly. All render
+jobs use unique directories below `.temp/jobs/`. Local output and per-job JSON
+metrics survive cleanup.
 
-You can also run the bot using Docker and Docker Compose.
+To publish to YouTube, provide OAuth client secrets at
+`.secrets/client_secret.json`, then configure:
 
-1.  Ensure you have Docker and Docker Compose installed.
-2.  Make sure you have a `.env` file created from `.env.example` in the project root, containing your API keys and bot token.
-3.  If your `NewsProcessor` (used by the `/headless` command) relies on `config.json` (which is `settings.example.json` copied in the Docker image), ensure `settings.example.json` is a valid configuration for it.
-4.  If you use `elevenlabsaccounts.payload.json`, ensure it's present in the root for `docker-compose.yml` to mount it.
-5.  Build and run the container:
-    ```bash
-    docker-compose up --build -d
-    ```
-    (The `-d` flag runs it in detached mode)
-6.  To view logs:
-    ```bash
-    docker-compose logs -f
-    ```
-7.  To stop the bot:
-    ```bash
-    docker-compose down
-    ```
+```dotenv
+VIDEO_UPLOAD_ENABLED=true
+VIDEO_UPLOAD_PLATFORM=youtube
+```
 
-## 🤝 Contributing
+The first YouTube authorization can require a local browser. Do not put OAuth
+token files in version control.
 
-Contributions are welcome! Please check our [Contributing Guidelines](CONTRIBUTING.md).
+For TikTok, set `VIDEO_UPLOAD_PLATFORM=tiktok` and configure a user-authorized
+`TIKTOK_ACCESS_TOKEN` with the `video.upload` scope. The v2 API sends the
+video to the creator's inbox; **the creator must finish publishing in TikTok**.
+A separate audited Direct Post integration and explicit user consent are
+required for direct publishing. Token refresh credentials can be provided with
+`TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET` and `TIKTOK_REFRESH_TOKEN`.
 
-## 📝 License
+### Voice providers
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+`TTS_PROVIDER=edge` is the supported low-cost default. Alternative choices
+`elevenlabs` and `bark` are available: ElevenLabs requires authorized
+credentials in a local JSON file configured by `ELEVENLABS_ACCOUNTS_FILE`;
+Bark requires the optional local AI dependencies:
 
-## 🙏 Acknowledgments
+```sh
+pip install -e ".[local-ai]"
+```
 
-- Thanks to the amazing AI and ML communities.
-- All our contributors and supporters.
-- Special thanks to our Telegram community members.
+The heavy extra also provides Whisper tools for offline transcription. For
+ElevenLabs/Bark, subtitle boundaries are currently **estimated proportionally
+from final audio duration**; Edge provides timing events. Check alignment before
+publishing videos using alternate providers.
 
----
+### Dashboard
 
-## Star History ⭐
+```sh
+python scripts/run_dashboard.py
+```
 
-[![Star History Chart](https://api.star-history.com/svg?repos=akumanomi1988/VideoNews&type=Date)](https://www.star-history.com/#akumanomi1988/VideoNews&Date)
----
+Visit http://localhost:5000. The Flask monitor reads per-job records from
+`metrics/`. Keep the dashboard bound to localhost unless adding authentication
+and TLS.
+
+### Docker
+
+The Dockerfile uses Python 3.11 and installs the normal (lighter) dependencies.
+Build it with `docker build -t videonews .` and pass `.env` through
+`--env-file`. Bind-mount `output/`, `metrics/`, `.temp/` and `.secrets/`
+to retain data and credentials between container restarts. Do not embed
+`.env` or credentials inside an image.
+
+## Tests
+
+```sh
+pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_url_safety.py tests/test_tiktok_uploader.py
+```
+
+These are unit regression tests; they do **not** replace an end-to-end render
+against real news, LLM, media and publishing APIs.
+
+## Security and operational notes
+
+1. **Rotate any NewsAPI/Pexels keys previously committed in
+   `pipeline_config.json`**. The active file is now sanitized but the keys
+   remain in Git history; removing the file value does not revoke them.
+2. Telegram is private by default and configured users can make potentially
+   costly API calls. Do not expose the bot without quota enforcement.
+3. Article URLs must point to public HTTP(S) targets. Extraction verifies
+   redirects, response type and byte size. For high-trust multi-tenant services,
+   enforce outbound egress restrictions against DNS rebinding at network level.
+4. Generated claims require fact checking and source attribution. Editorial
+   stance and tone are configurable through `NEWS_EDITORIAL_IDEOLOGY` and
+   `NEWS_EDITORIAL_TONE`; defaults are factual and neutral.
+5. Publishing is **opt-in** and integrations are unverified until exercised
+   against authorized accounts. Bot jobs are serialized in-process to avoid
+   accidental overlapping workloads; distributed worker scaling would require
+   a persistent queue.
+
+## Architecture
+
+```text
+Telegram commands / callbacks
+  -> VideoService + authorization
+    -> NewsExtractor (URL inputs) / category & viral fetchers
+    -> NewsVideoProcessor (single active renderer)
+      -> Chatbot (Ollama/Groq/Azure)
+      -> Pexels/Azure media selection
+      -> Edge/ElevenLabs/Bark TTS
+      -> SRT + FFmpeg composer
+      -> Local output / YouTube / TikTok inbox
+    -> SQLite processed URL tracking + per-job metrics
+```
+
+License: MIT.
