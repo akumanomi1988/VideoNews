@@ -1,6 +1,7 @@
 import json
 import logging
 import spacy
+from functools import lru_cache
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
@@ -21,7 +22,6 @@ import textstat
 from scripts.DataFetcher.news_mapper import parse_rss_to_standard_object
 from .serpapi_client import SerpAPIProvider
 from .currents_api_client import CurrentsAPIProvider
-from .news_aggregator import NewsAggregator
 from scripts.utils.app_logger import trace
 
 # --- Constants ---
@@ -39,17 +39,16 @@ PUB_DATE_FIELDS = ['pub_date', 'pubDate', 'published', 'updated', 'dc:date', 'la
 init(autoreset=True)
 
 # --- Load spaCy model ---
+@lru_cache(maxsize=1)
 def load_spacy_model(model_name: str = "es_core_news_sm"):
-    """Load or download the specified spaCy model."""
+    """Load spaCy lazily. Never download models implicitly in production."""
     try:
         return spacy.load(model_name)
     except OSError:
-        print(Fore.RED + f"Model {model_name} not found. Downloading...")
-        from spacy.cli import download as _spacy_download
-        _spacy_download(model_name)
-        return spacy.load(model_name)
-
-nlp = load_spacy_model()
+        logging.getLogger(__name__).warning(
+            "spaCy model %s missing; using built-in Spanish tokenization", model_name
+        )
+        return spacy.blank("es")
 
 class NewsProcessor:
     """
@@ -348,7 +347,7 @@ class NewsProcessor:
 
     def _analyze_keywords(self, text: str, keywords: List[str]) -> int:
         """Counts the number of keywords present in the text."""
-        doc = nlp(text)
+        doc = load_spacy_model()(text)
         return sum(1 for token in doc if token.text.lower() in keywords)
 
     def _analyze_title_emotion(self, title: str) -> float:
