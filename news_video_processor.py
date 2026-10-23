@@ -107,6 +107,7 @@ class NewsVideoProcessor:
         self.logger = logging.getLogger(__name__)
         self.job_id = uuid.uuid4().hex
         self.job_started_at = time.time()
+        self.on_publish_start = None  # Optional durable upload checkpoint.
         self.video_files: List[str] = []
         self.cover_path: Optional[str] = None
 
@@ -201,6 +202,8 @@ class NewsVideoProcessor:
     def _publish(self, output_file: str, title: str, description: str,
                  tags: List[str]) -> Dict[str, Any]:
         """Explicit publishing switch: local video by default, YouTube on demand."""
+        if not os.path.isfile(output_file) or os.path.getsize(output_file) == 0:
+            raise ValueError("Cannot publish a missing or empty rendered video")
         enabled = os.getenv("VIDEO_UPLOAD_ENABLED", "false").strip().lower() in ("true", "1", "yes")
         if not enabled:
             output_dir = os.getenv("VIDEO_OUTPUT_DIR", "output")
@@ -218,7 +221,10 @@ class NewsVideoProcessor:
         platform = os.getenv("VIDEO_UPLOAD_PLATFORM", "youtube").lower()
         if platform == "tiktok":
             from scripts.Uploaders.tiktok_uploader import TiktokMediaUploader
-            upload = TiktokMediaUploader().upload_media(output_file)
+            uploader = TiktokMediaUploader()
+            if callable(self.on_publish_start):
+                self.on_publish_start()
+            upload = uploader.upload_media(output_file)
             return {
                 "id": upload["publish_id"],
                 "platform": "tiktok",
@@ -242,12 +248,18 @@ class NewsVideoProcessor:
             client_secrets_file="client_secret.json",
             channel_description="",
         )
+        privacy = os.getenv("VIDEO_YOUTUBE_PRIVACY", "private").lower()
+        if privacy not in ("private", "unlisted", "public"):
+            raise ValueError("VIDEO_YOUTUBE_PRIVACY must be private, unlisted or public")
+        if callable(self.on_publish_start):
+            self.on_publish_start()
         return uploader.upload(
             output_file,
             title=title[:80],
             thumbnail_path=self.cover_path,
             description=description,
             tags=tags,
+            privacy_status=privacy,
         )
 
     @trace()
@@ -559,20 +571,12 @@ class NewsVideoProcessor:
 
                 self._write_state("video_ready", output_file=output_file)
 
-                self.send_progress(
-                    "📤 *YouTube Upload*\n\n"
-                    f"Title: `{title[:50]}...`\n"
-                    "_Uploading to your channel..._"
-                )
+                self.send_progress("Saving locally or transferring the video to the configured platform...")
 
                 description += '\n' + topic['title']
                 youtube_response = self._publish(output_file, title, description, tags)
 
-                self.send_progress(
-                    "✨ *Process Complete*\n\n"
-                    "Video production finished.\n"
-                    "_Check your YouTube channel._"
-                )
+                self.send_progress("Video production completed.")
 
                 self._write_state("complete")
                 self.cleanup_temp_folder()
@@ -705,11 +709,7 @@ class NewsVideoProcessor:
                 description += '\n' + topic['title']
                 youtube_response = self._publish(output_file, title, description, tags)
 
-                self.send_progress(
-                    "🌟 *Upload Complete*\n\n"
-                    "Long-form video production finished.\n"
-                    "_Your content is now live._"
-                )
+                self.send_progress("Long-form video production completed.")
 
                 self._write_state("complete")
                 self.cleanup_temp_folder()
