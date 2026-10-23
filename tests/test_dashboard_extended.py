@@ -28,7 +28,8 @@ def test_dashboard_index_renders_valid_html(client):
     web, folder = client
     response = web.get("/")
     assert response.status_code == 200
-    assert b"Pipeline Dashboard" in response.data
+    assert b"VideoNews" in response.data
+    assert b"/api/metrics/summary" in response.data
 
 def test_empty_summary_contains_zeroes(client):
     web, folder = client
