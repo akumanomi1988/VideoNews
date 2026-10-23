@@ -32,3 +32,21 @@ jobs:
       - name: Run unit and genuine offline FFmpeg integration tests
         run: |
           python -m pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_url_safety.py tests/test_tiktok_uploader.py tests/test_offline_render_integration.py
+
+  install-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install all default application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+      - name: Import the actual application and invoke CLI help
+        run: |
+          python -c "import bot.main; import news_video_processor; import scripts.cli; print('Production Python imports: OK')"
+          python -m scripts.cli --help
