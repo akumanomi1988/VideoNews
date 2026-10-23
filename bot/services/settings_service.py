@@ -44,8 +44,9 @@ class SettingsService:
         """
         logger.debug(f"Attempting to load settings from {SettingsService.SETTINGS_FILE}")
         if not os.path.exists(SettingsService.SETTINGS_FILE):
-            logger.warning(f"Configuration file '{SettingsService.SETTINGS_FILE}' not found. Returning empty settings.")
-            return {}
+            logger.info("No settings.json found; using editable non-secret defaults.")
+            from scripts.runtime_config import DEFAULTS
+            return json.loads(json.dumps(DEFAULTS))
         try:
             with open(SettingsService.SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 settings: Dict[str, Any] = json.load(f)
