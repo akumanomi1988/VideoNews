@@ -656,6 +656,7 @@ class Chatbot:
         folder_path = '.temp'
         file_path = os.path.join(folder_path, f'{file_guid}.json')
 
+        scene_count = max(1, min(12, int(os.getenv('VIDEO_SHORT_SCENES', '8'))))
         article = self.generate_short_article(topic_title, source=topic_source)
 
         # Parallelize independent LLM calls
@@ -664,7 +665,7 @@ class Chatbot:
             future_map = {
                 executor.submit(self.generate_title, article): 'title',
                 executor.submit(self.generate_description, article): 'description',
-                executor.submit(self.generate_image_descriptions, article, 20): 'image_descriptions',
+                executor.submit(self.generate_image_descriptions, article, scene_count): 'image_descriptions',
                 executor.submit(self.generate_tags, article): 'tags',
                 executor.submit(self.generate_cover, article): 'cover',
                 executor.submit(self.generate_cover_image, article): 'cover_image',
@@ -685,7 +686,7 @@ class Chatbot:
         cover_image = results.get('cover_image', '')
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(20, len(image_descriptions)))
+        short_phrases = image_descriptions[:scene_count]
 
         print(Fore.GREEN + "Article and phrases generated successfully.")
 
@@ -724,6 +725,7 @@ class Chatbot:
         folder_path = '.temp'
         file_path = os.path.join(folder_path, f'{file_guid}.json')
 
+        scene_count = max(1, min(48, int(os.getenv('VIDEO_LONG_SCENES', '18'))))
         article, short = self.generate_full_article(topic)
 
         # Parallelize independent LLM calls
@@ -732,7 +734,7 @@ class Chatbot:
             future_map = {
                 executor.submit(self.generate_title, short): 'title',
                 executor.submit(self.generate_description, short): 'description',
-                executor.submit(self.generate_image_descriptions, short, 40): 'image_descriptions',
+                executor.submit(self.generate_image_descriptions, short, scene_count): 'image_descriptions',
                 executor.submit(self.generate_tags, short): 'tags',
                 executor.submit(self.generate_cover, short): 'cover',
                 executor.submit(self.generate_cover_image, short): 'cover_image',
@@ -753,7 +755,7 @@ class Chatbot:
         cover_image = results.get('cover_image', '')
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(40, len(image_descriptions)))
+        short_phrases = image_descriptions[:scene_count]
 
         print(Fore.GREEN + "Long article and phrases generated successfully.")
 
