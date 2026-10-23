@@ -10,7 +10,7 @@ def isolated_settings(tmp_path, monkeypatch):
         "SERPAPI_API_KEY", "PEXELS_API_KEY", "NEWS_API_KEY", "CURRENTS_API_KEY",
         "GROQ_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
         "OLLAMA_MODEL", "VIDEO_TEMP_DIR", "MEDIA_SOURCE", "TTS_VOICE",
-        "OLLAMA_ENABLED", "SERPAPI_USE_CACHE", "SERPAPI_CACHE_TTL_HOURS"
+        "OLLAMA_ENABLED", "YOUTUBE_CLIENT_SECRETS_FILE", "SERPAPI_USE_CACHE", "SERPAPI_CACHE_TTL_HOURS"
     ):
         monkeypatch.delenv(key, raising=False)
 
