@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from colorama import Fore, init
 from telegram import Bot, CallbackQuery, Message
 from scripts.AI.natural_language_generation import Chatbot
-from scripts.AI.speech_to_text import stt_whisper
 from scripts.AI.text_to_speech import TTSFactory, TTSProvider
 from scripts.AI.text_to_image import FluxImageGenerator, AspectRatio, StylePreset
 from scripts.DataFetcher.pexels_media_fetcher import PexelsMediaFetcher
@@ -24,6 +23,7 @@ from scripts.helpers.media_helper import ImageHelper, Position, Style
 from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
 from scripts.utils.app_logger import trace
 from scripts.utils.rate_limiter import RateLimiter
+from scripts.runtime_config import load_runtime_config
 
 # Initialize Colorama
 init(autoreset=True)
@@ -87,8 +87,16 @@ class NewsVideoProcessor:
             api_key=self.config[CONFIG_PEXELS]['api_key'],
             temp_dir=self.temp_dir
         )
-        self.stt = stt_whisper()
-        self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
+        self.tts_provider = TTSProvider(os.getenv("TTS_PROVIDER", "edge").lower())
+        if self.tts_provider == TTSProvider.ELEVENLABS:
+            credentials = os.getenv("ELEVENLABS_ACCOUNTS_FILE", "elevenlabsaccounts.payload.json")
+            self.tts = TTSFactory(TTSProvider.ELEVENLABS, credentials_path=credentials,
+                                  quota_min=int(os.getenv("ELEVENLABS_MIN_QUOTA", "100")))
+        elif self.tts_provider == TTSProvider.BARK:
+            self.tts = TTSFactory(TTSProvider.BARK, output_dir=self.temp_dir,
+                                  optimize_for_low_vram=os.getenv("BARK_LOW_VRAM", "false").lower() == "true")
+        else:
+            self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
         azure_img = self.config.get("azure_images", {})
         self.image_generator = FluxImageGenerator(
             output_dir=self.temp_dir,
@@ -96,11 +104,10 @@ class NewsVideoProcessor:
             azure_api_key=azure_img.get("api_key"),
             azure_model=azure_img.get("model", "MAI-Image-2e"),
         )
-        self.youtube_uploader = YoutubeMediaUploader(
-            client_secrets_file=self.config[CONFIG_YOUTUBE]['credentials_file'],
-            channel_description=""
-        )
         self.logger = logging.getLogger(__name__)
+        self.job_id = uuid.uuid4().hex
+        self.job_started_at = time.time()
+        self.on_publish_start = None  # Optional durable upload checkpoint.
         self.video_files: List[str] = []
         self.cover_path: Optional[str] = None
 
@@ -135,57 +142,125 @@ class NewsVideoProcessor:
 
     @trace()
     def _load_configuration(self) -> Dict[str, Any]:
-        """
-        Load the configuration from the specified JSON file.
-
-        Returns:
-            dict: Loaded configuration.
-        """
-        if not os.path.exists(self.config_file):
-            self.send_progress(
-                "⚠️ *Configuration Error*\n\n"
-                "Configuration file not found.\n"
-                "_Please use the configuration editor._"
-            )
-            raise FileNotFoundError("Configuration file not found.")
-
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as file:
-                config = json.load(file)
-        except json.JSONDecodeError:
-            self.send_progress(
-                "❌ *Invalid Configuration*\n\n"
-                "The configuration file is corrupted.\n"
-                "_Please check the JSON format._"
-            )
-            raise
-
-        missing = []
-        checks = {
-            CONFIG_SETTINGS: ['temp_dir'],
-            CONFIG_SERPAPI: ['api_key'],
-            CONFIG_PEXELS: ['api_key'],
-            CONFIG_HUGGINGFACE: ['api_key'],
-            CONFIG_YOUTUBE: ['credentials_file'],
-            CONFIG_ARTICLE_SETTINGS: ['language', 'model'],
-        }
-        for section, keys in checks.items():
-            s = config.get(section, {})
-            for k in keys:
-                if not s.get(k):
-                    missing.append(f"{section}.{k}")
-        if missing:
-            raise ValueError(
-                f"Missing required configuration keys: {', '.join(missing)}. "
-                f"Check settings.json."
-            )
-
-        self.send_progress(
-            "✅ *System Ready*\n\n"
-            "Configuration loaded successfully\n"
-            "_Starting process..._"
+        """Load one canonical configuration and isolate each rendering job."""
+        config = load_runtime_config(self.config_file)
+        base_dir = config[CONFIG_SETTINGS].get("temp_dir", ".temp")
+        config[CONFIG_SETTINGS]["temp_dir"] = os.path.join(
+            base_dir, "jobs", uuid.uuid4().hex
         )
         return config
+
+    def _synthesize(self, text: str, *, word_boundaries: bool = False) -> str:
+        """Generate narration and an SRT file for any configured TTS provider."""
+        options = self.config[CONFIG_TTS_EDGE]
+        subtitle_path = os.path.join(self.temp_dir, "subtitles.srt")
+        language = options.get("language", "es")
+        if self.tts_provider == TTSProvider.EDGE:
+            return self.tts.text_to_speech_file(
+                text,
+                voice=options["voice"],
+                language=language,
+                srt_path=subtitle_path,
+                rate=options.get("speech_rate_adjustment", 0),
+                pitch=options.get("pitch_adjustment", 0),
+                boundary_type="WordBoundary" if word_boundaries else "SentenceBoundary",
+            )
+        if self.tts_provider == TTSProvider.ELEVENLABS:
+            audio_path = self.tts.text_to_speech_file(text, output_dir=self.temp_dir)
+        else:
+            audio_path = self.tts.text_to_speech_file(
+                text, language=language,
+                voice=os.getenv("BARK_VOICE", "v2/es_speaker_3"),
+            )
+        self._write_estimated_srt(text, audio_path, subtitle_path)
+        return audio_path
+
+    @staticmethod
+    def _write_estimated_srt(text: str, audio_path: str, subtitle_path: str) -> None:
+        """Duration-weighted fallback for providers without word-boundary events."""
+        from pydub import AudioSegment
+        duration = len(AudioSegment.from_file(audio_path)) / 1000.0
+        words = text.split()
+        if not words or duration <= 0:
+            raise ValueError("Cannot create subtitles for empty narration")
+        def timestamp(seconds: float) -> str:
+            milliseconds = round(seconds * 1000)
+            h, rem = divmod(milliseconds, 3600000)
+            m, rem = divmod(rem, 60000)
+            sec, ms = divmod(rem, 1000)
+            return f"{h:02}:{m:02}:{sec:02},{ms:03}"
+        with open(subtitle_path, "w", encoding="utf-8") as out:
+            for start in range(0, len(words), 8):
+                end = min(start + 8, len(words))
+                out.write(
+                    f"{start // 8 + 1}\n"
+                    f"{timestamp(duration * start / len(words))} --> "
+                    f"{timestamp(duration * end / len(words))}\n"
+                    f"{' '.join(words[start:end])}\n\n"
+                )
+
+    def _publish(self, output_file: str, title: str, description: str,
+                 tags: List[str]) -> Dict[str, Any]:
+        """Explicit publishing switch: local video by default, YouTube on demand."""
+        if not os.path.isfile(output_file) or os.path.getsize(output_file) == 0:
+            raise ValueError("Cannot publish a missing or empty rendered video")
+        enabled = os.getenv("VIDEO_UPLOAD_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+        if not enabled:
+            output_dir = os.getenv("VIDEO_OUTPUT_DIR", "output")
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(
+                output_dir, f"{uuid.uuid4().hex[:8]}_{os.path.basename(output_file)}"
+            )
+            shutil.copy2(output_file, output_path)
+            if self.cover_path and os.path.isfile(self.cover_path):
+                cover_path = os.path.splitext(output_path)[0] + "_cover.png"
+                shutil.copy2(self.cover_path, cover_path)
+            self.send_progress(f"Video saved locally: {output_path}")
+            return {"id": "local", "local_path": output_path, "snippet": {"title": title}}
+
+        platform = os.getenv("VIDEO_UPLOAD_PLATFORM", "youtube").lower()
+        if platform == "tiktok":
+            from scripts.Uploaders.tiktok_uploader import TiktokMediaUploader
+            uploader = TiktokMediaUploader()
+            if callable(self.on_publish_start):
+                self.on_publish_start()
+            upload = uploader.upload_media(output_file)
+            return {
+                "id": upload["publish_id"],
+                "platform": "tiktok",
+                "publish_id": upload["publish_id"],
+                "status": upload["status"],
+                "snippet": {"title": title},
+            }
+        if platform != "youtube":
+            raise ValueError(f"Unsupported VIDEO_UPLOAD_PLATFORM: {platform}")
+
+        configured_path = self.config[CONFIG_YOUTUBE]["credentials_file"]
+        secrets_dir = os.path.join(os.getcwd(), ".secrets")
+        os.makedirs(secrets_dir, exist_ok=True)
+        if os.path.isfile(configured_path):
+            target_path = os.path.join(secrets_dir, "client_secret.json")
+            if os.path.abspath(configured_path) != os.path.abspath(target_path):
+                shutil.copy2(configured_path, target_path)
+        else:
+            raise FileNotFoundError("YouTube client secrets are missing")
+        uploader = YoutubeMediaUploader(
+            client_secrets_file="client_secret.json",
+            channel_description="",
+        )
+        privacy = os.getenv("VIDEO_YOUTUBE_PRIVACY", "private").lower()
+        if privacy not in ("private", "unlisted", "public"):
+            raise ValueError("VIDEO_YOUTUBE_PRIVACY must be private, unlisted or public")
+        if callable(self.on_publish_start):
+            self.on_publish_start()
+        return uploader.upload(
+            output_file,
+            title=title[:80],
+            thumbnail_path=self.cover_path,
+            description=description,
+            tags=tags,
+            privacy_status=privacy,
+        )
 
     @trace()
     def cleanup_temp_folder(self) -> None:
@@ -216,14 +291,27 @@ class NewsVideoProcessor:
             )
 
     def _write_state(self, step: str, **extra) -> None:
-        state = {"step": step, "timestamp": time.time(), **extra}
+        """Persist per-job progress independently of disposable render files."""
+        state = {
+            "job_id": self.job_id,
+            "start_time": self.job_started_at,
+            "current_stage": {"message": step.replace("_", " ")},
+            "step": step,
+            "timestamp": time.time(),
+            "is_completed": step == "complete",
+            "is_failed": step == "failed",
+            **extra,
+        }
         try:
-            path = os.path.join(self.temp_dir, "process_state.json")
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
+            metrics_dir = os.getenv("METRICS_DIR", "metrics")
+            os.makedirs(metrics_dir, exist_ok=True)
+            destination = os.path.join(metrics_dir, f"{self.job_id}.json")
+            pending = destination + ".tmp"
+            with open(pending, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            self.logger.warning(f"Failed to write process state: {e}")
+            os.replace(pending, destination)
+        except OSError as e:
+            self.logger.warning("Failed to write job state: %s", e)
 
     @staticmethod
     @trace()
@@ -444,14 +532,7 @@ class NewsVideoProcessor:
                 )
 
                 subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
-                audio_path = self.tts.text_to_speech_file(
-                    article,
-                    voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
-                    srt_path=subtitle_path,
-                    rate=self.config[CONFIG_TTS_EDGE].get('speech_rate_adjustment', 0),
-                    pitch=self.config[CONFIG_TTS_EDGE].get('pitch_adjustment', 0),
-                )
+                audio_path = self._synthesize(article)
 
                 self._write_state("audio_ready", subtitle_path=subtitle_path, audio_path=audio_path)
 
@@ -490,32 +571,19 @@ class NewsVideoProcessor:
 
                 self._write_state("video_ready", output_file=output_file)
 
-                self.send_progress(
-                    "📤 *YouTube Upload*\n\n"
-                    f"Title: `{title[:50]}...`\n"
-                    "_Uploading to your channel..._"
-                )
+                self.send_progress("Saving locally or transferring the video to the configured platform...")
 
                 description += '\n' + topic['title']
-                youtube_response = self.youtube_uploader.upload(
-                    output_file,
-                    title=title[:80],
-                    thumbnail_path=self.cover_path,
-                    description=description,
-                    tags=tags
-                )
+                youtube_response = self._publish(output_file, title, description, tags)
 
-                self.send_progress(
-                    "✨ *Process Complete*\n\n"
-                    "Video successfully created and uploaded!\n"
-                    "_Check your YouTube channel._"
-                )
+                self.send_progress("Video production completed.")
 
                 self._write_state("complete")
                 self.cleanup_temp_folder()
                 return youtube_response
         except Exception as e:
             self.logger.error(f"Short format processing failed: {e}")
+            self._write_state("failed", error=str(e))
             self.send_progress(f"❌ *Process Failed*\n\nError: `{str(e)}`")
             self.logger.warning(f"Temp files preserved in {self.temp_dir!r} for analysis")
             return None
@@ -554,7 +622,9 @@ class NewsVideoProcessor:
                 )
 
                 article, phrases, title, description, tags, cover_text, cover_image = \
-                    self.article_generator.generate_article_and_phrases_long(topic['title'])
+                    self.article_generator.generate_article_and_phrases_long(
+                        f"{topic['title']}\nSource material: {topic.get('source') or topic.get('description', '')[:6000]}"
+                    )
 
                 if not article:
                     self.send_progress(
@@ -587,15 +657,7 @@ class NewsVideoProcessor:
                     "_Generating clear voiceover..._"
                 )
 
-                audio_path = self.tts.text_to_speech_file(
-                    article,
-                    voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
-                    srt_path=os.path.join(self.temp_dir, 'subtitles.srt'),
-                    rate=self.config[CONFIG_TTS_EDGE].get('speech_rate_adjustment', 0),
-                    pitch=self.config[CONFIG_TTS_EDGE].get('pitch_adjustment', 0),
-                    boundary_type="WordBoundary",
-                )
+                audio_path = self._synthesize(article, word_boundaries=True)
 
                 subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
                 processor = SRTProcessor(subtitle_path, max_duration=4.0, max_words=8, pause_threshold=0.3)
@@ -645,25 +707,16 @@ class NewsVideoProcessor:
                 )
 
                 description += '\n' + topic['title']
-                youtube_response = self.youtube_uploader.upload(
-                    output_file,
-                    title=title[:80],
-                    thumbnail_path=self.cover_path,
-                    description=description,
-                    tags=tags
-                )
+                youtube_response = self._publish(output_file, title, description, tags)
 
-                self.send_progress(
-                    "🌟 *Upload Complete*\n\n"
-                    "Long-form video published successfully!\n"
-                    "_Your content is now live._"
-                )
+                self.send_progress("Long-form video production completed.")
 
                 self._write_state("complete")
                 self.cleanup_temp_folder()
                 return youtube_response
         except Exception as e:
             self.logger.error(f"Long format processing failed: {e}")
+            self._write_state("failed", error=str(e))
             self.send_progress(f"❌ *Process Failed*\n\nError: `{str(e)}`")
             self.logger.warning(f"Temp files preserved in {self.temp_dir!r} for analysis")
             return None

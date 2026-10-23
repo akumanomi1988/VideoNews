@@ -1,10 +1,10 @@
-import nest_asyncio
 import logging
 
 from telegram import Chat
 from telegram.ext import ApplicationBuilder
 
 from bot.config import get_telegram_token
+from bot.auth import allowed_user_ids
 from bot.dispatcher import command_handlers, callback_query_handlers, message_handlers
 from bot.handlers.error_handler import error_handler
 from scripts.utils.app_logger import setup_logging
@@ -21,11 +21,13 @@ def main() -> None:
     setup_logging()
     logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 
-    nest_asyncio.apply()
-
     telegram_token = get_telegram_token()
     if not telegram_token:
         logger.error("Error: TELEGRAM_BOT_TOKEN is not set. Bot cannot start.")
+        return
+
+    if not allowed_user_ids():
+        logger.error('TELEGRAM_ALLOWED_USER_IDS is missing or invalid. Refusing to start.')
         return
 
     application = (

@@ -47,15 +47,14 @@ class LLMProvider:
                 self.logger.info("Groq provider ready (%s)", model)
 
             elif ptype == "azure":
-                from openai import OpenAI as _OpenAI
                 endpoint = config.get("endpoint", "")
                 api_key = config.get("api_key", "")
-                if not endpoint or not api_key:
-                    self.logger.warning("Azure provider skipped: missing endpoint or api_key")
+                if not endpoint or not api_key or not model:
+                    self.logger.warning("Azure provider skipped: missing endpoint, api_key or model")
                     return
-                client = _OpenAI(base_url=endpoint, api_key=api_key)
-                self._clients.append(("azure", model, client, config))
-                self.logger.info("Azure provider ready (%s @ %s)", model, endpoint)
+                # Use our existing requests dependency; no OpenAI SDK/numpy conflict.
+                self._clients.append(("azure", model, endpoint, config))
+                self.logger.info("Azure provider configured (%s)", model)
 
             else:
                 self.logger.warning("Unknown provider type: %s", ptype)
@@ -95,14 +94,43 @@ class LLMProvider:
                     return resp.choices[0].message.content
 
                 elif provider_type == "azure":
-                    resp = client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=kwargs.get("temperature", 0.7),
-                        max_tokens=kwargs.get("max_tokens", 8192),
-                        timeout=timeout,
-                    )
-                    return resp.choices[0].message.content
+                    from urllib.parse import quote, urlsplit
+                    import requests
+
+                    endpoint = str(client).strip()
+                    parsed = urlsplit(endpoint)
+                    if parsed.scheme != "https" or not parsed.hostname:
+                        raise ValueError("Azure LLM requires an HTTPS endpoint")
+
+                    if "/chat/completions" in parsed.path:
+                        url = endpoint
+                    elif parsed.hostname.endswith(".openai.azure.com"):
+                        deployment = quote(model, safe="")
+                        version = cfg.get("api_version", "2024-10-21")
+                        url = (
+                            endpoint.rstrip("/") +
+                            f"/openai/deployments/{deployment}/chat/completions?api-version={version}"
+                        )
+                    else:
+                        url = endpoint.rstrip("/") + "/chat/completions"
+
+                    is_azure = parsed.hostname.endswith(".openai.azure.com")
+                    headers = {
+                        "Content-Type": "application/json",
+                        ("api-key" if is_azure else "Authorization"):
+                            (cfg["api_key"] if is_azure else f"Bearer {cfg['api_key']}"),
+                    }
+                    payload = {
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": kwargs.get("temperature", 0.7),
+                        "max_tokens": kwargs.get("max_tokens", 8192),
+                    }
+                    if not is_azure:
+                        payload["model"] = model
+                    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+                    resp.raise_for_status()
+                    result = resp.json()
+                    return result["choices"][0]["message"]["content"]
 
             except Exception as e:
                 last_error = e
@@ -132,8 +160,8 @@ class Chatbot:
         self.standard_rules = ('Your output must be a valid JSON object with double quotes for both keys and string values. Ensure proper nesting, avoid trailing commas, and escape special characters when necessary.'
                                'Ensure everything you say is factual and accurate, including years, numbers, and names.'
                                )
-        self.ideology = 'Advocating for the transformation of existing structures toward a more just and equitable system'
-        self.tone = 'Adapt the tone of the narration based on the nature of the news: if it is serious or tragic, use a somber, reflective style with a dramatic touch to heighten the impact. If the news is light or has humorous potential, adopt a colloquial, street-style, or even profane tone to make it more entertaining and relatable. For topics involving elites, scandals, or high-society situations, use a sarcastic or posh tone to emphasize the irony. If the news carries a mysterious vibe, employ a conspiratorial style with subtle insinuations and unexpected twists to sow controlled doubts.'
+        self.ideology = os.getenv("NEWS_EDITORIAL_IDEOLOGY") or "Inform without adopting a political position; distinguish facts from opinion."
+        self.tone = os.getenv("NEWS_EDITORIAL_TONE") or "Clear, engaging, factual and proportional to the seriousness of the news; avoid sensationalism and speculation."
         self.numbers_as_words = (
             "IMPORTANT: All numbers, quantities, percentages, dates, and statistics "
             "MUST be written out fully as words in the spoken language. "
@@ -656,6 +684,7 @@ class Chatbot:
         folder_path = '.temp'
         file_path = os.path.join(folder_path, f'{file_guid}.json')
 
+        scene_count = max(1, min(12, int(os.getenv('VIDEO_SHORT_SCENES', '8'))))
         article = self.generate_short_article(topic_title, source=topic_source)
 
         # Parallelize independent LLM calls
@@ -664,7 +693,7 @@ class Chatbot:
             future_map = {
                 executor.submit(self.generate_title, article): 'title',
                 executor.submit(self.generate_description, article): 'description',
-                executor.submit(self.generate_image_descriptions, article, 20): 'image_descriptions',
+                executor.submit(self.generate_image_descriptions, article, scene_count): 'image_descriptions',
                 executor.submit(self.generate_tags, article): 'tags',
                 executor.submit(self.generate_cover, article): 'cover',
                 executor.submit(self.generate_cover_image, article): 'cover_image',
@@ -685,7 +714,7 @@ class Chatbot:
         cover_image = results.get('cover_image', '')
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(20, len(image_descriptions)))
+        short_phrases = image_descriptions[:scene_count]
 
         print(Fore.GREEN + "Article and phrases generated successfully.")
 
@@ -724,6 +753,7 @@ class Chatbot:
         folder_path = '.temp'
         file_path = os.path.join(folder_path, f'{file_guid}.json')
 
+        scene_count = max(1, min(48, int(os.getenv('VIDEO_LONG_SCENES', '18'))))
         article, short = self.generate_full_article(topic)
 
         # Parallelize independent LLM calls
@@ -732,7 +762,7 @@ class Chatbot:
             future_map = {
                 executor.submit(self.generate_title, short): 'title',
                 executor.submit(self.generate_description, short): 'description',
-                executor.submit(self.generate_image_descriptions, short, 40): 'image_descriptions',
+                executor.submit(self.generate_image_descriptions, short, scene_count): 'image_descriptions',
                 executor.submit(self.generate_tags, short): 'tags',
                 executor.submit(self.generate_cover, short): 'cover',
                 executor.submit(self.generate_cover_image, short): 'cover_image',
@@ -753,7 +783,7 @@ class Chatbot:
         cover_image = results.get('cover_image', '')
 
         # Limit the number of short phrases to 10 if more are present
-        short_phrases = random.sample(image_descriptions, min(40, len(image_descriptions)))
+        short_phrases = image_descriptions[:scene_count]
 
         print(Fore.GREEN + "Long article and phrases generated successfully.")
 

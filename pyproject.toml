@@ -12,14 +12,14 @@ license = {text = "MIT"}
 
 dependencies = [
     # Bot
-    "python-telegram-bot>=20.0,<21.0",
+    "python-telegram-bot>=22.0,<23.0",
     "nest-asyncio>=1.6.0",
     "python-dotenv>=1.0.0",
 
     # HTTP / Networking
     "requests>=2.31.0",
     "urllib3>=2.0.0,<3.0.0",
-    "httpx>=0.25.0",
+    "httpx>=0.27.0,<0.29.0",
     "fake-useragent>=1.0.0",
 
     # News fetching
@@ -39,7 +39,7 @@ dependencies = [
     "elevenlabs>=2.0.0",
 
     # STT
-    "openai-whisper>=20231101",
+    
 
     # Media processing
     "moviepy==1.0.3",
@@ -58,14 +58,14 @@ dependencies = [
     "spacy>=3.7.0",
 
     # AI/ML
-    "torch>=2.0.0",
-    "transformers>=4.30.0",
-    "tokenizers>=0.15.0",
-    "safetensors>=0.4.0",
+    
+    
+    
+    
     "tqdm>=4.66.0",
 
     # Audio
-    "librosa>=0.10.0",
+    
 
     # Utilities
     "tenacity>=8.2.0",
@@ -76,7 +76,7 @@ dependencies = [
     "configparser>=7.0.0",
 
     # Custom packages (installed with --no-deps, see bootstrap.ps1)
-    "akumasubtitler",
+    
 
     # Web framework (for dashboard)
     "flask>=3.0.0",
@@ -87,10 +87,21 @@ dependencies = [
     "google-auth-httplib2>=0.2.0",
 
     # Text-to-speech (offline fallback)
-    "pyttsx3>=2.90",
+    
 ]
 
 [project.optional-dependencies]
+local-ai = [
+    "openai-whisper>=20231101",
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "tokenizers>=0.15.0",
+    "safetensors>=0.4.0",
+    "librosa>=0.10.0",
+    "pyttsx3>=2.90",
+    "suno-bark>=0.1.5",
+]
+subtitler = ["akumasubtitler>=0.1.6"]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",

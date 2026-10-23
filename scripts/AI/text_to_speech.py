@@ -181,7 +181,7 @@ class TTSEdge:
         if not filtered:
             raise Exception(Fore.RED + f"No voices available for language '{language}'.")
         # Always pick a random voice from the matching language pool
-        selected = random.choice(list(filtered.values()))
+        selected = voice if voice in filtered.values() else random.choice(list(filtered.values()))
         print(Fore.GREEN + f"Voice: {selected} (language: {language})")
         audio_file, error = self._run_async(
             self.text_to_speech(text, selected, srt_path=srt_path, rate=rate, pitch=pitch, boundary_type=boundary_type)

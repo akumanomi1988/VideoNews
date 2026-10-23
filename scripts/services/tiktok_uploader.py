@@ -12,13 +12,9 @@ class TiktokUploader(VideoUploader):
     @trace()
     def __init__(self, session_file: Optional[str] = None):
         self.logger = logging.getLogger(__name__)
-        self._uploader = TiktokMediaUploaderImpl(
-            client_id="",
-            client_secret="",
-            redirect_uri="",
-        )
+        self._uploader = TiktokMediaUploaderImpl()
 
     @trace()
     def upload(self, video_path: str, metadata: VideoMetadata) -> str:
-        self._uploader.upload_media(video_path)
-        return ""
+        result = self._uploader.upload_media(video_path)
+        return "tiktok:inbox:" + str(result["publish_id"])

@@ -16,14 +16,11 @@ from scripts.utils.app_logger import trace
 # Initialize colorama
 init(autoreset=True)
 
-# Load spaCy model
+# Load a language model only when this module is used; no network side effects.
 try:
     nlp = spacy.load("es_core_news_sm")
 except OSError:
-    print(Fore.RED + "Modelo es_core_news_sm not found. Downloading...")
-    import spacy.cli
-    spacy.cli.download("es_core_news_sm")
-    nlp = spacy.load("es_core_news_sm")
+    nlp = spacy.blank("es")
 
 class NewsAggregator:
     """Clase que maneja la agregación y scoring de noticias de múltiples fuentes"""

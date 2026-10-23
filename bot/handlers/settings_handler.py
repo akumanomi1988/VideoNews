@@ -25,6 +25,11 @@ from bot.services.settings_service import SettingsService
 from bot.utils.message_sender import MessageSender # Added MessageSender
 from scripts.utils.app_logger import trace
 
+
+def _secret_field(name: str) -> bool:
+    return any(part in name.lower() for part in ('key', 'token', 'secret', 'password', 'credential', 'oauth'))
+
+
 # Create a logger instance for this module
 logger = logging.getLogger(__name__)
 
@@ -136,6 +141,10 @@ async def setting_selection_handler(update: Update, context: CallbackContext) ->
     if category_data and isinstance(category_data, dict):
         current_value = str(category_data.get(selected_setting, "NOT_AVAILABLE (key not found)"))
 
+    if _secret_field(selected_setting) or _secret_field(selected_category):
+        await message_sender.send_message(update=update, text='Manage secrets through environment variables, not Telegram.')
+        return
+
     await message_sender.send_message(
         update=update, 
         text=f"Current value for *{selected_setting}* is `{current_value}`.\nPlease enter a new value:"
@@ -158,7 +167,12 @@ async def handle_new_value(update: Update, context: CallbackContext) -> None:
         selected_setting_from_context: str = user_data['setting']
         new_value: str = update.message.text if update.message and update.message.text else ""
         
-        logger.info(f"Attempting to update setting '{selected_category_from_context}:{selected_setting_from_context}' to '{new_value}'.")
+        logger.info('Updating non-secret setting %s:%s', selected_category_from_context, selected_setting_from_context)
+        if _secret_field(selected_category_from_context) or _secret_field(selected_setting_from_context):
+            user_data.pop('category', None)
+            user_data.pop('setting', None)
+            await message_sender.send_message(update=update, text='Manage secrets through environment variables, not Telegram.')
+            return
         
         try:
             settings: Dict[str, Any] = SettingsService.load_settings()
@@ -169,7 +183,7 @@ async def handle_new_value(update: Update, context: CallbackContext) -> None:
             settings[selected_category_from_context][selected_setting_from_context] = new_value
             SettingsService.save_settings(settings)
             
-            logger.info(f"Successfully updated setting '{selected_category_from_context}:{selected_setting_from_context}' to '{new_value}'.")
+            logger.info('Setting updated: %s:%s', selected_category_from_context, selected_setting_from_context)
             await message_sender.send_message(
                 update=update, 
                 text=f"The setting *{selected_setting_from_context}* in category *{selected_category_from_context}* has been updated to `{new_value}` ✅"
@@ -178,7 +192,8 @@ async def handle_new_value(update: Update, context: CallbackContext) -> None:
             logger.error(f"Error saving setting '{selected_category_from_context}:{selected_setting_from_context}': {e}", exc_info=True)
             await message_sender.send_message(update=update, text="An error occurred while saving the setting. Please try again. 🛠️")
         finally:
-            user_data.clear()
+            user_data.pop('category', None)
+            user_data.pop('setting', None)
     else:
         logger.warning("handle_new_value called but 'category' or 'setting' not in user_data.")
         # This message might be sent if a user sends random text after a command flow has expired or been cleared.
@@ -206,7 +221,8 @@ async def list_settings(update: Update, context: CallbackContext) -> None:
         response_text += f"*{section}*\n"
         if isinstance(config_items, dict):
             for key, value in config_items.items():
-                response_text += f"  - {key}: `{value}`\n" 
+                display_value = "[REDACTED]" if _secret_field(key) or _secret_field(section) else value
+                response_text += f"  - {key}: `{display_value}`\n" 
         else:
             response_text += f"  - `{config_items}`\n" 
         response_text += "\n"
