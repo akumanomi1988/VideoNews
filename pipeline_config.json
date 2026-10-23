@@ -1,12 +1,12 @@
 {
     "api_keys": {
-        "news_api": "b24237884c8f4bebb8264b440e65ed4b",
-        "pexels_api": "5h39cSaGuIYX9EYerrH3Hdm8xomKUeYf5QCU4cM9zqwa9yuGNWpuoFnQ",
+        "news_api": "",
+        "pexels_api": "",
         "elevenlabs": "your_elevenlabs_key_here"
     },
     "oauth": {
         "youtube": {
-            "client_id": "885672591350-301a0ftl5nc0f57opbie7ujhmokedl3e",
+            "client_id": "",
             "client_secret": "your_youtube_client_secret",
             "redirect_uri": "http://localhost:8080/oauth2callback"
         }
