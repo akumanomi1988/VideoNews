@@ -29,10 +29,7 @@ from moviepy.video.fx import resize, crop
 from scripts.helpers.media_helper import ImageHelper, Position, Style, SubtitleHelper
 from .interfaces import VideoAssembler as VideoAssemblerInterface, VideoMetadata
 from .utils.app_logger import trace
-try:
-    from AkumaSubtitler import AkumaSubtitler, SubStyle
-except ModuleNotFoundError:
-    from akumasubtitler import AkumaSubtitler, SubStyle
+# Subtitles are rendered directly by FFmpeg; no external subtitler import required.
 
 # Initialize colorama for colored terminal output
 init(autoreset=True)
