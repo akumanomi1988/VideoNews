@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from colorama import Fore, init
 from telegram import Bot, CallbackQuery, Message
 from scripts.AI.natural_language_generation import Chatbot
-from scripts.AI.speech_to_text import stt_whisper
 from scripts.AI.text_to_speech import TTSFactory, TTSProvider
 from scripts.AI.text_to_image import FluxImageGenerator, AspectRatio, StylePreset
 from scripts.DataFetcher.pexels_media_fetcher import PexelsMediaFetcher
@@ -24,6 +23,7 @@ from scripts.helpers.media_helper import ImageHelper, Position, Style
 from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
 from scripts.utils.app_logger import trace
 from scripts.utils.rate_limiter import RateLimiter
+from scripts.runtime_config import load_runtime_config
 
 # Initialize Colorama
 init(autoreset=True)
@@ -87,7 +87,6 @@ class NewsVideoProcessor:
             api_key=self.config[CONFIG_PEXELS]['api_key'],
             temp_dir=self.temp_dir
         )
-        self.stt = stt_whisper()
         self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
         azure_img = self.config.get("azure_images", {})
         self.image_generator = FluxImageGenerator(
@@ -95,10 +94,6 @@ class NewsVideoProcessor:
             azure_endpoint=azure_img.get("endpoint"),
             azure_api_key=azure_img.get("api_key"),
             azure_model=azure_img.get("model", "MAI-Image-2e"),
-        )
-        self.youtube_uploader = YoutubeMediaUploader(
-            client_secrets_file=self.config[CONFIG_YOUTUBE]['credentials_file'],
-            channel_description=""
         )
         self.logger = logging.getLogger(__name__)
         self.video_files: List[str] = []
@@ -135,58 +130,44 @@ class NewsVideoProcessor:
 
     @trace()
     def _load_configuration(self) -> Dict[str, Any]:
-        """
-        Load the configuration from the specified JSON file.
-
-        Returns:
-            dict: Loaded configuration.
-        """
-        if not os.path.exists(self.config_file):
-            self.send_progress(
-                "⚠️ *Configuration Error*\n\n"
-                "Configuration file not found.\n"
-                "_Please use the configuration editor._"
-            )
-            raise FileNotFoundError("Configuration file not found.")
-
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as file:
-                config = json.load(file)
-        except json.JSONDecodeError:
-            self.send_progress(
-                "❌ *Invalid Configuration*\n\n"
-                "The configuration file is corrupted.\n"
-                "_Please check the JSON format._"
-            )
-            raise
-
-        missing = []
-        checks = {
-            CONFIG_SETTINGS: ['temp_dir'],
-            CONFIG_SERPAPI: ['api_key'],
-            CONFIG_PEXELS: ['api_key'],
-            CONFIG_HUGGINGFACE: ['api_key'],
-            CONFIG_YOUTUBE: ['credentials_file'],
-            CONFIG_ARTICLE_SETTINGS: ['language', 'model'],
-        }
-        for section, keys in checks.items():
-            s = config.get(section, {})
-            for k in keys:
-                if not s.get(k):
-                    missing.append(f"{section}.{k}")
-        if missing:
-            raise ValueError(
-                f"Missing required configuration keys: {', '.join(missing)}. "
-                f"Check settings.json."
-            )
-
-        self.send_progress(
-            "✅ *System Ready*\n\n"
-            "Configuration loaded successfully\n"
-            "_Starting process..._"
+        """Load one canonical configuration and isolate each rendering job."""
+        config = load_runtime_config(self.config_file)
+        base_dir = config[CONFIG_SETTINGS].get("temp_dir", ".temp")
+        config[CONFIG_SETTINGS]["temp_dir"] = os.path.join(
+            base_dir, "jobs", uuid.uuid4().hex
         )
         return config
 
+    def _publish(self, output_file: str, title: str, description: str,
+                 tags: List[str]) -> Dict[str, Any]:
+        """Explicit publishing switch: local video by default, YouTube on demand."""
+        enabled = os.getenv("VIDEO_UPLOAD_ENABLED", "false").strip().lower() in ("true", "1", "yes")
+        if not enabled:
+            output_dir = os.getenv("VIDEO_OUTPUT_DIR", "output")
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(
+                output_dir, f"{uuid.uuid4().hex[:8]}_{os.path.basename(output_file)}"
+            )
+            shutil.copy2(output_file, output_path)
+            if self.cover_path and os.path.isfile(self.cover_path):
+                cover_path = os.path.splitext(output_path)[0] + "_cover.png"
+                shutil.copy2(self.cover_path, cover_path)
+            self.send_progress(f"Video saved locally: {output_path}")
+            return {"id": "local", "local_path": output_path, "snippet": {"title": title}}
+
+        uploader = YoutubeMediaUploader(
+            client_secrets_file=self.config[CONFIG_YOUTUBE]["credentials_file"],
+            channel_description="",
+        )
+        return uploader.upload(
+            output_file,
+            title=title[:80],
+            thumbnail_path=self.cover_path,
+            description=description,
+            tags=tags,
+        )
+
+    @trace()
     @trace()
     def cleanup_temp_folder(self) -> None:
         """
@@ -497,17 +478,11 @@ class NewsVideoProcessor:
                 )
 
                 description += '\n' + topic['title']
-                youtube_response = self.youtube_uploader.upload(
-                    output_file,
-                    title=title[:80],
-                    thumbnail_path=self.cover_path,
-                    description=description,
-                    tags=tags
-                )
+                youtube_response = self._publish(output_file, title, description, tags)
 
                 self.send_progress(
                     "✨ *Process Complete*\n\n"
-                    "Video successfully created and uploaded!\n"
+                    "Video production finished.\n"
                     "_Check your YouTube channel._"
                 )
 
@@ -554,7 +529,9 @@ class NewsVideoProcessor:
                 )
 
                 article, phrases, title, description, tags, cover_text, cover_image = \
-                    self.article_generator.generate_article_and_phrases_long(topic['title'])
+                    self.article_generator.generate_article_and_phrases_long(
+                        f"{topic['title']}\\nSource material: {topic.get('source') or topic.get('description', '')[:6000]}"
+                    )
 
                 if not article:
                     self.send_progress(
@@ -645,17 +622,11 @@ class NewsVideoProcessor:
                 )
 
                 description += '\n' + topic['title']
-                youtube_response = self.youtube_uploader.upload(
-                    output_file,
-                    title=title[:80],
-                    thumbnail_path=self.cover_path,
-                    description=description,
-                    tags=tags
-                )
+                youtube_response = self._publish(output_file, title, description, tags)
 
                 self.send_progress(
                     "🌟 *Upload Complete*\n\n"
-                    "Long-form video published successfully!\n"
+                    "Long-form video production finished.\n"
                     "_Your content is now live._"
                 )
 
