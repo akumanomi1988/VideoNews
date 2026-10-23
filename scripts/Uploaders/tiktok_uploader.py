@@ -96,7 +96,7 @@ class TiktokMediaUploader:
         if size == 0:
             raise ValueError("Cannot upload an empty video")
         chunk = min(CHUNK_SIZE, size)
-        count = max(1, size // chunk)
+        count = max(1, (size + chunk - 1) // chunk)
         response = requests.post(
             API_BASE + "/post/publish/inbox/video/init/",
             headers={"Authorization": f"Bearer {self.access_token}"},

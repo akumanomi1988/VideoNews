@@ -35,7 +35,7 @@ jobs:
           ffprobe -version | head -n 1
       - name: Run unit and genuine offline FFmpeg integration tests
         run: |
-          python -m pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_url_safety.py tests/test_tiktok_uploader.py tests/test_job_registry.py tests/test_offline_render_integration.py
+          python -m pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_url_safety.py tests/test_tiktok_uploader.py tests/test_job_registry.py tests/test_offline_render_integration.py tests/test_job_registry_extended.py tests/test_runtime_config_extended.py tests/test_url_security_extended.py tests/test_retry_and_rate_limiter.py tests/test_cache_service_extended.py tests/test_progress_tracker_extended.py tests/test_config_validator_extended.py tests/test_telegram_auth_extended.py tests/test_tiktok_extended.py
 
   install-production:
     runs-on: ubuntu-latest
@@ -57,4 +57,4 @@ jobs:
       - name: Real URL workflow with fake providers and real registry
         run: |
           python -m pip install pytest
-          python -m pytest -q tests/test_url_workflow_integration.py
+          python -m pytest -q tests/test_url_workflow_integration.py tests/test_news_extractor_extended.py tests/test_dashboard_extended.py
