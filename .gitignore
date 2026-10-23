@@ -1,79 +1,46 @@
-venv/
+# Local configuration and credentials (never commit)
+.env
+.env.*
+!.env.example
 settings.json
-.temp/
-scripts/__pycache__/
+pipeline_config.local.json
+.secrets/
 secrets/
-# Python
-*.pyc
-*.pyo
-*.pyd
-__pycache__/
 *.db
 *.sqlite3
-
-# Environments
+*.sqlite
+*.pem
+*.key
+*token.json
+# Runtime state
+.temp/
+.videonews-tmp/
+output/
+metrics/
+.cache/
+*.cache
+*.log
+*.pid
+# Python
+__pycache__/
+*.py[cod]
+.venv/
 venv/
 ENV/
-env/
-*.env
-.venv/
-.pip/
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
 dist/
 build/
-*.egg
-
-# IDE
+# IDE / OS
 .idea/
-*.suo
-*.sw?
-*.sublime-workspace
-*.sublime-project
-
-# Logs & cache
-*.log
-*.cache
-*.tmp
-*.bak
-.cache/
-
-# Media generated files
+.vscode/
+.DS_Store
+Thumbs.db
+# Generated media
 *.mp4
 *.avi
 *.mov
 *.wav
 *.mp3
-
-# CI/CD
-*.yml
-*.yaml
-
-# Git
-*.gitconfig
-*.gitignore
-
-# System
-.DS_Store
-Thumbs.db
-
-# Other tools
-*.pid
-*.seed
-
-# Credentials
-settings.config
-.secrets*
-har_and_cookies*
-config.json
-viral_news.json
-pipeline_config.json
-
-# FFmpeg temp files
-_subs_*.srt
-_ffmpeg_debug.log
-test*.py
-
-# Test/debug scripts and temp artifacts
-_*.py
-_*.mp3
-_*.srt
+*.srt

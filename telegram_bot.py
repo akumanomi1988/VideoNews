@@ -1,13 +1,15 @@
-"""Compatibility launcher for the VideoNews bot."""
+"""Cross-platform launcher for the VideoNews Telegram bot."""
 
 import os
+import shutil
 
-MAGICK_HOME = r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI"
-os.environ.setdefault("MAGICK_HOME", MAGICK_HOME)
-os.environ.setdefault("IMAGEMAGICK_BINARY", os.path.join(MAGICK_HOME, "magick.exe"))
-
-from moviepy.config import change_settings
-change_settings({"IMAGEMAGICK_BINARY": os.path.join(MAGICK_HOME, "magick.exe")})
+# MoviePy can use the system-installed ImageMagick; never force a Windows path
+# when running in Linux/Docker. A missing executable is handled by the renderer.
+magick = os.getenv("IMAGEMAGICK_BINARY") or shutil.which("magick") or shutil.which("convert")
+if magick and os.path.isfile(magick):
+    os.environ["IMAGEMAGICK_BINARY"] = magick
+    from moviepy.config import change_settings
+    change_settings({"IMAGEMAGICK_BINARY": magick})
 
 from bot.main import main
 

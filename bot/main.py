@@ -2,7 +2,9 @@ import nest_asyncio
 import logging
 
 from telegram import Chat
-from telegram.ext import ApplicationBuilder
+from telegram.ext import ApplicationBuilder, TypeHandler
+from telegram import Update
+from bot.security import admin_user_ids, enforce_admin
 
 from bot.config import get_telegram_token
 from bot.dispatcher import command_handlers, callback_query_handlers, message_handlers
@@ -23,6 +25,10 @@ def main() -> None:
 
     nest_asyncio.apply()
 
+    authorized_ids = admin_user_ids()
+    if not authorized_ids:
+        raise RuntimeError("Set TELEGRAM_ADMIN_USER_IDS before starting the bot (fail-closed)")
+
     telegram_token = get_telegram_token()
     if not telegram_token:
         logger.error("Error: TELEGRAM_BOT_TOKEN is not set. Bot cannot start.")
@@ -37,6 +43,8 @@ def main() -> None:
         .pool_timeout(30)
         .build()
     )
+
+    application.add_handler(TypeHandler(Update, enforce_admin), group=-1)
 
     for handler in command_handlers:
         application.add_handler(handler)

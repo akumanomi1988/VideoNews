@@ -58,7 +58,6 @@ class YoutubeMediaUploader:
                     if not os.path.exists(self.client_secrets_file):
                         raise FileNotFoundError(f"Archivo de client secrets no encontrado: {self.client_secrets_file}")
 
-                    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
                     flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
                         self.client_secrets_file, self.SCOPES)
                     print(Fore.CYAN + "Running authorization flow on local server...")
@@ -76,8 +75,9 @@ class YoutubeMediaUploader:
             self.handle_error("Error en autenticación", e, True)
             raise
 
-    def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='public'):
+    def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status=None):
         try:
+            privacy_status = privacy_status or os.getenv('YOUTUBE_PRIVACY', 'private').lower()
             self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
 
             import re

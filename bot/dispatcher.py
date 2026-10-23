@@ -1,7 +1,6 @@
-"""Centralized dispatcher for Telegram bot handlers."""
+"""Telegram router. All updates are authorized by bot.main's group -1 gate."""
 
 from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler, filters
-
 from bot.handlers import news_handler, settings_handler, utility_handler
 
 command_handlers = [
@@ -21,36 +20,18 @@ command_handlers = [
 ]
 
 callback_query_handlers = [
-    CallbackQueryHandler(
-        news_handler.news_category_selection_handler,
-        pattern=r"^(business|entertainment|general|health|science|sports|technology|cancel_news_category)$",
-    ),
-    CallbackQueryHandler(
-        news_handler.news_selection_handler,
-        pattern=r"^(news_[0-9]+|cancel_news_selection)$",
-    ),
-    CallbackQueryHandler(
-        news_handler.style_selection_handler,
-        pattern=r"^(style_[A-Z_]+|cancel_style)$",
-    ),
-    CallbackQueryHandler(
-        settings_handler.settings_category_selection_handler,
-        pattern=r"^([a-zA-Z_]+|cancel_config)$",
-    ),
-    CallbackQueryHandler(
-        settings_handler.setting_selection_handler,
-        pattern=r"^.+:.+$",
-    ),
+    CallbackQueryHandler(news_handler.news_category_selection_handler,
+                         pattern=r"^(business|entertainment|general|health|science|sports|technology|cancel_news_category)$"),
+    CallbackQueryHandler(news_handler.news_selection_handler,
+                         pattern=r"^(news_[0-9]+|cancel_news_selection)$"),
+    CallbackQueryHandler(news_handler.style_selection_handler,
+                         pattern=r"^(style_[A-Z_]+|cancel_style)$"),
 ]
 
+# One handler for private text: the old first handler shadowed settings input.
+# Settings mutation from Telegram is now disabled, so all free text is article input.
 message_handlers = [
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-        news_handler.handle_article_text,
-    ),
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-        settings_handler.handle_new_value,
-    ),
+    MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+                   news_handler.handle_article_text),
     MessageHandler(filters.COMMAND, utility_handler.unknown_command_handler),
 ]
