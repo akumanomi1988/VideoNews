@@ -1,13 +1,11 @@
-"""Compatibility launcher for the VideoNews bot."""
-
+"""VideoNews launcher; ImageMagick is optional and never hardcoded to Windows."""
 import os
+from pathlib import Path
 
-MAGICK_HOME = r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI"
-os.environ.setdefault("MAGICK_HOME", MAGICK_HOME)
-os.environ.setdefault("IMAGEMAGICK_BINARY", os.path.join(MAGICK_HOME, "magick.exe"))
-
-from moviepy.config import change_settings
-change_settings({"IMAGEMAGICK_BINARY": os.path.join(MAGICK_HOME, "magick.exe")})
+configured = os.getenv("IMAGEMAGICK_BINARY")
+if configured and Path(configured).is_file():
+    from moviepy.config import change_settings
+    change_settings({"IMAGEMAGICK_BINARY": configured})
 
 from bot.main import main
 
