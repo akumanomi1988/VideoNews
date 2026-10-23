@@ -159,6 +159,8 @@ class VideoService:
         notify("Video complete")
         if result.get("local_path"):
             return str(result["local_path"])
+        if result.get("platform") == "tiktok":
+            return "TikTok inbox transfer ID: " + str(result.get("publish_id"))
         video_id = result.get("id")
         if video_id:
             return f"https://www.youtube.com/watch?v={video_id}"
