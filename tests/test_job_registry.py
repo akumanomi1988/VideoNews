@@ -57,3 +57,33 @@ def test_completed_upload_is_not_reset_on_later_error():
     jobs.complete(job_id, "https://www.youtube.com/watch?v=example")
     jobs.fail(job_id, "Telegram delivery failed")
     assert jobs.get(url)["state"] == "COMPLETED"
+
+
+def test_operator_can_reconcile_confirmed_remote_video():
+    url = "https://example.org/uncertain-published"
+    job_id = jobs.claim(url, "short")
+    jobs.advance(job_id, "UPLOADING")
+    jobs.fail(job_id, "Unknown response")
+    jobs.reconcile(url, published=True, reference="https://youtube.com/watch?v=verified")
+    assert jobs.get(url)["state"] == "COMPLETED"
+    with pytest.raises(jobs.DuplicateJobError):
+        jobs.claim(url, "short")
+
+
+def test_operator_can_retry_only_after_confirmed_absence():
+    url = "https://example.org/uncertain-empty"
+    job_id = jobs.claim(url, "long")
+    jobs.advance(job_id, "UPLOADING")
+    jobs.fail(job_id, "Connection reset")
+    jobs.reconcile(url, published=False)
+    assert jobs.get(url)["state"] == "FAILED"
+    assert jobs.claim(url, "long") != job_id
+
+
+def test_reconciliation_is_not_an_unrestricted_reset():
+    url = "https://example.org/complete"
+    job_id = jobs.claim(url, "short")
+    jobs.complete(job_id, "output.mp4")
+    with pytest.raises(ValueError):
+        jobs.reconcile(url, published=False)
+    assert jobs.get(url)["state"] == "COMPLETED"
