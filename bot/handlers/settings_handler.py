@@ -169,6 +169,8 @@ async def handle_new_value(update: Update, context: CallbackContext) -> None:
         
         logger.info('Updating non-secret setting %s:%s', selected_category_from_context, selected_setting_from_context)
         if _secret_field(selected_category_from_context) or _secret_field(selected_setting_from_context):
+            user_data.pop('category', None)
+            user_data.pop('setting', None)
             await message_sender.send_message(update=update, text='Manage secrets through environment variables, not Telegram.')
             return
         
