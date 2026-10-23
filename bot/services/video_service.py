@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 from telegram import Bot, CallbackQuery
 
 from news_video_processor import NewsVideoProcessor
-from scripts.DataFetcher.viral_news_agent import NewsProcessor
+from scripts.runtime_config import load_runtime_config
 from scripts.dbControllers.processed_news_controller import is_url_processed, save_processed_news
 from scripts.DataFetcher.news_extractor import NewsExtractor
 from scripts.url_safety import validate_public_url
@@ -190,23 +190,13 @@ class VideoService:
             logger.log(level, "ViralNewsProcessing: %s", text)
 
         try:
-            config = await asyncio.to_thread(
-                lambda: json.load(open(config_file_path, "r", encoding="utf-8"))
-            )
-        except FileNotFoundError:
-            logger.error("Configuration file '%s' not found for viral news.", config_file_path)
-            await send_msg(
-                f"Error: Configuration file '{config_file_path}' not found.",
-                logging.ERROR,
-            )
+            config = await asyncio.to_thread(load_runtime_config, config_file_path)
+        except (ValueError, OSError) as exc:
+            await send_msg(f"Unable to load configuration: {exc}", logging.ERROR)
             return
-        except json.JSONDecodeError:
-            logger.error("Error decoding JSON from '%s'.", config_file_path)
-            await send_msg(
-                f"Error: Could not decode JSON from '{config_file_path}'.",
-                logging.ERROR,
-            )
-            return
+
+        # Heavy NLP dependencies are imported only for the headless mode.
+        from scripts.DataFetcher.viral_news_agent import NewsProcessor
 
         news_processor_instance = NewsProcessor(config)
         await asyncio.to_thread(news_processor_instance.process_all_news)
