@@ -1,0 +1,26 @@
+name: Manual lightweight verification
+
+# No automatic GitHub Actions usage. Run manually only when CI minutes permit.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install test-only dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio python-dotenv requests "python-telegram-bot>=20,<21"
+      - name: Compile every Python source
+        run: |
+          python -m compileall -q bot scripts news_video_processor.py telegram_bot.py
+      - name: Run isolated regressions
+        run: |
+          python -m pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_url_safety.py tests/test_tiktok_uploader.py
