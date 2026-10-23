@@ -47,15 +47,14 @@ class LLMProvider:
                 self.logger.info("Groq provider ready (%s)", model)
 
             elif ptype == "azure":
-                from openai import OpenAI as _OpenAI
                 endpoint = config.get("endpoint", "")
                 api_key = config.get("api_key", "")
-                if not endpoint or not api_key:
-                    self.logger.warning("Azure provider skipped: missing endpoint or api_key")
+                if not endpoint or not api_key or not model:
+                    self.logger.warning("Azure provider skipped: missing endpoint, api_key or model")
                     return
-                client = _OpenAI(base_url=endpoint, api_key=api_key)
-                self._clients.append(("azure", model, client, config))
-                self.logger.info("Azure provider ready (%s @ %s)", model, endpoint)
+                # Use our existing requests dependency; no OpenAI SDK/numpy conflict.
+                self._clients.append(("azure", model, endpoint, config))
+                self.logger.info("Azure provider configured (%s)", model)
 
             else:
                 self.logger.warning("Unknown provider type: %s", ptype)
@@ -95,14 +94,43 @@ class LLMProvider:
                     return resp.choices[0].message.content
 
                 elif provider_type == "azure":
-                    resp = client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=kwargs.get("temperature", 0.7),
-                        max_tokens=kwargs.get("max_tokens", 8192),
-                        timeout=timeout,
-                    )
-                    return resp.choices[0].message.content
+                    from urllib.parse import quote, urlsplit
+                    import requests
+
+                    endpoint = str(client).strip()
+                    parsed = urlsplit(endpoint)
+                    if parsed.scheme != "https" or not parsed.hostname:
+                        raise ValueError("Azure LLM requires an HTTPS endpoint")
+
+                    if "/chat/completions" in parsed.path:
+                        url = endpoint
+                    elif parsed.hostname.endswith(".openai.azure.com"):
+                        deployment = quote(model, safe="")
+                        version = cfg.get("api_version", "2024-10-21")
+                        url = (
+                            endpoint.rstrip("/") +
+                            f"/openai/deployments/{deployment}/chat/completions?api-version={version}"
+                        )
+                    else:
+                        url = endpoint.rstrip("/") + "/chat/completions"
+
+                    is_azure = parsed.hostname.endswith(".openai.azure.com")
+                    headers = {
+                        "Content-Type": "application/json",
+                        ("api-key" if is_azure else "Authorization"):
+                            (cfg["api_key"] if is_azure else f"Bearer {cfg['api_key']}"),
+                    }
+                    payload = {
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": kwargs.get("temperature", 0.7),
+                        "max_tokens": kwargs.get("max_tokens", 8192),
+                    }
+                    if not is_azure:
+                        payload["model"] = model
+                    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+                    resp.raise_for_status()
+                    result = resp.json()
+                    return result["choices"][0]["message"]["content"]
 
             except Exception as e:
                 last_error = e
