@@ -28,7 +28,14 @@ def _connection():
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(str(path), timeout=30, isolation_level=None)
     connection.execute("PRAGMA busy_timeout = 30000")
-    connection.execute("PRAGMA journal_mode = WAL")
+    # WAL persists on disk; another process may set it concurrently.
+    # BEGIN IMMEDIATE still serializes claims for correctness.
+    try:
+        connection.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc).lower():
+            connection.close()
+            raise
     try:
         connection.execute("""
             CREATE TABLE IF NOT EXISTS article_jobs (
