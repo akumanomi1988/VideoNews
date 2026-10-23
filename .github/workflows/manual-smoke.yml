@@ -23,6 +23,12 @@ jobs:
       - name: Compile every Python source
         run: |
           python -m compileall -q bot scripts news_video_processor.py telegram_bot.py
+      - name: Install system video codec tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
       - name: Run unit and genuine offline FFmpeg integration tests
         run: |
           python -m pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_url_safety.py tests/test_tiktok_uploader.py tests/test_offline_render_integration.py
