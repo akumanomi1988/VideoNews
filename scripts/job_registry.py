@@ -147,3 +147,38 @@ def review_required():
             {"source_url": url, "job_id": job, "state": state, "updated_at": stamp}
             for url, job, state, stamp in rows
         ]
+
+
+def reconcile(source_url: str, *, published: bool, reference: str = "") -> None:
+    """Explicit operator resolution after verifying the remote platform.
+
+    published=True: a real external publication ID/URL has been confirmed.
+    published=False: operator explicitly verified that nothing was published.
+    This operation is deliberately unavailable through Telegram or public HTTP.
+    """
+    if published and not reference:
+        raise ValueError("Verified published outcome requires a remote reference")
+    with _connection() as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            row = db.execute(
+                "SELECT state FROM article_jobs WHERE source_url=?", (source_url,)
+            ).fetchone()
+            if not row or row[0] not in ("RESERVED", "PREPARING", "UPLOADING", "NEEDS_REVIEW"):
+                raise ValueError("No unresolved job exists for this URL")
+            if published:
+                db.execute(
+                    """UPDATE article_jobs SET state='COMPLETED', output=?, last_error=NULL,
+                       updated_at=? WHERE source_url=?""",
+                    (reference, time.time(), source_url),
+                )
+            else:
+                db.execute(
+                    """UPDATE article_jobs SET state='FAILED', last_error='Operator confirmed no upload',
+                       updated_at=? WHERE source_url=?""",
+                    (time.time(), source_url),
+                )
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
