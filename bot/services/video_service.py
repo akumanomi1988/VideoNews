@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from telegram import Bot, CallbackQuery
@@ -10,12 +11,14 @@ from scripts.runtime_config import load_runtime_config
 from scripts.dbControllers.processed_news_controller import is_url_processed, save_processed_news
 from scripts.DataFetcher.news_extractor import NewsExtractor
 from scripts.url_safety import validate_public_url
+from scripts.job_registry import claim, advance, complete, fail
 from scripts.utils.app_logger import trace
 
 logger = logging.getLogger(__name__)
 
 MAX_CONSECUTIVE_ERRORS = 3
-_render_lock = asyncio.Lock()  # One rendering job per bot process; background threads cannot be safely cancelled.
+_render_lock = asyncio.Lock()  # Keeps ordinary requests ordered on the same event loop.
+_thread_render_lock = threading.Lock()  # Protects the native renderer even after coroutine cancellation.
 
 
 class VideoService:
@@ -43,6 +46,12 @@ class VideoService:
                 bot = None
 
         def _sync_run() -> Optional[Dict[str, Any]]:
+            # The lock belongs to the worker thread: a cancelled Telegram
+            # coroutine cannot cause overlapping renders.
+            with _thread_render_lock:
+                return _render()
+
+        def _render() -> Optional[Dict[str, Any]]:
             processor = NewsVideoProcessor(
                 callback_query=callback_query,
                 event_loop=loop,
@@ -80,6 +89,12 @@ class VideoService:
                 bot = None
 
         def _sync_run() -> Optional[Dict[str, Any]]:
+            # The lock belongs to the worker thread: a cancelled Telegram
+            # coroutine cannot cause overlapping renders.
+            with _thread_render_lock:
+                return _render()
+
+        def _render() -> Optional[Dict[str, Any]]:
             processor = NewsVideoProcessor(
                 callback_query=callback_query,
                 event_loop=loop,
@@ -124,48 +139,88 @@ class VideoService:
         self, url: str, fmt: str, config_path: str,
         progress_callback: Optional[Callable[[Dict], None]] = None
     ) -> str:
-        """All input modes share NewsVideoProcessor; the second rendering pipeline is retired."""
+        """Submit a complete idempotent job to one worker thread.
+
+        Cancellation of a Telegram request does not cancel/release the worker
+        or its durable state and will never permit a concurrent second upload.
+        """
+        return await asyncio.to_thread(
+            self._run_article_sync, url, fmt, config_path, progress_callback
+        )
+
+    @staticmethod
+    def _run_article_sync(
+        url: str, fmt: str, config_path: str,
+        progress_callback: Optional[Callable[[Dict], None]] = None
+    ) -> str:
         validate_public_url(url)
-        if await self._check_url_processed(url):
+        if is_url_processed(url):
             raise ValueError("This article URL has already been published.")
+
+        # SQLite BEGIN IMMEDIATE prevents two processes reserving this URL.
+        job_id = claim(url, fmt)
 
         def notify(message: str) -> None:
             if progress_callback:
-                progress_callback({"current_stage": {"message": message}})
+                try:
+                    progress_callback({"current_stage": {"message": message}})
+                except Exception:
+                    logger.exception("Progress callback failed; rendering will continue")
 
-        notify("Extracting article...")
-        article = await asyncio.to_thread(NewsExtractor().extract_article, url)
-        if not article or not getattr(article, "text", ""):
-            raise ValueError("Could not extract article content from URL")
-        topic = {
-            "title": (article.title or url)[:240],
-            "description": article.text[:6000],
-            "source": article.text[:6000],
-            "url": url,
-        }
+        try:
+            advance(job_id, "PREPARING")
+            notify("Extracting article...")
+            article = NewsExtractor().extract_article(url)
+            if not article or not getattr(article, "text", ""):
+                raise ValueError("Could not extract article content from URL")
+            topic = {
+                "title": (article.title or url)[:240],
+                "description": article.text[:6000],
+                "source": article.text[:6000],
+                "url": url,
+            }
 
-        def render():
-            processor = NewsVideoProcessor(config_file=config_path)
-            if fmt == "short":
-                return processor.process_latest_news_in_short_format(topic)
-            return processor.process_latest_news_in_long_format(topic)
+            notify("Producing video and audio...")
+            with _thread_render_lock:
+                processor = NewsVideoProcessor(config_file=config_path)
+                # Called immediately before an external upload. Once entered,
+                # uncertain results must be reconciled, never auto-retried.
+                processor.on_publish_start = lambda: advance(job_id, "UPLOADING")
+                if fmt == "short":
+                    result = processor.process_latest_news_in_short_format(topic)
+                else:
+                    result = processor.process_latest_news_in_long_format(topic)
 
-        notify("Producing video and audio...")
-        async with _render_lock:
-            result = await asyncio.to_thread(render)
-        if not result:
-            raise RuntimeError("Video generation did not return a result")
+            if not result:
+                raise RuntimeError("Video generation did not return a result")
 
-        await self._save_processed(topic)
-        notify("Video complete")
-        if result.get("local_path"):
-            return str(result["local_path"])
-        if result.get("platform") == "tiktok":
-            return "TikTok inbox transfer ID: " + str(result.get("publish_id"))
-        video_id = result.get("id")
-        if video_id:
-            return f"https://www.youtube.com/watch?v={video_id}"
-        raise RuntimeError("Publishing returned no video ID or local output")
+            if result.get("local_path"):
+                reference = str(result["local_path"])
+                if not __import__("os").path.isfile(reference):
+                    raise RuntimeError("Video output path does not exist")
+            elif result.get("platform") == "tiktok":
+                publish_id = result.get("publish_id")
+                if not publish_id:
+                    raise RuntimeError("TikTok did not return a transfer identifier")
+                reference = "TikTok inbox transfer ID: " + str(publish_id)
+            else:
+                video_id = result.get("id")
+                if not video_id:
+                    raise RuntimeError("YouTube did not return a video identifier")
+                reference = f"https://www.youtube.com/watch?v={video_id}"
+
+            # Commit the production outcome first. The legacy deduplication
+            # table is a secondary index and must not cause republishing.
+            complete(job_id, reference)
+            try:
+                save_processed_news(topic)
+            except Exception:
+                logger.exception("Failed to update legacy news index (job is still complete)")
+            notify("Video complete")
+            return reference
+        except BaseException as exc:
+            fail(job_id, str(exc))
+            raise
 
     @staticmethod
     async def _check_url_processed(url: str) -> bool:
