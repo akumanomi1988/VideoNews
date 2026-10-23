@@ -82,7 +82,9 @@ python -m scripts.cli --text-file article.txt --format short --style REALISM
 
 Set `VIDEO_RENDER_RESOLUTION=360p` for quick video previews, `720p` for
 drafts or `1080p` (default) for full resolution. Both 9:16 and 16:9 formats
-preserve their aspect ratio.
+preserve their aspect ratio. Set `VIDEO_SHORT_SCENES=8` (maximum 12) and
+`VIDEO_LONG_SCENES=18` (maximum 48) to cap media generation and its API costs.
+Scene order follows the generated script instead of being randomized.
 
 ## Run
 
@@ -154,7 +156,8 @@ pytest -q tests/test_runtime_config.py tests/test_telegram_auth.py tests/test_ur
 ```
 
 Additional `test_offline_render_integration.py` uses the real engine and FFmpeg to render playable vertical and horizontal MP4s with deterministic provider fixtures. It is run in the GitHub pull request workflow. These tests still do **not** replace an end-to-end render
-against real news, LLM, media and publishing APIs.
+against real news, LLM, media and publishing APIs. The Azure/OpenAI-compatible REST adapter uses
+HTTPS requests without requiring the separately installed OpenAI Python SDK.
 
 ## Security and operational notes
 
