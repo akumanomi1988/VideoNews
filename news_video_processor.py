@@ -96,6 +96,8 @@ class NewsVideoProcessor:
             azure_model=azure_img.get("model", "MAI-Image-2e"),
         )
         self.logger = logging.getLogger(__name__)
+        self.job_id = uuid.uuid4().hex
+        self.job_started_at = time.time()
         self.video_files: List[str] = []
         self.cover_path: Optional[str] = None
 
@@ -191,7 +193,6 @@ class NewsVideoProcessor:
         )
 
     @trace()
-    @trace()
     def cleanup_temp_folder(self) -> None:
         """
         Cleanup the temporary folder by deleting it and its contents.
@@ -220,14 +221,27 @@ class NewsVideoProcessor:
             )
 
     def _write_state(self, step: str, **extra) -> None:
-        state = {"step": step, "timestamp": time.time(), **extra}
+        """Persist per-job progress independently of disposable render files."""
+        state = {
+            "job_id": self.job_id,
+            "start_time": self.job_started_at,
+            "current_stage": {"message": step.replace("_", " ")},
+            "step": step,
+            "timestamp": time.time(),
+            "is_completed": step == "complete",
+            "is_failed": step == "failed",
+            **extra,
+        }
         try:
-            path = os.path.join(self.temp_dir, "process_state.json")
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
+            metrics_dir = os.getenv("METRICS_DIR", "metrics")
+            os.makedirs(metrics_dir, exist_ok=True)
+            destination = os.path.join(metrics_dir, f"{self.job_id}.json")
+            pending = destination + ".tmp"
+            with open(pending, "w", encoding="utf-8") as f:
                 json.dump(state, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            self.logger.warning(f"Failed to write process state: {e}")
+            os.replace(pending, destination)
+        except OSError as e:
+            self.logger.warning("Failed to write job state: %s", e)
 
     @staticmethod
     @trace()
@@ -514,6 +528,7 @@ class NewsVideoProcessor:
                 return youtube_response
         except Exception as e:
             self.logger.error(f"Short format processing failed: {e}")
+            self._write_state("failed", error=str(e))
             self.send_progress(f"❌ *Process Failed*\n\nError: `{str(e)}`")
             self.logger.warning(f"Temp files preserved in {self.temp_dir!r} for analysis")
             return None
@@ -553,7 +568,7 @@ class NewsVideoProcessor:
 
                 article, phrases, title, description, tags, cover_text, cover_image = \
                     self.article_generator.generate_article_and_phrases_long(
-                        f"{topic['title']}\\nSource material: {topic.get('source') or topic.get('description', '')[:6000]}"
+                        f"{topic['title']}\nSource material: {topic.get('source') or topic.get('description', '')[:6000]}"
                     )
 
                 if not article:
@@ -658,6 +673,7 @@ class NewsVideoProcessor:
                 return youtube_response
         except Exception as e:
             self.logger.error(f"Long format processing failed: {e}")
+            self._write_state("failed", error=str(e))
             self.send_progress(f"❌ *Process Failed*\n\nError: `{str(e)}`")
             self.logger.warning(f"Temp files preserved in {self.temp_dir!r} for analysis")
             return None
