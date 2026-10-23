@@ -87,7 +87,16 @@ class NewsVideoProcessor:
             api_key=self.config[CONFIG_PEXELS]['api_key'],
             temp_dir=self.temp_dir
         )
-        self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
+        self.tts_provider = TTSProvider(os.getenv("TTS_PROVIDER", "edge").lower())
+        if self.tts_provider == TTSProvider.ELEVENLABS:
+            credentials = os.getenv("ELEVENLABS_ACCOUNTS_FILE", "elevenlabsaccounts.payload.json")
+            self.tts = TTSFactory(TTSProvider.ELEVENLABS, credentials_path=credentials,
+                                  quota_min=int(os.getenv("ELEVENLABS_MIN_QUOTA", "100")))
+        elif self.tts_provider == TTSProvider.BARK:
+            self.tts = TTSFactory(TTSProvider.BARK, output_dir=self.temp_dir,
+                                  optimize_for_low_vram=os.getenv("BARK_LOW_VRAM", "false").lower() == "true")
+        else:
+            self.tts = TTSFactory(TTSProvider.EDGE, output_dir=self.temp_dir)
         azure_img = self.config.get("azure_images", {})
         self.image_generator = FluxImageGenerator(
             output_dir=self.temp_dir,
@@ -139,6 +148,55 @@ class NewsVideoProcessor:
             base_dir, "jobs", uuid.uuid4().hex
         )
         return config
+
+    def _synthesize(self, text: str, *, word_boundaries: bool = False) -> str:
+        """Generate narration and an SRT file for any configured TTS provider."""
+        options = self.config[CONFIG_TTS_EDGE]
+        subtitle_path = os.path.join(self.temp_dir, "subtitles.srt")
+        language = options.get("language", "es")
+        if self.tts_provider == TTSProvider.EDGE:
+            return self.tts.text_to_speech_file(
+                text,
+                voice=options["voice"],
+                language=language,
+                srt_path=subtitle_path,
+                rate=options.get("speech_rate_adjustment", 0),
+                pitch=options.get("pitch_adjustment", 0),
+                boundary_type="WordBoundary" if word_boundaries else "SentenceBoundary",
+            )
+        if self.tts_provider == TTSProvider.ELEVENLABS:
+            audio_path = self.tts.text_to_speech_file(text, output_dir=self.temp_dir)
+        else:
+            audio_path = self.tts.text_to_speech_file(
+                text, language=language,
+                voice=os.getenv("BARK_VOICE", "v2/es_speaker_3"),
+            )
+        self._write_estimated_srt(text, audio_path, subtitle_path)
+        return audio_path
+
+    @staticmethod
+    def _write_estimated_srt(text: str, audio_path: str, subtitle_path: str) -> None:
+        """Duration-weighted fallback for providers without word-boundary events."""
+        from pydub import AudioSegment
+        duration = len(AudioSegment.from_file(audio_path)) / 1000.0
+        words = text.split()
+        if not words or duration <= 0:
+            raise ValueError("Cannot create subtitles for empty narration")
+        def timestamp(seconds: float) -> str:
+            milliseconds = round(seconds * 1000)
+            h, rem = divmod(milliseconds, 3600000)
+            m, rem = divmod(rem, 60000)
+            sec, ms = divmod(rem, 1000)
+            return f"{h:02}:{m:02}:{sec:02},{ms:03}"
+        with open(subtitle_path, "w", encoding="utf-8") as out:
+            for start in range(0, len(words), 8):
+                end = min(start + 8, len(words))
+                out.write(
+                    f"{start // 8 + 1}\\n"
+                    f"{timestamp(duration * start / len(words))} --> "
+                    f"{timestamp(duration * end / len(words))}\\n"
+                    f"{' '.join(words[start:end])}\\n\\n"
+                )
 
     def _publish(self, output_file: str, title: str, description: str,
                  tags: List[str]) -> Dict[str, Any]:
@@ -462,14 +520,7 @@ class NewsVideoProcessor:
                 )
 
                 subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
-                audio_path = self.tts.text_to_speech_file(
-                    article,
-                    voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
-                    srt_path=subtitle_path,
-                    rate=self.config[CONFIG_TTS_EDGE].get('speech_rate_adjustment', 0),
-                    pitch=self.config[CONFIG_TTS_EDGE].get('pitch_adjustment', 0),
-                )
+                audio_path = self._synthesize(article)
 
                 self._write_state("audio_ready", subtitle_path=subtitle_path, audio_path=audio_path)
 
@@ -602,15 +653,7 @@ class NewsVideoProcessor:
                     "_Generating clear voiceover..._"
                 )
 
-                audio_path = self.tts.text_to_speech_file(
-                    article,
-                    voice=self.config[CONFIG_TTS_EDGE]['voice'],
-                    language=self.config[CONFIG_TTS_EDGE].get('language', 'es'),
-                    srt_path=os.path.join(self.temp_dir, 'subtitles.srt'),
-                    rate=self.config[CONFIG_TTS_EDGE].get('speech_rate_adjustment', 0),
-                    pitch=self.config[CONFIG_TTS_EDGE].get('pitch_adjustment', 0),
-                    boundary_type="WordBoundary",
-                )
+                audio_path = self._synthesize(article, word_boundaries=True)
 
                 subtitle_path = os.path.join(self.temp_dir, 'subtitles.srt')
                 processor = SRTProcessor(subtitle_path, max_duration=4.0, max_words=8, pause_threshold=0.3)
