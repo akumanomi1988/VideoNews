@@ -218,6 +218,8 @@ async def news_selection_handler(update: Update, context: CallbackContext) -> No
 
 @trace()
 def format_youtube_message(response: Optional[Dict[str, Any]]) -> str:
+    if isinstance(response, dict) and response.get('local_path'):
+        return f"Video generado en el servidor: {response['local_path']} (sin publicar en YouTube)."
     if not response or not isinstance(response, dict) or 'snippet' not in response or 'id' not in response:
         logger.warning(f"Invalid response structure for formatting YouTube message: {response}")
         return "Could not format YouTube message: Invalid or empty response structure from video processing."

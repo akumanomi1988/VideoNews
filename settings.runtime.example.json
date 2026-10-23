@@ -1,0 +1,44 @@
+{
+  "settings": {
+    "temp_dir": ".videonews-tmp",
+    "output_dir": "output",
+    "parallel_workers": 2,
+    "images_per_minute": 12
+  },
+  "serpapi": {
+    "api_key": "",
+    "use_cache": true,
+    "cache_ttl_hours": 24,
+    "cache_dir": ".videonews-tmp/cache/serpapi"
+  },
+  "pexels": {
+    "api_key": ""
+  },
+  "huggingface": {
+    "api_key": ""
+  },
+  "youtube": {
+    "credentials_file": "secrets/client_secret.json",
+    "enabled": false
+  },
+  "article_settings": {
+    "language": "es",
+    "model": "nemotron-3-super:cloud"
+  },
+  "tts_edge": {
+    "voice": "es-ES-ElviraNeural",
+    "language": "es"
+  },
+  "azure_images": {
+    "endpoint": "",
+    "api_key": "",
+    "model": "MAI-Image-2e"
+  },
+  "video_result": {
+    "background_music": ""
+  },
+  "llm": {
+    "providers": []
+  },
+  "upload_type": "local"
+}

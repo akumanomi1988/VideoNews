@@ -69,7 +69,8 @@ class PipelineContainer(Container):
         normalized: Dict[str, Any] = {}
 
         settings = config.get("settings", {})
-        normalized["temp_dir"] = config.get("temp_dir") or settings.get("temp_dir", ".temp")
+        normalized["temp_dir"] = config.get("temp_dir") or settings.get("temp_dir", ".videonews-tmp")
+        normalized["output_dir"] = settings.get("output_dir", "output")
         normalized["media_source"] = settings.get("media_source", "huggingface")
 
         pexels = config.get("pexels", {})
@@ -110,7 +111,7 @@ class PipelineContainer(Container):
         tiktok = config.get("tiktok", {})
         normalized["tiktok_session"] = tiktok.get("session_file", "")
 
-        normalized["upload_type"] = config.get("upload_type", "youtube")
+        normalized["upload_type"] = config.get("upload_type", "local")
         normalized["background_music"] = config.get("video_result", {}).get("background_music", "")
 
         # Pass through any unrecognized keys for compat
@@ -181,9 +182,12 @@ class PipelineContainer(Container):
         
         # Set up video uploader based on configuration
         def uploader_factory(**kwargs):
-            upload_type = self.config.get('upload_type', 'youtube')
+            upload_type = self.config.get('upload_type', 'local')
             
-            if upload_type == 'youtube':
+            if upload_type == 'local':
+                from ..services.local_uploader import LocalVideoUploader
+                return LocalVideoUploader(output_dir=self.config['output_dir'])
+            elif upload_type == 'youtube':
                 from ..services.youtube_uploader import YoutubeUploader
                 return YoutubeUploader(
                     credentials_path=self.config['youtube_credentials'],
@@ -209,15 +213,20 @@ class PipelineContainer(Container):
         from ..pipeline import VideoProcessingPipeline, ShortFormPipeline, LongFormPipeline
         
         # Resolve dependencies
-        news_processor = self.resolve(
-            NewsProcessor,
-            language=self.config.get("article_language", "en"),
+        from ..services.news_service import ShortFormProcessor
+        processor_cls = ShortFormProcessor if pipeline_type == 'short' else NewsService
+        news_processor = processor_cls(
+            language=self.config.get("article_language", "es"),
             model=self.config.get("article_model", "nemotron-3-super:cloud"),
             providers=self.config.get("llm_providers", []),
         )
         media_generator = self.resolve(MediaGenerator)
         tts_service = self.resolve(TextToSpeech)
-        video_assembler = self.resolve(VideoAssembler)
+        video_assembler = self.resolve(
+            VideoAssembler,
+            aspect_ratio='9:16' if pipeline_type == 'short' else '16:9',
+            background_music=self.config.get('background_music') or None,
+        )
         video_uploader = self.resolve(VideoUploader)
         storage = self.resolve(StorageManager)
         

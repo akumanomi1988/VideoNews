@@ -24,6 +24,8 @@ from scripts.helpers.media_helper import ImageHelper, Position, Style
 from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
 from scripts.utils.app_logger import trace
 from scripts.utils.rate_limiter import RateLimiter
+from scripts.runtime_config import load_runtime_config
+from pathlib import Path
 
 # Initialize Colorama
 init(autoreset=True)
@@ -66,7 +68,10 @@ class NewsVideoProcessor:
                 self._bot = None
         self.config_file = config_file
         self.config = self._load_configuration()
-        self.temp_dir = self.config[CONFIG_SETTINGS]['temp_dir']
+        # A unique per-job workspace prevents one render deleting another's assets.
+        base_dir = Path(self.config[CONFIG_SETTINGS]['temp_dir'])
+        self.temp_dir = str(base_dir / 'jobs' / uuid.uuid4().hex)
+        os.makedirs(self.temp_dir, exist_ok=True)
         self.parallel_workers = self.config[CONFIG_SETTINGS].get('parallel_workers', 6)
         images_per_minute = self.config[CONFIG_SETTINGS].get('images_per_minute', 20)
         self._img_rate_limiter = RateLimiter(images_per_minute, 60.0) if images_per_minute and images_per_minute > 0 else None
@@ -96,9 +101,12 @@ class NewsVideoProcessor:
             azure_api_key=azure_img.get("api_key"),
             azure_model=azure_img.get("model", "MAI-Image-2e"),
         )
-        self.youtube_uploader = YoutubeMediaUploader(
-            client_secrets_file=self.config[CONFIG_YOUTUBE]['credentials_file'],
-            channel_description=""
+        self.youtube_uploader = (
+            YoutubeMediaUploader(
+                client_secrets_file=self.config[CONFIG_YOUTUBE]['credentials_file'],
+                channel_description=""
+            )
+            if self.config.get('youtube', {}).get('enabled') else None
         )
         self.logger = logging.getLogger(__name__)
         self.video_files: List[str] = []
@@ -135,57 +143,34 @@ class NewsVideoProcessor:
 
     @trace()
     def _load_configuration(self) -> Dict[str, Any]:
-        """
-        Load the configuration from the specified JSON file.
-
-        Returns:
-            dict: Loaded configuration.
-        """
-        if not os.path.exists(self.config_file):
-            self.send_progress(
-                "⚠️ *Configuration Error*\n\n"
-                "Configuration file not found.\n"
-                "_Please use the configuration editor._"
-            )
-            raise FileNotFoundError("Configuration file not found.")
-
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as file:
-                config = json.load(file)
-        except json.JSONDecodeError:
-            self.send_progress(
-                "❌ *Invalid Configuration*\n\n"
-                "The configuration file is corrupted.\n"
-                "_Please check the JSON format._"
-            )
-            raise
-
-        missing = []
-        checks = {
-            CONFIG_SETTINGS: ['temp_dir'],
-            CONFIG_SERPAPI: ['api_key'],
-            CONFIG_PEXELS: ['api_key'],
-            CONFIG_HUGGINGFACE: ['api_key'],
-            CONFIG_YOUTUBE: ['credentials_file'],
-            CONFIG_ARTICLE_SETTINGS: ['language', 'model'],
-        }
-        for section, keys in checks.items():
-            s = config.get(section, {})
-            for k in keys:
-                if not s.get(k):
-                    missing.append(f"{section}.{k}")
-        if missing:
-            raise ValueError(
-                f"Missing required configuration keys: {', '.join(missing)}. "
-                f"Check settings.json."
-            )
-
-        self.send_progress(
-            "✅ *System Ready*\n\n"
-            "Configuration loaded successfully\n"
-            "_Starting process..._"
-        )
+        """Load safe defaults, user settings and environment overrides."""
+        config = load_runtime_config(self.config_file)
+        settings = config.get(CONFIG_SETTINGS, {})
+        article = config.get(CONFIG_ARTICLE_SETTINGS, {})
+        if not settings.get('temp_dir') or not article.get('language') or not article.get('model'):
+            raise ValueError('Missing settings.temp_dir or article_settings.language/model')
+        if config.get('youtube', {}).get('enabled'):
+            credentials = config.get(CONFIG_YOUTUBE, {}).get('credentials_file')
+            if not credentials or not Path(credentials).is_file():
+                raise FileNotFoundError('Set YOUTUBE_CREDENTIALS_FILE to a valid local OAuth file')
         return config
+
+    def _finalize_video(self, video_path: str, title: str, description: str, tags: List[str]) -> Dict[str, Any]:
+        """Publish only with explicit opt-in; otherwise preserve a local artifact."""
+        if self.youtube_uploader is not None:
+            return self.youtube_uploader.upload(
+                video_path, title=title[:80], thumbnail_path=self.cover_path,
+                description=description, tags=tags,
+            )
+        output_dir = Path(self.config[CONFIG_SETTINGS].get('output_dir', 'output'))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        destination = output_dir / f"{uuid.uuid4().hex[:10]}_{Path(video_path).name}"
+        shutil.copy2(video_path, destination)
+        if self.cover_path and Path(self.cover_path).is_file():
+            shutil.copy2(self.cover_path, destination.with_suffix('.jpg'))
+        self.logger.info('Video saved locally: %s', destination)
+        return {'status': 'created', 'local_path': str(destination.resolve()), 'id': '',
+                'snippet': {'title': title, 'description': description}}
 
     @trace()
     def cleanup_temp_folder(self) -> None:
@@ -497,13 +482,7 @@ class NewsVideoProcessor:
                 )
 
                 description += '\n' + topic['title']
-                youtube_response = self.youtube_uploader.upload(
-                    output_file,
-                    title=title[:80],
-                    thumbnail_path=self.cover_path,
-                    description=description,
-                    tags=tags
-                )
+                youtube_response = self._finalize_video(output_file, title, description, tags)
 
                 self.send_progress(
                     "✨ *Process Complete*\n\n"
@@ -645,13 +624,7 @@ class NewsVideoProcessor:
                 )
 
                 description += '\n' + topic['title']
-                youtube_response = self.youtube_uploader.upload(
-                    output_file,
-                    title=title[:80],
-                    thumbnail_path=self.cover_path,
-                    description=description,
-                    tags=tags
-                )
+                youtube_response = self._finalize_video(output_file, title, description, tags)
 
                 self.send_progress(
                     "🌟 *Upload Complete*\n\n"

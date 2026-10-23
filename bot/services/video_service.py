@@ -9,6 +9,14 @@ from news_video_processor import NewsVideoProcessor
 from scripts.DataFetcher.viral_news_agent import NewsProcessor
 from scripts.dbControllers.processed_news_controller import is_url_processed, save_processed_news
 from scripts.factory import PipelineFactory
+from scripts.runtime_config import load_runtime_config
+from threading import Lock
+from uuid import uuid4
+from pathlib import Path
+
+# Protect shared legacy/FFmpeg/Whisper resources. A timed-out to_thread call
+# continues running; the lock remains held until it really finishes.
+_RENDER_LOCK = Lock()
 from scripts.utils.app_logger import trace
 
 logger = logging.getLogger(__name__)
@@ -42,6 +50,10 @@ class VideoService:
                 bot = None
 
         def _sync_run() -> Optional[Dict[str, Any]]:
+            with _RENDER_LOCK:
+                return _run_legacy_short()
+
+        def _run_legacy_short() -> Optional[Dict[str, Any]]:
             processor = NewsVideoProcessor(
                 callback_query=callback_query,
                 event_loop=loop,
@@ -80,6 +92,10 @@ class VideoService:
                 bot = None
 
         def _sync_run() -> Optional[Dict[str, Any]]:
+            with _RENDER_LOCK:
+                return _run_legacy_long()
+
+        def _run_legacy_long() -> Optional[Dict[str, Any]]:
             processor = NewsVideoProcessor(
                 callback_query=callback_query,
                 event_loop=loop,
@@ -126,14 +142,18 @@ class VideoService:
         progress_callback: Optional[Callable[[Dict], None]] = None
     ) -> str:
         def _sync_run() -> str:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            factory = PipelineFactory()
-            pipeline = factory.create_pipeline_from_config(
-                config, pipeline_type=fmt, skip_validation=True,
-                progress_callback=progress_callback
-            )
-            return pipeline.execute({"url": url})
+            with _RENDER_LOCK:
+                config = load_runtime_config(config_path)
+                # Modular and legacy paths receive isolated work directories.
+                config["settings"]["temp_dir"] = str(
+                    Path(config["settings"]["temp_dir"]) / "jobs" / uuid4().hex
+                )
+                factory = PipelineFactory()
+                pipeline = factory.create_pipeline_from_config(
+                    config, pipeline_type=fmt, skip_validation=True,
+                    progress_callback=progress_callback
+                )
+                return pipeline.execute({"url": url})
 
         try:
             return await asyncio.wait_for(
@@ -170,9 +190,7 @@ class VideoService:
             logger.log(level, "ViralNewsProcessing: %s", text)
 
         try:
-            config = await asyncio.to_thread(
-                lambda: json.load(open(config_file_path, "r", encoding="utf-8"))
-            )
+            config = await asyncio.to_thread(load_runtime_config, config_file_path)
         except FileNotFoundError:
             logger.error("Configuration file '%s' not found for viral news.", config_file_path)
             await send_msg(

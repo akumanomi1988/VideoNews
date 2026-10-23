@@ -52,6 +52,8 @@ class VideoProcessingPipeline(ProcessingPipeline):
     @trace()
     def execute(self, input_data: Dict[str, Any]) -> str:
         """Execute the complete video processing pipeline with monitoring"""
+        if not input_data.get('url'):
+            raise VideoProcessingError('A news URL is required')
         stats = self.monitor.start_monitoring(self.__class__.__name__)
         media_info = {
             'media_generated': 0,
@@ -81,7 +83,8 @@ class VideoProcessingPipeline(ProcessingPipeline):
                     path = self.media_generator.generate_media(
                         prompt,
                         style=input_data.get('style', 'default'),
-                        aspect_ratio=input_data.get('aspect_ratio', '16:9')
+                        aspect_ratio=input_data.get('aspect_ratio', '16:9'),
+                        orientation='portrait' if input_data.get('format') == 'short' else 'landscape'
                     )
                     if path:
                         media_paths.append(path)
@@ -175,12 +178,8 @@ class ShortFormPipeline(VideoProcessingPipeline):
     @trace()
     def execute(self, input_data: Dict[str, Any]) -> str:
         """Execute pipeline for short-form content"""
-        input_data.update({
-            'format': 'short',
-            'aspect_ratio': '9:16',
-            'duration_target': 60  # Target 60 seconds for short form
-        })
-        return super().execute(input_data)
+        return super().execute({**input_data, 'format': 'short',
+                                'aspect_ratio': '9:16', 'duration_target': 60})
 
 class LongFormPipeline(VideoProcessingPipeline):
     """Pipeline optimized for long-form horizontal videos"""
@@ -188,9 +187,5 @@ class LongFormPipeline(VideoProcessingPipeline):
     @trace()
     def execute(self, input_data: Dict[str, Any]) -> str:
         """Execute pipeline for long-form content"""
-        input_data.update({
-            'format': 'long',
-            'aspect_ratio': '16:9',
-            'duration_target': 600  # Target 10 minutes for long form
-        })
-        return super().execute(input_data)
+        return super().execute({**input_data, 'format': 'long',
+                                'aspect_ratio': '16:9', 'duration_target': 600})

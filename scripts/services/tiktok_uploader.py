@@ -1,24 +1,12 @@
-from typing import Optional
-import logging
-
+"""TikTok publishing is deliberately disabled until a real OAuth flow exists."""
 from ..interfaces import VideoUploader, VideoMetadata
-from ..Uploaders.tiktok_uploader import TiktokMediaUploader as TiktokMediaUploaderImpl
-from ..utils.app_logger import trace
 
 
 class TiktokUploader(VideoUploader):
-    """Adapter that wraps TiktokMediaUploader for the VideoUploader protocol"""
-
-    @trace()
-    def __init__(self, session_file: Optional[str] = None):
-        self.logger = logging.getLogger(__name__)
-        self._uploader = TiktokMediaUploaderImpl(
-            client_id="",
-            client_secret="",
-            redirect_uri="",
+    def __init__(self, session_file=None):
+        raise NotImplementedError(
+            "TikTok OAuth is not configured. Select local or YouTube output instead."
         )
 
-    @trace()
     def upload(self, video_path: str, metadata: VideoMetadata) -> str:
-        self._uploader.upload_media(video_path)
-        return ""
+        raise NotImplementedError("TikTok publishing is not implemented")

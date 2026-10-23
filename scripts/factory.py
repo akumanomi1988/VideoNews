@@ -79,7 +79,7 @@ class PipelineFactory:
             # Setup temp directory (handle both flat and settings.json nested formats)
             temp_dir = Path(
                 config.get('temp_dir')
-                or config.get('settings', {}).get('temp_dir', '.temp')
+                or config.get('settings', {}).get('temp_dir', '.videonews-tmp')
             )
             temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -90,9 +90,9 @@ class PipelineFactory:
             (cache_dir / 'composite').mkdir(parents=True, exist_ok=True)
 
             # Setup output directories based on uploader type
-            if config.get('upload_type', 'youtube') == 'youtube':
+            if config.get('upload_type', 'local') == 'youtube':
                 (temp_dir / 'youtube').mkdir(parents=True, exist_ok=True)
-            elif config['upload_type'] == 'tiktok':
+            elif config.get('upload_type') == 'tiktok':
                 (temp_dir / 'tiktok').mkdir(parents=True, exist_ok=True)
 
         except Exception as e:
