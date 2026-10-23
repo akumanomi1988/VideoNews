@@ -1,7 +1,9 @@
-name: Manual lightweight verification
+name: Lightweight verification
 
-# No automatic GitHub Actions usage. Run manually only when CI minutes permit.
+# Verify proposed changes before merging; fast offline suite without external API calls.
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
