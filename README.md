@@ -159,6 +159,36 @@ Additional `test_offline_render_integration.py` uses the real engine and FFmpeg 
 against real news, LLM, media and publishing APIs. The Azure/OpenAI-compatible REST adapter uses
 HTTPS requests without requiring the separately installed OpenAI Python SDK.
 
+## Durable job recovery and duplicate protection
+
+URL and viral modes reserve each article URL in an on-disk SQLite database
+(`VIDEO_JOBS_DB`, default `videonews_jobs.sqlite3`). Parallel attempts
+cannot publish a story twice. Successful local or remote outcomes are
+recorded before updating the legacy article index.
+
+Network interruption after an external upload starts is **not** retried
+automatically: the job remains `NEEDS_REVIEW` until the operator checks
+YouTube or TikTok for the actual video. This avoids accidental duplicate posts.
+Interrupted `RESERVED`/`PREPARING` jobs are also blocked until reconciled.
+
+```sh
+python -m scripts.jobs_cli pending
+python -m scripts.jobs_cli inspect https://example.com/story
+# After independently finding the uploaded video:
+python -m scripts.jobs_cli resolve https://example.com/story --published --reference VIDEO_URL --confirm VERIFIED
+# Only after verifying that no video was published:
+python -m scripts.jobs_cli resolve https://example.com/story --not-published --confirm VERIFIED
+```
+
+For Docker, bind-mount a persistent directory and set
+`VIDEO_JOBS_DB=/app/data/videonews_jobs.sqlite3`. Back up this file;
+losing it can re-enable duplicate uploads. YouTube uploads use
+`VIDEO_YOUTUBE_PRIVACY=private` by default; set `public` explicitly
+after editorial review. Real external API and cross-machine recovery
+testing are still outstanding. The registry prevents duplicates but
+is not yet a durable scheduling queue that automatically resumes an
+unfinished video render.
+
 ## Security and operational notes
 
 1. **Rotate any NewsAPI/Pexels keys previously committed in

@@ -90,6 +90,11 @@ def audit(mode: str = "cli") -> list[dict]:
         else:
             add("publishing_platform", False, "required", "Use youtube or tiktok")
 
+    from scripts.job_registry import review_required
+    pending = review_required()
+    add("job_reconciliation", not pending, "optional",
+        f"{len(pending)} unresolved job(s); run python -m scripts.jobs_cli pending")
+
     return checks
 
 
