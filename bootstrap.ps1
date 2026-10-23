@@ -32,13 +32,13 @@ if ($LASTEXITCODE -ne 0 -or $encoders -notmatch '\blibx264\b') {
 $venvPython = Join-Path $root '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $venvPython)) {
     if (Get-Command py -ErrorAction SilentlyContinue) {
-        Invoke-Checked 'py' @('-3.11', '-m', 'venv', '.venv')
+        Invoke-Checked -program 'py' -arguments @('-3.11', '-m', 'venv', '.venv')
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
         $version = (& python -c 'import sys; print("{}.{}".format(*sys.version_info[:2]))').Trim()
         if ($LASTEXITCODE -ne 0 -or $version -ne '3.11') {
             throw 'Install Python 3.11 (winget install -e --id Python.Python.3.11).'
         }
-        Invoke-Checked 'python' @('-m', 'venv', '.venv')
+        Invoke-Checked -program 'python' -arguments @('-m', 'venv', '.venv')
     } else {
         throw 'Install Python 3.11 (winget install -e --id Python.Python.3.11).'
     }
@@ -49,8 +49,8 @@ if ($LASTEXITCODE -ne 0 -or $venvVersion -ne '3.11') {
     throw "Existing .venv uses Python $venvVersion. Rename .venv and rerun installer."
 }
 
-Invoke-Checked $venvPython @('-m', 'pip', 'install', '--upgrade', 'pip')
-Invoke-Checked $venvPython @('-m', 'pip', 'install', '-e', '.[dev]')
+Invoke-Checked -program $venvPython -arguments @('-m', 'pip', 'install', '--upgrade', 'pip')
+Invoke-Checked -program $venvPython -arguments @('-m', 'pip', 'install', '-e', '.[dev]')
 $envPath = Join-Path $root '.env'
 if (-not (Test-Path -LiteralPath $envPath)) {
     Copy-Item -LiteralPath (Join-Path $root '.env.example') -Destination $envPath
@@ -62,9 +62,9 @@ foreach ($folder in @('output', 'metrics', '.temp', '.secrets')) {
     New-Item -ItemType Directory -Path (Join-Path $root $folder) -Force | Out-Null
 }
 
-Invoke-Checked $venvPython @('-c', 'import bot.main; import news_video_processor; import scripts.cli; print("Python imports OK")')
+Invoke-Checked -program $venvPython -arguments @('-c', 'import bot.main; import news_video_processor; import scripts.cli; print("Python imports OK")')
 if (-not $SkipTests) {
-    Invoke-Checked $venvPython @('-m', 'pytest', '-q')
+    Invoke-Checked -program $venvPython -arguments @('-m', 'pytest', '-q')
 }
 Write-Host 'Windows installation complete.' -ForegroundColor Green
 Write-Host 'Configure .env and keep VIDEO_UPLOAD_ENABLED=false for your first render.'

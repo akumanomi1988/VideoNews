@@ -24,7 +24,55 @@ Also includes optional visual styles, automatic thumbnail generation, narration,
 SRT subtitles, FFmpeg video assembly, local exports, YouTube uploads, TikTok
 creator inbox transfers, SQLite deduplication and a lightweight monitoring UI.
 
-## Installation (recommended)
+## Windows 10/11 — instalación principal
+
+Windows es la plataforma principal. No necesitas WSL, Docker, ImageMagick
+para el renderizado FFmpeg principal ni activar manualmente el entorno virtual.
+
+Desde PowerShell instala Git, **Python 3.11** y FFmpeg (build completa con
+filtros `libass/subtitles` y codificador `libx264`):
+
+```powershell
+winget install -e --id Git.Git
+winget install -e --id Python.Python.3.11
+winget install -e --id Gyan.FFmpeg
+```
+
+Cierra y abre de nuevo PowerShell para actualizar PATH. Comprueba
+`py -3.11 --version`, `ffmpeg -version` y `ffprobe -version`.
+Instala VideoNews con **un solo script**, que valida las dependencias y ejecuta
+pruebas de verdad en Windows, incluidos vídeos MP4 de 9:16 y 16:9:
+
+```powershell
+git clone https://github.com/akumanomi1988/VideoNews.git
+cd VideoNews
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+notepad .env
+```
+
+El instalador selecciona Python 3.11, crea `.venv`, comprueba los códecs
+de FFmpeg, instala dependencias, crea `.env` solo si no existe, conserva las
+credenciales existentes y ejecuta `pytest`. Para reinstalar dependencias sin
+repetir tests, ejecuta `bootstrap.ps1 -SkipTests`. No descarga modelos pesados
+de IA ni añade claves de API ficticias.
+
+Para el primer vídeo, configura un proveedor LLM real en `.env` (por ejemplo,
+`OLLAMA_ENABLED=false` y `GROQ_API_KEY=...`, o un modelo Ollama accesible).
+Mantén `VIDEO_UPLOAD_ENABLED=false`; usa `VIDEO_RENDER_RESOLUTION=360p`
+para una prueba rápida. Ejecuta:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.doctor --mode cli
+.\.venv\Scripts\python.exe -m scripts.cli --title "VideoNews prueba local" --format short
+.\.venv\Scripts\python.exe -m scripts.cli --title "VideoNews prueba local" --format long
+```
+
+Los MP4 se guardan en `output`. TTS Edge y cualquier servicio externo
+requieren internet; las publicaciones reales YouTube/TikTok requieren credenciales
+y una verificación separada. La CI de Windows usa el mismo instalador PowerShell
+y comprueba los renderizados reales también en rutas con espacios y caracteres Unicode.
+
+## Instalación alternativa (Linux/macOS)
 
 Requires **Python 3.11** and **FFmpeg** available in PATH. For some legacy text
 effects, ImageMagick may also be needed.
