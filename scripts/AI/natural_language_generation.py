@@ -32,7 +32,7 @@ class LLMProvider:
             if ptype == "ollama":
                 import ollama as _ollama
                 endpoint = config.get("endpoint", "http://localhost:11434")
-                client = _ollama.Client(host=endpoint)
+                client = _ollama.Client(host=endpoint, timeout=config.get("timeout", 60))
                 self._clients.append(("ollama", model, client, config))
                 self.logger.info("Ollama provider ready (%s @ %s)", model, endpoint)
 
@@ -78,7 +78,6 @@ class LLMProvider:
                         messages=[{"role": "user", "content": prompt}],
                         options={"num_predict": kwargs.get("max_tokens", 8192)},
                         format="json",
-                        timeout=timeout,
                     )
                     return resp["message"]["content"]
 
