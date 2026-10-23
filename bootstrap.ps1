@@ -1,45 +1,72 @@
-# bootstrap.ps1 — VideoNews environment setup
-# Run: powershell -ExecutionPolicy Bypass -File bootstrap.ps1
+# VideoNews: Windows-first installer (PowerShell 5.1+)
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+[CmdletBinding()]
+param([switch]$SkipTests)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location -LiteralPath $root
 
-$ErrorActionPreference = "Stop"
-$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location -LiteralPath $ProjectRoot
-
-Write-Host "=== VideoNews Bootstrap ===" -ForegroundColor Cyan
-Write-Host "Python: $(python --version)" -ForegroundColor Green
-
-# 1. Create virtual environment
-if (-not (Test-Path ".venv")) {
-    Write-Host "Creating .venv..." -ForegroundColor Yellow
-    python -m venv .venv
+function Invoke-Checked {
+    param([string]$program, [string[]]$arguments)
+    & $program @arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$program returned exit code $LASTEXITCODE ($($arguments -join ' '))"
+    }
 }
 
-# 2. Upgrade pip
-$pip = Join-Path $ProjectRoot ".venv" "Scripts" "pip"
-& $pip install --upgrade pip setuptools wheel
+Write-Host 'VideoNews - Windows installation' -ForegroundColor Cyan
+if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or
+    -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+    throw 'FFmpeg + ffprobe missing in PATH. Install with: winget install -e --id Gyan.FFmpeg, then restart PowerShell.'
+}
+$filters = (& ffmpeg -hide_banner -filters 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or $filters -notmatch '\bsubtitles\b') {
+    throw 'FFmpeg is missing the libass subtitles filter. Use a full FFmpeg build.'
+}
+$encoders = (& ffmpeg -hide_banner -encoders 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or $encoders -notmatch '\blibx264\b') {
+    throw 'FFmpeg is missing the libx264 encoder. Use a full FFmpeg build.'
+}
 
-# 3. Install project
-Write-Host "Installing project dependencies..." -ForegroundColor Yellow
-& $pip install -e ".[dev]"
+$venvPython = Join-Path $root '.venv\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $venvPython)) {
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        Invoke-Checked 'py' @('-3.11', '-m', 'venv', '.venv')
+    } elseif (Get-Command python -ErrorAction SilentlyContinue) {
+        $version = (& python -c 'import sys; print("{}.{}".format(*sys.version_info[:2]))').Trim()
+        if ($LASTEXITCODE -ne 0 -or $version -ne '3.11') {
+            throw 'Install Python 3.11 (winget install -e --id Python.Python.3.11).'
+        }
+        Invoke-Checked 'python' @('-m', 'venv', '.venv')
+    } else {
+        throw 'Install Python 3.11 (winget install -e --id Python.Python.3.11).'
+    }
+}
+if (-not (Test-Path -LiteralPath $venvPython)) { throw 'Virtual environment creation failed.' }
+$venvVersion = (& $venvPython -c 'import sys; print("{}.{}".format(*sys.version_info[:2]))').Trim()
+if ($LASTEXITCODE -ne 0 -or $venvVersion -ne '3.11') {
+    throw "Existing .venv uses Python $venvVersion. Rename .venv and rerun installer."
+}
 
-# 4. Install akumaimageeffect with --no-deps (Pillow conflict workaround)
-Write-Host "Installing akumaimageeffect (no-deps)..." -ForegroundColor Yellow
-& $pip install akumaimageeffect --no-deps
+Invoke-Checked $venvPython @('-m', 'pip', 'install', '--upgrade', 'pip')
+Invoke-Checked $venvPython @('-m', 'pip', 'install', '-e', '.[dev]')
+$envPath = Join-Path $root '.env'
+if (-not (Test-Path -LiteralPath $envPath)) {
+    Copy-Item -LiteralPath (Join-Path $root '.env.example') -Destination $envPath
+    Write-Host 'Created .env. Add your own API credentials.' -ForegroundColor Yellow
+} else {
+    Write-Host 'Preserved existing .env file.' -ForegroundColor Green
+}
+foreach ($folder in @('output', 'metrics', '.temp', '.secrets')) {
+    New-Item -ItemType Directory -Path (Join-Path $root $folder) -Force | Out-Null
+}
 
-# 5. Download spaCy Spanish model
-Write-Host "Downloading spaCy model..." -ForegroundColor Yellow
-$python = Join-Path $ProjectRoot ".venv" "Scripts" "python"
-& $python -m spacy download es_core_news_sm
-
-# 6. Verify imports
-Write-Host "Verifying core imports..." -ForegroundColor Yellow
-& $python -c "from bot.config import get_telegram_token; print('OK - bot.config')"
-& $python -c "from scripts.utils.app_logger import setup_logging; print('OK - scripts.utils')"
-& $python -c "from scripts.pipeline import VideoProcessingPipeline; print('OK - scripts.pipeline')"
-& $python -c "from scripts.factory import PipelineFactory; print('OK - scripts.factory')"
-& $python -c "from news_video_processor import NewsVideoProcessor; print('OK - NewsVideoProcessor')"
-& $python -c "from scripts.services.video_assembler import VideoAssembler; print('OK - services.video_assembler')"
-
-Write-Host "=== Bootstrap complete ===" -ForegroundColor Green
-Write-Host "Run: .\.venv\Scripts\Activate.ps1" -ForegroundColor Cyan
-Write-Host "Then: python telegram_bot.py" -ForegroundColor Cyan
+Invoke-Checked $venvPython @('-c', 'import bot.main; import news_video_processor; import scripts.cli; print("Python imports OK")')
+if (-not $SkipTests) {
+    Invoke-Checked $venvPython @('-m', 'pytest', '-q')
+}
+Write-Host 'Windows installation complete.' -ForegroundColor Green
+Write-Host 'Configure .env and keep VIDEO_UPLOAD_ENABLED=false for your first render.'
+Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.doctor --mode cli'
+Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.cli --title "VideoNews demonstration" --format short'

@@ -1,0 +1,39 @@
+name: Windows native verification
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  windows-install-and-render:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install native FFmpeg if missing
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --yes --no-progress --limit-output
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to install FFmpeg' }
+            $env:PATH = 'C:\ProgramData\chocolatey\bin;' + $env:PATH
+          }
+          ffmpeg -hide_banner -version | Select-Object -First 1
+          ffprobe -hide_banner -version | Select-Object -First 1
+      - name: Execute Windows user installer
+        run: |
+          & .\bootstrap.ps1 -SkipTests
+          if (-not (Test-Path .\.env)) { throw '.env was not created' }
+      - name: Verify Windows runtime requirements
+        run: |
+          & .\.venv\Scripts\python.exe -m scripts.doctor --mode cli
+          if ($LASTEXITCODE -ne 0) { throw 'Prerequisite audit failed' }
+      - name: Run complete Windows suite including real portrait and landscape MP4s
+        run: |
+          & .\.venv\Scripts\python.exe -m pytest -q
+          if ($LASTEXITCODE -ne 0) { throw 'Windows suite failed' }

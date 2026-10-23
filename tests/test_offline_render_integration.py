@@ -81,7 +81,11 @@ def _write_synthetic_audio_and_subtitles(folder: Path):
     ("short", (360, 640)),
     ("long", (640, 360)),
 ])
-def test_real_ffmpeg_produces_playable_mp4_with_local_export(mode, dimensions, tmp_path, monkeypatch):
+@pytest.mark.parametrize("unicode_path", [False, True])
+def test_real_ffmpeg_produces_playable_mp4_with_local_export(mode, dimensions, tmp_path, monkeypatch, unicode_path):
+    if unicode_path:
+        tmp_path = tmp_path / "Proyecto Vídeo News - with spaces"
+        tmp_path.mkdir()
     pytest.importorskip("moviepy.editor")
     pytest.importorskip("PIL")
     monkeypatch.chdir(tmp_path)
