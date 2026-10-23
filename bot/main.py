@@ -1,4 +1,3 @@
-import nest_asyncio
 import logging
 
 from telegram import Chat
@@ -21,8 +20,6 @@ if not hasattr(Chat, "FORUM"):
 def main() -> None:
     setup_logging()
     logging.getLogger("telegram.ext").setLevel(logging.WARNING)
-
-    nest_asyncio.apply()
 
     telegram_token = get_telegram_token()
     if not telegram_token:
