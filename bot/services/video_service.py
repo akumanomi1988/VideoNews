@@ -8,13 +8,14 @@ from telegram import Bot, CallbackQuery
 from news_video_processor import NewsVideoProcessor
 from scripts.DataFetcher.viral_news_agent import NewsProcessor
 from scripts.dbControllers.processed_news_controller import is_url_processed, save_processed_news
-from scripts.factory import PipelineFactory
+from scripts.DataFetcher.news_extractor import NewsExtractor
+from scripts.url_safety import validate_public_url
 from scripts.utils.app_logger import trace
 
 logger = logging.getLogger(__name__)
 
 MAX_CONSECUTIVE_ERRORS = 3
-PROCESSING_TIMEOUT = 600  # seconds (10 min) for full pipeline
+_render_lock = asyncio.Lock()  # One rendering job per bot process; background threads cannot be safely cancelled.
 
 
 class VideoService:
@@ -47,19 +48,18 @@ class VideoService:
                 event_loop=loop,
                 bot=bot,
             )
-            news_data = {"title": news_item_title, "description": news_item_description}
+            news_data = {"title": news_item_title[:240], "description": news_item_description,
+                         "source": news_item_description or news_item_title}
             if style:
                 news_data["style"] = style
             return processor.process_latest_news_in_short_format(news_data)
 
         try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(_sync_run),
-                timeout=PROCESSING_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.error("Short news processing timed out after %ds: %s", PROCESSING_TIMEOUT, news_item_title)
-            return None
+            async with _render_lock:
+                return await asyncio.to_thread(_sync_run)
+        except Exception:
+            logger.exception("Short news rendering failed: %s", news_item_title)
+            raise
 
     @trace()
     async def process_long_news(
@@ -91,13 +91,11 @@ class VideoService:
             return processor.process_latest_news_in_long_format(news_data)
 
         try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(_sync_run),
-                timeout=PROCESSING_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.error("Long news processing timed out after %ds: %s", PROCESSING_TIMEOUT, news_item_title)
-            return None
+            async with _render_lock:
+                return await asyncio.to_thread(_sync_run)
+        except Exception:
+            logger.exception("Long news rendering failed: %s", news_item_title)
+            raise
 
     @trace()
     async def process_url_short(
@@ -125,24 +123,46 @@ class VideoService:
         self, url: str, fmt: str, config_path: str,
         progress_callback: Optional[Callable[[Dict], None]] = None
     ) -> str:
-        def _sync_run() -> str:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            factory = PipelineFactory()
-            pipeline = factory.create_pipeline_from_config(
-                config, pipeline_type=fmt, skip_validation=True,
-                progress_callback=progress_callback
-            )
-            return pipeline.execute({"url": url})
+        """All input modes share NewsVideoProcessor; the second rendering pipeline is retired."""
+        validate_public_url(url)
+        if await self._check_url_processed(url):
+            raise ValueError("This article URL has already been published.")
 
-        try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(_sync_run),
-                timeout=PROCESSING_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.error("URL pipeline timed out after %ds: %s", PROCESSING_TIMEOUT, url)
-            raise
+        def notify(message: str) -> None:
+            if progress_callback:
+                progress_callback({"current_stage": {"message": message}})
+
+        notify("Extracting article...")
+        article = await asyncio.to_thread(NewsExtractor().extract_article, url)
+        if not article or not getattr(article, "text", ""):
+            raise ValueError("Could not extract article content from URL")
+        topic = {
+            "title": (article.title or url)[:240],
+            "description": article.text[:6000],
+            "source": article.text[:6000],
+            "url": url,
+        }
+
+        def render():
+            processor = NewsVideoProcessor(config_file=config_path)
+            if fmt == "short":
+                return processor.process_latest_news_in_short_format(topic)
+            return processor.process_latest_news_in_long_format(topic)
+
+        notify("Producing video and audio...")
+        async with _render_lock:
+            result = await asyncio.to_thread(render)
+        if not result:
+            raise RuntimeError("Video generation did not return a result")
+
+        await self._save_processed(topic)
+        notify("Video complete")
+        if result.get("local_path"):
+            return str(result["local_path"])
+        video_id = result.get("id")
+        if video_id:
+            return f"https://www.youtube.com/watch?v={video_id}"
+        raise RuntimeError("Publishing returned no video ID or local output")
 
     @staticmethod
     async def _check_url_processed(url: str) -> bool:
@@ -189,6 +209,7 @@ class VideoService:
             return
 
         news_processor_instance = NewsProcessor(config)
+        await asyncio.to_thread(news_processor_instance.process_all_news)
 
         if num_to_process is None:
             await send_msg("Processing all available viral news (iteration based)...")
@@ -217,8 +238,8 @@ class VideoService:
             try:
                 await send_msg(f"Processing viral news (short format): {title}...")
                 result = await self.process_short_news(
-                    news_item_title=url,
-                    news_item_description="",
+                    news_item_title=title,
+                    news_item_description=news_item.get("summary") or news_item.get("description") or "",
                 )
                 if result is None:
                     raise RuntimeError("Processing returned no result")
