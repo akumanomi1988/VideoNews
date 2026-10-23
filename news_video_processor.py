@@ -192,10 +192,10 @@ class NewsVideoProcessor:
             for start in range(0, len(words), 8):
                 end = min(start + 8, len(words))
                 out.write(
-                    f"{start // 8 + 1}\\n"
+                    f"{start // 8 + 1}\n"
                     f"{timestamp(duration * start / len(words))} --> "
-                    f"{timestamp(duration * end / len(words))}\\n"
-                    f"{' '.join(words[start:end])}\\n\\n"
+                    f"{timestamp(duration * end / len(words))}\n"
+                    f"{' '.join(words[start:end])}\n\n"
                 )
 
     def _publish(self, output_file: str, title: str, description: str,
