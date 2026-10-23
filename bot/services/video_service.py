@@ -85,7 +85,8 @@ class VideoService:
                 event_loop=loop,
                 bot=bot,
             )
-            news_data = {"title": news_item_title, "description": news_item_description}
+            news_data = {"title": news_item_title[:240], "description": news_item_description,
+                         "source": news_item_description or news_item_title}
             if style:
                 news_data["style"] = style
             return processor.process_latest_news_in_long_format(news_data)
