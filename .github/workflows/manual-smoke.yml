@@ -19,7 +19,7 @@ jobs:
       - name: Install test-only dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio python-dotenv requests "python-telegram-bot>=20,<21" "moviepy==1.0.3" "numpy<2.0.0" "Pillow>=10,<11" colorama pydub
+          pip install pytest pytest-asyncio python-dotenv requests "python-telegram-bot>=22,<23" "moviepy==1.0.3" "numpy<2.0.0" "Pillow>=10,<11" colorama pydub
       - name: Compile every Python source
         run: |
           python -m compileall -q bot scripts news_video_processor.py telegram_bot.py
