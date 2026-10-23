@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -117,17 +118,19 @@ class PipelineMonitor:
         """Start monitoring a new pipeline execution"""
         stats = ProcessingStats()
         stats.metadata['pipeline_name'] = pipeline_name
+        stats.metadata['pipeline_id'] = uuid4().hex
+        self._save_metrics(stats.metadata['pipeline_id'], stats.to_dict())
         return stats
 
     def record_success(self, stats: 'ProcessingStats', media_info: Dict[str, Any]) -> None:
         """Record successful completion of pipeline execution"""
         stats.complete(media_info)
-        self._save_metrics(stats.metadata['pipeline_name'], stats.to_dict())
+        self._save_metrics(stats.metadata['pipeline_id'], stats.to_dict())
 
     def record_failure(self, stats: 'ProcessingStats', error: Exception) -> None:
         """Record failed pipeline execution"""
         stats.fail(error)
-        self._save_metrics(stats.metadata['pipeline_name'], stats.to_dict())
+        self._save_metrics(stats.metadata['pipeline_id'], stats.to_dict())
 
 class StepTimer:
     def __init__(self, monitor: PipelineMonitor, pipeline_id: str, step_name: str):
@@ -175,6 +178,10 @@ class ProcessingStats:
     def to_dict(self) -> Dict[str, Any]:
         """Convert stats to dictionary format"""
         return {
+            'pipeline_id': self.metadata.get('pipeline_id'),
+            'pipeline_name': self.metadata.get('pipeline_name'),
+            'is_completed': self.success,
+            'is_failed': self.end_time is not None and not self.success,
             'start_time': self.start_time,
             'end_time': self.end_time,
             'duration': self.duration,

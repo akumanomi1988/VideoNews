@@ -54,10 +54,19 @@ class FluxMediaService(MediaGenerator):
             
             # Generate new image if not in cache
             self.logger.info(f"Generating new image for prompt: {prompt[:100]}...")
+            # The generator requires enums; the public pipeline passes strings.
+            raw_orientation = cache_params['orientation']
+            orientation = raw_orientation if isinstance(raw_orientation, AspectRatio) else (
+                AspectRatio.SHORTS if raw_orientation in ('portrait', '9:16', 'short') else AspectRatio.LANDSCAPE
+            )
+            raw_style = cache_params['style']
+            style = raw_style if isinstance(raw_style, StylePreset) else StylePreset.__members__.get(
+                str(raw_style).upper(), StylePreset.NONE
+            )
             result = self.generator.generate_image(
                 custom_prompt=prompt,
-                aspect_ratio=cache_params['orientation'],
-                style_preset=cache_params['style']
+                aspect_ratio=orientation,
+                style_preset=style
             )
             
             if not result:

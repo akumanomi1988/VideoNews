@@ -102,6 +102,10 @@ def index():
         recent_pipelines=dashboard_metrics.get_recent_pipelines()
     )
 
+@app.route('/healthz')
+def healthz():
+    return jsonify({'status': 'ok'})
+
 @app.route('/api/metrics/summary')
 def get_summary():
     """API endpoint for summary metrics"""
@@ -129,4 +133,4 @@ def create_app(metrics_dir: str = 'metrics') -> Flask:
     return app
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='127.0.0.1', debug=False)

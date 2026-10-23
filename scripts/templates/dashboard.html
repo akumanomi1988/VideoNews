@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VideoNews · Pipeline Dashboard</title>
+  <style>
+    :root {font-family:system-ui,Segoe UI,sans-serif;color-scheme:dark;background:#0b1320;color:#e9f1fb}
+    body{margin:0 auto;max-width:1100px;padding:24px 18px}h1{font-size:2rem;letter-spacing:-.04em}h2{margin-top:38px;font-size:1.1rem}
+    .muted{color:#8fa3bd} .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:24px}
+    .stat{background:#142236;border:1px solid #27415c;border-radius:14px;padding:18px}.stat strong{display:block;font-size:2.1rem;margin-top:8px}
+    .table-wrap{overflow:auto;border:1px solid #27415c;border-radius:12px}
+    table{width:100%;border-collapse:collapse;min-width:500px}th,td{padding:12px 15px;border-bottom:1px solid #263d57;text-align:left}
+    th{color:#a9bcd3;background:#142236}tr:last-child td{border-bottom:0}.success{color:#5ee7b4}.fail{color:#f18f9e}
+    code{font-size:.85rem;color:#c5dbf1}a{color:#a9cffc}
+  </style>
+</head>
+<body>
+  <p class="muted">VideoNews / monitoring</p>
+  <h1>Pipeline Dashboard</h1><p class="muted">Local monitoring of render jobs. Auto-refreshes every 30 seconds.</p>
+  <section class="stats" aria-label="Summary">
+    <div class="stat">Total jobs<strong>{{ summary.total_pipelines }}</strong></div>
+    <div class="stat">Succeeded<strong class="success">{{ summary.completed_pipelines }}</strong></div>
+    <div class="stat">Failed<strong class="fail">{{ summary.failed_pipelines }}</strong></div>
+    <div class="stat">In progress<strong>{{ summary.active_pipelines }}</strong></div>
+  </section>
+  <h2>Recent jobs</h2>
+  <div class="table-wrap"><table><thead><tr><th>Pipeline</th><th>State</th><th>Duration</th><th>ID</th></tr></thead><tbody>
+  {% for job in recent_pipelines %}
+    <tr><td>{{ job.pipeline_name or 'Video rendering' }}</td>
+      <td class="{{ 'success' if job.is_completed else 'fail' if job.is_failed else '' }}">{{ 'Success' if job.is_completed else 'Failed' if job.is_failed else 'In progress' }}</td>
+      <td>{{ '%.1f s'|format(job.duration or 0) }}</td>
+      <td><code>{{ job.pipeline_id or '—' }}</code></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">No executions recorded yet.</td></tr>{% endfor %}
+  </tbody></table></div>
+  <p class="muted"><a href="/api/metrics/summary">Metrics JSON</a> · <a href="/healthz">Health</a></p>
+  <script>setTimeout(()=>location.reload(),30000)</script>
+</body>
+</html>

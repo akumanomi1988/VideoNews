@@ -77,6 +77,8 @@ class EdgeTTSService(TextToSpeech):
             
             # Split text into chunks for parallel processing
             chunks = self.chunk_processor.split_text(text)
+            if not chunks:
+                raise TTSError('Cannot synthesize empty narration')
             chunk_files = []
             
             # Process chunks in parallel
