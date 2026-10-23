@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import threading
 from typing import Any, Awaitable, Callable, Dict, Optional
 
@@ -11,13 +12,12 @@ from scripts.runtime_config import load_runtime_config
 from scripts.dbControllers.processed_news_controller import is_url_processed, save_processed_news
 from scripts.DataFetcher.news_extractor import NewsExtractor
 from scripts.url_safety import validate_public_url
-from scripts.job_registry import claim, advance, complete, fail
+from scripts.job_registry import DuplicateJobError, claim, advance, complete, fail
 from scripts.utils.app_logger import trace
 
 logger = logging.getLogger(__name__)
 
 MAX_CONSECUTIVE_ERRORS = 3
-_render_lock = asyncio.Lock()  # Keeps ordinary requests ordered on the same event loop.
 _thread_render_lock = threading.Lock()  # Protects the native renderer even after coroutine cancellation.
 
 
@@ -64,8 +64,7 @@ class VideoService:
             return processor.process_latest_news_in_short_format(news_data)
 
         try:
-            async with _render_lock:
-                return await asyncio.to_thread(_sync_run)
+            return await asyncio.to_thread(_sync_run)
         except Exception:
             logger.exception("Short news rendering failed: %s", news_item_title)
             raise
@@ -107,8 +106,7 @@ class VideoService:
             return processor.process_latest_news_in_long_format(news_data)
 
         try:
-            async with _render_lock:
-                return await asyncio.to_thread(_sync_run)
+            return await asyncio.to_thread(_sync_run)
         except Exception:
             logger.exception("Long news rendering failed: %s", news_item_title)
             raise
@@ -151,7 +149,8 @@ class VideoService:
     @staticmethod
     def _run_article_sync(
         url: str, fmt: str, config_path: str,
-        progress_callback: Optional[Callable[[Dict], None]] = None
+        progress_callback: Optional[Callable[[Dict], None]] = None,
+        news_data: Optional[Dict] = None,
     ) -> str:
         validate_public_url(url)
         if is_url_processed(url):
@@ -169,16 +168,29 @@ class VideoService:
 
         try:
             advance(job_id, "PREPARING")
-            notify("Extracting article...")
-            article = NewsExtractor().extract_article(url)
-            if not article or not getattr(article, "text", ""):
-                raise ValueError("Could not extract article content from URL")
-            topic = {
-                "title": (article.title or url)[:240],
-                "description": article.text[:6000],
-                "source": article.text[:6000],
-                "url": url,
-            }
+            if news_data is not None:
+                # Viral discovery already provides a curated source summary.
+                # Do not refetch while keeping the same atomic URL identity.
+                source_text = (
+                    news_data.get("summary") or news_data.get("description") or ""
+                )
+                topic = {
+                    "title": (news_data.get("title") or url)[:240],
+                    "description": source_text[:6000],
+                    "source": source_text[:6000],
+                    "url": url,
+                }
+            else:
+                notify("Extracting article...")
+                article = NewsExtractor().extract_article(url)
+                if not article or not getattr(article, "text", ""):
+                    raise ValueError("Could not extract article content from URL")
+                topic = {
+                    "title": (article.title or url)[:240],
+                    "description": article.text[:6000],
+                    "source": article.text[:6000],
+                    "url": url,
+                }
 
             notify("Producing video and audio...")
             with _thread_render_lock:
@@ -196,7 +208,7 @@ class VideoService:
 
             if result.get("local_path"):
                 reference = str(result["local_path"])
-                if not __import__("os").path.isfile(reference):
+                if not os.path.isfile(reference):
                     raise RuntimeError("Video output path does not exist")
             elif result.get("platform") == "tiktok":
                 publish_id = result.get("publish_id")
@@ -285,22 +297,16 @@ class VideoService:
 
             try:
                 await send_msg(f"Processing viral news (short format): {title}...")
-                result = await self.process_short_news(
-                    news_item_title=title,
-                    news_item_description=news_item.get("summary") or news_item.get("description") or "",
+                result = await asyncio.to_thread(
+                    self._run_article_sync, url, "short", config_file_path, None,
+                    news_item,
                 )
-                if result is None:
-                    raise RuntimeError("Processing returned no result")
-
-                video_id = result.get("id", "N/A") if result else "N/A"
-                await send_msg(
-                    f"Successfully processed: {title}. Video ID: {video_id}" if video_id != "N/A"
-                    else f"Successfully processed: {title}."
-                )
-
-                await self._save_processed(news_item)
+                await send_msg(f"Successfully processed: {title}. Output: {result}")
                 processed_count += 1
                 consecutive_errors = 0
+            except DuplicateJobError:
+                logger.info("Already reserved or completed: %s", url)
+                continue
             except Exception as e:
                 consecutive_errors += 1
                 logger.error(
