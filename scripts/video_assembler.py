@@ -122,14 +122,21 @@ class VideoAssembler(VideoAssemblerInterface):
 
     @trace()
     def get_target_dimensions(self) -> Tuple[int, int]:
-        """
-        Return target dimensions based on the specified aspect ratio.
-        """
-        if self.aspect_ratio == '9:16':
-            return 1080, 1920
-        elif self.aspect_ratio == '16:9':
-            return 1920, 1080
-        raise ValueError(Fore.RED + "❌ Invalid aspect ratio. Use '9:16' or '16:9'.")
+        """Render 360p / 720p / 1080p while preserving platform aspect ratio."""
+        preset = os.getenv("VIDEO_RENDER_RESOLUTION", "1080p").lower()
+        dimensions = {
+            "360p": (640, 360),
+            "720p": (1280, 720),
+            "1080p": (1920, 1080),
+        }
+        if preset not in dimensions:
+            raise ValueError("VIDEO_RENDER_RESOLUTION must be 360p, 720p or 1080p")
+        w, h = dimensions[preset]
+        if self.aspect_ratio == "16:9":
+            return w, h
+        if self.aspect_ratio == "9:16":
+            return h, w
+        raise ValueError("Invalid aspect ratio; expected 9:16 or 16:9")
 
     @trace()
     def adjust_aspect_ratio(self, clip: VideoFileClip) -> VideoFileClip:
