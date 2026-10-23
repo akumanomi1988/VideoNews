@@ -132,8 +132,8 @@ class Chatbot:
         self.standard_rules = ('Your output must be a valid JSON object with double quotes for both keys and string values. Ensure proper nesting, avoid trailing commas, and escape special characters when necessary.'
                                'Ensure everything you say is factual and accurate, including years, numbers, and names.'
                                )
-        self.ideology = 'Advocating for the transformation of existing structures toward a more just and equitable system'
-        self.tone = 'Adapt the tone of the narration based on the nature of the news: if it is serious or tragic, use a somber, reflective style with a dramatic touch to heighten the impact. If the news is light or has humorous potential, adopt a colloquial, street-style, or even profane tone to make it more entertaining and relatable. For topics involving elites, scandals, or high-society situations, use a sarcastic or posh tone to emphasize the irony. If the news carries a mysterious vibe, employ a conspiratorial style with subtle insinuations and unexpected twists to sow controlled doubts.'
+        self.ideology = os.getenv("NEWS_EDITORIAL_IDEOLOGY") or "Inform without adopting a political position; distinguish facts from opinion."
+        self.tone = os.getenv("NEWS_EDITORIAL_TONE") or "Clear, engaging, factual and proportional to the seriousness of the news; avoid sensationalism and speculation."
         self.numbers_as_words = (
             "IMPORTANT: All numbers, quantities, percentages, dates, and statistics "
             "MUST be written out fully as words in the spoken language. "
