@@ -30,5 +30,5 @@ def validate_public_url(url: str) -> None:
             ]
         except (socket.gaierror, ValueError) as exc:
             raise ValueError("Article URL hostname could not be resolved") from exc
-    if not addresses or any(not address.is_global for address in addresses):
+    if not addresses or any(not address.is_global or address.is_multicast for address in addresses):
         raise ValueError("Article URL must resolve only to public IP addresses")
