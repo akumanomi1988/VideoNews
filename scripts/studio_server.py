@@ -8,15 +8,63 @@ from __future__ import annotations
 import contextlib
 import sys
 import threading
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, ConfigDict, Field
 
 from scripts.studio_mcp import VideoNewsStudio
 
 mcp = FastMCP("VideoNews AI Studio")
 _stdio_lock = threading.RLock()
 _studio = VideoNewsStudio()
+
+
+class _StrictBriefModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class BriefStory(_StrictBriefModel):
+    title: str = Field(min_length=1, max_length=500)
+    summary: str = Field(min_length=1, max_length=3000)
+    primary_url: str = Field(min_length=8, max_length=2000, pattern=r"^https://")
+    why_selected: str = Field(min_length=1, max_length=2000)
+
+
+class BriefAlternative(_StrictBriefModel):
+    title: str = Field(min_length=1, max_length=500)
+    primary_url: str = Field(min_length=8, max_length=2000, pattern=r"^https://")
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class BriefSource(_StrictBriefModel):
+    title: str = Field(min_length=1, max_length=500)
+    url: str = Field(min_length=8, max_length=2000, pattern=r"^https://")
+    publisher: str = Field(min_length=1, max_length=200)
+    published_at: str = Field(max_length=100)
+    supports: str = Field(min_length=1, max_length=3000)
+
+
+class EditorialBrief(_StrictBriefModel):
+    selection_mode: Literal["manual", "delegated"]
+    selected_story: BriefStory
+    alternatives: list[BriefAlternative] = Field(max_length=20)
+    verified_sources: list[BriefSource] = Field(min_length=1, max_length=30)
+    format: Literal["short", "long"]
+    aspect_ratio: Literal["9:16", "16:9"]
+    target_duration_seconds: int = Field(ge=10, le=3600)
+    editorial_angle: str = Field(min_length=1, max_length=2000)
+    tone: str = Field(min_length=1, max_length=2000)
+    target_audience: str = Field(min_length=1, max_length=2000)
+    language: str = Field(min_length=1, max_length=2000)
+    narrative_concept: str = Field(min_length=1, max_length=2000)
+    opening_hook: str = Field(min_length=1, max_length=2000)
+    visual_strategy: str = Field(min_length=1, max_length=2000)
+    image_sources: list[Annotated[str, Field(min_length=1, max_length=300)]] = Field(min_length=1, max_length=20)
+    destination: Literal["NewSphere"]
+    privacy_status: Literal["public", "private", "unlisted"]
+    approval_status: Literal["proposed", "approved"]
+    duration_tolerance_seconds: int = Field(ge=3, le=300)
 
 
 def call(method: str, **kwargs: Any) -> Any:
@@ -28,7 +76,7 @@ def call(method: str, **kwargs: Any) -> Any:
 @mcp.tool()
 def research_news(query: str, language: str = "es", limit: int = 10,
                   country: str = "es", category: str = "") -> dict:
-    """Find recent sourced news leads using configured SerpAPI; verify facts independently."""
+    """Return recent source leads with freshness, duplicate, and local-project match heuristics."""
     return call("research_news", query=query, language=language, limit=limit,
                 country=country, category=category)
 
@@ -48,7 +96,7 @@ def create_script(title: str, source_text: str, source_url: str = "",
 
 
 @mcp.tool()
-def create_project(title: str, video_format: str = "short") -> dict:
+def create_project(title: str, video_format: Literal["short", "long"] = "short") -> dict:
     """Create a blank structured project for ChatGPT-authored editorial materials."""
     return call("create_project", title=title, video_format=video_format)
 
@@ -60,9 +108,9 @@ def save_sources(job_id: str, sources: list[dict]) -> dict:
 
 
 @mcp.tool()
-def save_editorial_brief(job_id: str, brief: dict) -> dict:
-    """Persist ChatGPT's editorial rationale, risks, angle, format and duration."""
-    return call("save_editorial_brief", job_id=job_id, brief=brief)
+def save_editorial_brief(job_id: str, brief: EditorialBrief) -> dict:
+    """Persist strict, versioned editorial decisions; content changes reset approval to proposed."""
+    return call("save_editorial_brief", job_id=job_id, brief=brief.model_dump())
 
 
 @mcp.tool()
@@ -139,7 +187,7 @@ def generate_subtitles(job_id: str, max_words: int = 5) -> dict:
 
 @mcp.tool()
 def render_video(job_id: str) -> dict:
-    """Render locally using existing FFmpeg VideoAssembler; does not publish."""
+    """Render the approved brief using FFmpeg and verify actual duration, resolution, and streams."""
     return call("start_job", action="render_video", project_id=job_id)
 
 
@@ -157,14 +205,14 @@ def get_job(job_id: str) -> dict:
 
 @mcp.tool()
 def review_video(job_id: str) -> dict:
-    """Run read-only artifact checks. Owner upload approval happens in local Windows console."""
+    """Compare the final artifact with its approved brief; report blocking technical/editorial issues."""
     return call("review_video", job_id=job_id)
 
 
 @mcp.tool()
 def publish_youtube(job_id: str,
                     privacy_status: Literal["public", "private", "unlisted"] | None = None) -> dict:
-    """Publish after local owner enrollment; omitted privacy uses its default (PUBLIC)."""
+    """Publish only after brief QA and matching local owner authorization; verify effective YouTube status."""
     return call("publish_youtube", job_id=job_id, privacy_status=privacy_status)
 
 

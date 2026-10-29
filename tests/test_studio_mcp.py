@@ -25,6 +25,28 @@ def studio(tmp_path):
     return VideoNewsStudio(tmp_path / "studio")
 
 
+def valid_brief(*, privacy="private", status="approved", video_format="short", duration=20):
+    url = "https://example.com/story"
+    return {
+        "selection_mode": "manual",
+        "selected_story": {"title": "Verified example headline", "summary": "A sourced account of the event.",
+                           "primary_url": url, "why_selected": "Two named sources support the central fact."},
+        "alternatives": [{"title": "Alternative story", "primary_url": "https://example.org/other",
+                          "reason": "A viable but less timely option."}],
+        "verified_sources": [{"title": "Official record", "url": url, "publisher": "Example authority",
+                              "published_at": "2026-10-28", "supports": "The record confirms the event."}],
+        "format": video_format, "aspect_ratio": "9:16" if video_format == "short" else "16:9",
+        "target_duration_seconds": duration, "editorial_angle": "What changed and why it matters.",
+        "tone": "Clear and dynamic", "target_audience": "Spanish speaking news viewers",
+        "language": "es", "narrative_concept": "Explain the change with evidence and context.",
+        "opening_hook": "A concrete verified change has just happened.",
+        "visual_strategy": "Scene-matched original graphics and sourced imagery.",
+        "image_sources": ["Original local graphics", "Licensed source-matched media"],
+        "destination": "NewSphere", "privacy_status": privacy,
+        "approval_status": status, "duration_tolerance_seconds": 15,
+    }
+
+
 @pytest.fixture
 def project(studio):
     job_id = uuid.uuid4().hex
@@ -41,6 +63,12 @@ def project(studio):
         "source_text": "A trusted news article with named sources.",
         "source_url": "https://example.com/story",
         "format": "short", "script": "This is a script longer than thirty characters.",
+        "aspect_ratio": "9:16",
+        "sources": [{"title": "Official record", "url": "https://example.com/story",
+                     "publisher": "Example authority", "published_at": "2026-10-28",
+                     "summary": "The record confirms the event."}],
+        "editorial_brief": valid_brief(), "youtube_metadata": {}, "storyboard": [],
+        "asset_records": [],
         "summary": "Story description", "images": [str(image)],
         "voice": str(video), "subtitles": str(subtitles),
         "video": str(video), "video_id": "",
@@ -162,6 +190,7 @@ def test_scene_image_durations_follow_tts_word_boundaries(studio, tmp_path):
 
 def test_generate_subtitles_persists_grouped_caption_path(studio):
     project = studio.create_project("A short subtitle test project")
+    studio.save_editorial_brief(project["id"], valid_brief(duration=20))
     studio.save_script(project["id"], "La información pública se encuentra disponible hoy.")
     boundaries = studio._dir(project["id"]) / "word_boundaries.srt"
     boundaries.write_text(
@@ -213,12 +242,28 @@ def test_review_without_video_disallows_approval(studio, project):
 def _authorize(studio, project, monkeypatch, privacy_status="private"):
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
-    assert studio.review_video(project["id"])["ready_for_editorial_review"]
+    monkeypatch.setattr(studio, "_probe_media", lambda _path: {
+        "duration_seconds": 20.5, "width": 1080, "height": 1920,
+        "video_codec": "h264", "audio_codec": "aac", "has_video": True, "has_audio": True})
+    brief = dict(project["editorial_brief"])
+    brief["privacy_status"] = privacy_status
+    studio.save_editorial_brief(project["id"], brief)
+    brief["approval_status"] = "approved"
+    studio.save_editorial_brief(project["id"], brief)
     studio.save_youtube_metadata(project["id"], {
-        "title": "Verified private test video", "description": "A test upload.", "tags": []})
+        "title": "Verified test video", "description": "Source: Example authority.", "tags": []})
+    assert studio.review_video(project["id"])["ready_for_editorial_review"]
     return studio.issue_owner_authorization(
         project["id"], owner_confirmed=True, target_account_id="UCtestChannel123",
         privacy_status=privacy_status)
+
+
+def _set_brief_privacy(studio, project, privacy_status):
+    brief = dict(project["editorial_brief"])
+    brief["privacy_status"] = privacy_status
+    studio.save_editorial_brief(project["id"], brief)
+    brief["approval_status"] = "approved"
+    studio.save_editorial_brief(project["id"], brief)
 
 
 def _install_fake_youtube(monkeypatch, upload):
@@ -331,8 +376,12 @@ def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
+    monkeypatch.setattr(studio, "_probe_media", lambda _path: {
+        "duration_seconds": 20.5, "width": 1080, "height": 1920,
+        "video_codec": "h264", "audio_codec": "aac", "has_video": True, "has_audio": True})
+    _set_brief_privacy(studio, project, "public")
     studio.save_youtube_metadata(project["id"], {
-        "title": "A verified private Short", "description": "Source-backed report.", "tags": []})
+        "title": "A verified private Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
     publishing_policy.enroll("UCtestChannel123", 1, public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(return_value={"id": "YT_AUTO_PUBLIC_1"})
@@ -357,8 +406,12 @@ def test_auto_publish_unknown_outcome_is_audited_and_never_retried(
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
+    monkeypatch.setattr(studio, "_probe_media", lambda _path: {
+        "duration_seconds": 20.5, "width": 1080, "height": 1920,
+        "video_codec": "h264", "audio_codec": "aac", "has_video": True, "has_audio": True})
+    _set_brief_privacy(studio, project, "public")
     studio.save_youtube_metadata(project["id"], {
-        "title": "A verified private Short", "description": "Source-backed report.", "tags": []})
+        "title": "A verified private Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
     publishing_policy.enroll("UCtestChannel123", 2, public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(side_effect=TimeoutError("Network lost after transfer"))
@@ -380,8 +433,12 @@ def test_public_upload_must_be_verified_and_never_retried_on_mismatch(
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
+    monkeypatch.setattr(studio, "_probe_media", lambda _path: {
+        "duration_seconds": 20.5, "width": 1080, "height": 1920,
+        "video_codec": "h264", "audio_codec": "aac", "has_video": True, "has_audio": True})
+    _set_brief_privacy(studio, project, "public")
     studio.save_youtube_metadata(project["id"], {
-        "title": "A verified NewSphere Short", "description": "Source-backed report.", "tags": []})
+        "title": "A verified NewSphere Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
     publishing_policy.enroll("UCtestChannel123", 2, public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
 
@@ -432,6 +489,7 @@ def test_pexels_assets_are_scene_specific_licensed_and_resumable(studio, monkeyp
     import requests
 
     project = studio.create_project("Pexels storyboard asset proof")
+    studio.save_editorial_brief(project["id"], valid_brief())
     studio.save_storyboard(project["id"], [
         {"id": "scene-1", "visual_prompt": "A European data center corridor"},
         {"id": "scene-2", "visual_prompt": "A scientist reviewing AI research"},

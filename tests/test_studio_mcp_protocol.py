@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -38,6 +39,22 @@ async def test_stdio_mcp_discovers_tools_and_calls_list_projects(tmp_path):
                        for mode in ("public", "private", "unlisted"))
             review_tool = next(tool for tool in tools.tools if tool.name == "review_video")
             assert "approve" not in review_tool.inputSchema.get("properties", {})
+            brief_tool = next(tool for tool in tools.tools if tool.name == "save_editorial_brief")
+            brief_schema = brief_tool.inputSchema["$defs"]["EditorialBrief"]
+            packaged_brief_schema = json.loads(
+                (Path(__file__).parents[1] / "chatgpt-plugin" / "schemas" /
+                 "editorial-brief.schema.json").read_text(encoding="utf-8"))
+            assert brief_schema["properties"] == packaged_brief_schema["properties"]
+            assert brief_schema["required"] == packaged_brief_schema["required"]
+            assert brief_schema["additionalProperties"] is False
+            for definition, schema in packaged_brief_schema["$defs"].items():
+                assert brief_tool.inputSchema["$defs"][definition] == schema
+            assert brief_schema["additionalProperties"] is False
+            assert set(brief_schema["required"]) >= {
+                "selection_mode", "selected_story", "alternatives", "verified_sources",
+                "format", "aspect_ratio", "target_duration_seconds", "visual_strategy",
+                "destination", "privacy_status", "approval_status",
+            }
             result = await session.call_tool("list_projects", {"limit": 1})
             assert not result.isError
             projects = result.structuredContent

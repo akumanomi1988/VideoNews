@@ -26,6 +26,13 @@ _LOCK = threading.RLock()
 _JOB_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="videonews-studio")
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _SUPPORTED = {"short": "9:16", "long": "16:9"}
+_BRIEF_FIELDS = {
+    "selection_mode", "selected_story", "alternatives", "verified_sources",
+    "format", "aspect_ratio", "target_duration_seconds", "editorial_angle",
+    "tone", "target_audience", "language", "narrative_concept", "opening_hook",
+    "visual_strategy", "image_sources", "destination", "privacy_status",
+    "approval_status", "duration_tolerance_seconds",
+}
 
 
 class StudioError(RuntimeError):
@@ -224,16 +231,144 @@ class VideoNewsStudio:
             return self._public(project)
 
     def save_editorial_brief(self, job_id: str, brief: dict[str, Any]) -> dict:
-        if not isinstance(brief, dict) or len(json.dumps(brief, ensure_ascii=False)) > 20000:
-            raise ValueError("brief must be an object no larger than 20000 characters")
+        brief = self._validate_editorial_brief(brief)
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            previous = project.get("editorial_brief", {})
+            if previous and previous != brief:
+                content_keys = set(brief) - {"approval_status"}
+                if any(previous.get(key) != brief.get(key) for key in content_keys):
+                    brief["approval_status"] = "proposed"
+                self._invalidate_brief_dependencies(project, previous, brief)
+            project["format"] = brief["format"]
+            project["aspect_ratio"] = brief["aspect_ratio"]
             project["editorial_brief"] = copy.deepcopy(brief)
+            project["sources"] = [{"title": source["title"], "url": source["url"],
+                                   "publisher": source["publisher"],
+                                   "published_at": source["published_at"],
+                                   "summary": source["supports"],
+                                   "retrieved_at": datetime.now(timezone.utc).isoformat()}
+                                  for source in brief["verified_sources"]]
+            project["source_url"] = brief["selected_story"]["primary_url"]
+            project["source_text"] = brief["selected_story"]["summary"]
             self._revision(project, "editorial_brief", brief)
             self._invalidate_review(project)
             self._save(project)
             return self._public(project)
+
+    @staticmethod
+    def _validate_editorial_brief(brief: dict[str, Any]) -> dict[str, Any]:
+        """Validate the stable conversational brief contract without editorial inference."""
+        if not isinstance(brief, dict) or len(json.dumps(brief, ensure_ascii=False)) > 20000:
+            raise ValueError("brief must be an object no larger than 20000 characters")
+        unknown = set(brief) - _BRIEF_FIELDS
+        missing = _BRIEF_FIELDS - set(brief)
+        if unknown or missing:
+            raise ValueError(f"brief schema mismatch; missing={sorted(missing)}, unknown={sorted(unknown)}")
+        if brief["selection_mode"] not in ("manual", "delegated"):
+            raise ValueError("selection_mode must be manual or delegated")
+        if brief["format"] not in _SUPPORTED or brief["aspect_ratio"] != _SUPPORTED[brief["format"]]:
+            raise ValueError("format and aspect_ratio must be short/9:16 or long/16:9")
+        duration = brief["target_duration_seconds"]
+        if isinstance(duration, bool) or not isinstance(duration, int) or not 10 <= duration <= 3600:
+            raise ValueError("target_duration_seconds must be an integer from 10 to 3600")
+        tolerance = brief["duration_tolerance_seconds"]
+        if isinstance(tolerance, bool) or not isinstance(tolerance, int) or not 3 <= tolerance <= 300:
+            raise ValueError("duration_tolerance_seconds must be an integer from 3 to 300")
+        if brief["privacy_status"] not in ("public", "private", "unlisted"):
+            raise ValueError("privacy_status must be public, private, or unlisted")
+        if brief["approval_status"] not in ("proposed", "approved"):
+            raise ValueError("approval_status must be proposed or approved")
+        text_fields = ("editorial_angle", "tone", "target_audience", "language",
+                       "narrative_concept", "opening_hook", "visual_strategy", "destination")
+        for key in text_fields:
+            value = brief[key]
+            if not isinstance(value, str) or not value.strip() or len(value) > 2000:
+                raise ValueError(f"{key} must be a non-empty string up to 2000 characters")
+        if brief["destination"].casefold() != "newsphere":
+            raise ValueError("destination must be NewSphere")
+        story = brief["selected_story"]
+        story_fields = {"title", "summary", "primary_url", "why_selected"}
+        if not isinstance(story, dict) or set(story) != story_fields:
+            raise ValueError("selected_story must contain title, summary, primary_url, and why_selected")
+        for key, maximum in (("title", 500), ("summary", 3000), ("why_selected", 2000)):
+            if not isinstance(story[key], str) or not story[key].strip() or len(story[key]) > maximum:
+                raise ValueError(f"selected_story.{key} is empty or too long")
+        from scripts.url_safety import validate_public_url
+        validate_public_url(story["primary_url"])
+        if not isinstance(brief["verified_sources"], list) or not 1 <= len(brief["verified_sources"]) <= 30:
+            raise ValueError("verified_sources must contain 1-30 references")
+        for source in brief["verified_sources"]:
+            if not isinstance(source, dict) or set(source) != {"title", "url", "publisher", "published_at", "supports"}:
+                raise ValueError("verified sources require title, url, publisher, published_at, and supports")
+            if any(not isinstance(source[k], str) or not source[k].strip()
+                   for k in ("title", "url", "publisher", "supports")):
+                raise ValueError("verified source title, url, publisher, and supports are required")
+            validate_public_url(source["url"])
+            if not isinstance(source["published_at"], str):
+                raise ValueError("verified source published_at must be a string")
+        if story["primary_url"] not in {source["url"] for source in brief["verified_sources"]}:
+            raise ValueError("selected_story.primary_url must be one of the verified_sources")
+        if not isinstance(brief["alternatives"], list) or len(brief["alternatives"]) > 20:
+            raise ValueError("alternatives must be a list of up to 20 candidates")
+        for candidate in brief["alternatives"]:
+            if not isinstance(candidate, dict) or set(candidate) != {"title", "primary_url", "reason"}:
+                raise ValueError("each alternative requires title, primary_url, and reason")
+            if any(not isinstance(candidate[k], str) or not candidate[k].strip()
+                   for k in ("title", "primary_url", "reason")):
+                raise ValueError("alternative title, primary_url, and reason are required")
+            validate_public_url(candidate["primary_url"])
+        if not isinstance(brief["image_sources"], list) or not 1 <= len(brief["image_sources"]) <= 20:
+            raise ValueError("image_sources must be a list of 1-20 approved source strategies")
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 300
+               for item in brief["image_sources"]):
+            raise ValueError("image_sources entries must be non-empty strings up to 300 characters")
+        return copy.deepcopy(brief)
+
+    @staticmethod
+    def _invalidate_brief_dependencies(project: dict, old: dict, new: dict) -> None:
+        """Clear only artifacts downstream of changed editorial decisions."""
+        changed = {key for key in _BRIEF_FIELDS if old.get(key) != new.get(key)}
+        old_story = old.get("selected_story", {})
+        new_story = new.get("selected_story", {})
+        story_changed = old_story.get("primary_url") != new_story.get("primary_url")
+        narrative_changed = (story_changed or old.get("verified_sources") != new.get("verified_sources")
+                             or bool(changed & {"editorial_angle", "tone", "target_audience", "language",
+                                               "narrative_concept", "opening_hook"}))
+        if narrative_changed:
+            project["script"] = ""
+            project["narration"] = []
+            project["summary"] = ""
+            for scene in project.get("storyboard", []):
+                scene["narration"] = ""
+            project["voice"] = project["word_boundaries"] = ""
+            project["subtitles"] = project["video"] = ""
+            project["preview"] = ""
+        if story_changed:
+            project["storyboard"] = []
+            project["images"] = []
+            project["asset_records"] = []
+        if new_story.get("primary_url"):
+            project["source_url"] = new_story["primary_url"]
+        if "target_duration_seconds" in changed and not narrative_changed:
+            project["script"] = ""
+            project["narration"] = []
+            for scene in project.get("storyboard", []):
+                scene["narration"] = ""
+            project["voice"] = project["word_boundaries"] = ""
+            project["subtitles"] = project["video"] = ""
+        if changed & {"visual_strategy", "image_sources"}:
+            project["images"] = []
+            project["asset_records"] = []
+            project["video"] = ""
+        if changed & {"format", "aspect_ratio", "visual_strategy", "target_duration_seconds"}:
+            project["video"] = ""
+            project["preview"] = ""
+            metadata = project.get("youtube_metadata", {})
+            metadata["thumbnail_path"] = ""
+        if "privacy_status" in changed or "destination" in changed:
+            project["youtube_metadata"] = project.get("youtube_metadata", {})
 
     def save_script(self, job_id: str, narration: str | list[dict[str, Any]]) -> dict:
         if isinstance(narration, str):
@@ -264,10 +399,19 @@ class VideoNewsStudio:
             project["summary"] = ""
             self._revision(project, "script", {"narration": segments})
             if changed:
-                project["images"] = []
-                project["asset_records"] = []
+                scene_ids = [segment["scene_id"] for segment in segments]
+                storyboard = project.get("storyboard", [])
+                if storyboard and scene_ids == [scene.get("id") for scene in storyboard]:
+                    narration_by_scene = {segment["scene_id"]: segment["text"] for segment in segments}
+                    for scene in storyboard:
+                        scene["narration"] = narration_by_scene[scene["id"]]
+                else:
+                    project["storyboard"] = []
+                    project["images"] = []
+                    project["asset_records"] = []
                 project["voice"] = project["word_boundaries"] = ""
                 project["subtitles"] = project["video"] = ""
+                project["preview"] = ""
             self._invalidate_review(project)
             self._save(project)
             return self._public(project)
@@ -376,6 +520,26 @@ class VideoNewsStudio:
             raise ValueError("Unsupported news category")
         from difflib import SequenceMatcher
         from scripts.dbControllers.processed_news_controller import is_url_processed
+        processed_projects = []
+        recent_published_projects = []
+        for path in sorted(self.workspace.glob("[0-9a-f]" * 32 + "/project.json"),
+                           key=lambda item: item.stat().st_mtime, reverse=True)[:200]:
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                saved_title = str(saved.get("editorial_brief", {}).get("selected_story", {}).get("title")
+                                  or saved.get("title", ""))
+                processed_projects.append((saved.get("id", path.parent.name), saved_title))
+                published_at = saved.get("published_at")
+                if saved.get("status") == "published" and published_at:
+                    from dateutil import parser as dateparser
+                    parsed_published = dateparser.parse(str(published_at))
+                    if parsed_published.tzinfo is None:
+                        parsed_published = parsed_published.replace(tzinfo=timezone.utc)
+                    if (datetime.now(timezone.utc) - parsed_published.astimezone(timezone.utc)).days <= 30:
+                        recent_published_projects.append((saved.get("id", path.parent.name), saved_title,
+                                                          published_at))
+            except (OSError, json.JSONDecodeError, ValueError, TypeError, OverflowError):
+                continue
         raw = provider.search_news(query, language=language, country=country,
                                    category=category or None, limit=limit)
         articles = []
@@ -394,27 +558,57 @@ class VideoNewsStudio:
                            if isinstance(source, dict) else str(source))
             published_at = item.get("publishedAt")
             published_at_iso = None
+            age_hours = None
+            publication_date_in_future = False
             if published_at:
                 try:
                     from dateutil import parser as dateparser
                     parsed_date = dateparser.parse(str(published_at).replace(" UTC", ""))
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=timezone.utc)
                     published_at_iso = parsed_date.isoformat()
+                    age_delta_hours = (datetime.now(timezone.utc) - parsed_date.astimezone(timezone.utc)).total_seconds() / 3600
+                    publication_date_in_future = age_delta_hours < -12
+                    if not publication_date_in_future:
+                        age_hours = max(0.0, age_delta_hours)
                 except (ValueError, TypeError, OverflowError):
                     pass
             try:
                 already_processed = bool(url and is_url_processed(url))
             except Exception:
                 already_processed = False
+            prior_match = next(({"project_id": project_id, "title": prior_title}
+                                for project_id, prior_title in processed_projects
+                                if prior_title and SequenceMatcher(None, title.casefold(),
+                                                                  prior_title.casefold()).ratio() >= 0.78), None)
+            recent_match = next(({"project_id": project_id, "title": prior_title,
+                                  "published_at": date, "match_type": "title_similarity_heuristic"}
+                                 for project_id, prior_title, date in recent_published_projects
+                                 if prior_title and SequenceMatcher(None, title.casefold(),
+                                                                   prior_title.casefold()).ratio() >= 0.78), None)
+            freshness = ("unknown" if age_hours is None or publication_date_in_future else "last_24_hours" if age_hours <= 24
+                         else "last_7_days" if age_hours <= 168 else "older_than_7_days")
+            duplicate_group = (duplicate_of or url) if url else None
             articles.append({
                 "title": title, "url": url, "url_validated": url_validated,
                 "description": item.get("description", ""), "source": source_name,
                 "publishedAt": published_at, "published_at_iso": published_at_iso,
+                "age_hours": round(age_hours, 1) if age_hours is not None else None,
+                "freshness_heuristic": freshness,
                 "already_processed": already_processed, "duplicate_of": duplicate_of,
+                "duplicate_group": duplicate_group,
+                "similar_processed_project": prior_match,
+                "similar_recently_published_newssphere_project": recent_match,
+                "publication_date_in_future": publication_date_in_future,
+                "evidence_status": "unverified_search_lead",
             })
         return {"query": query, "country": country.lower(), "language": language,
                 "count": len(articles), "articles": articles,
-                "scoring_rubric": "ChatGPT should judge timeliness, source quality, audience relevance and visual potential qualitatively; no search-volume or virality analytics are supplied.",
-                "editorial_note": "These are leads. Verify original sources, dates and claims before publication."}
+                "evaluation_rubric": {"freshness": "derived from published date when present; not a popularity metric",
+                                      "duplicates": "title similarity is a heuristic; corroborate event identity",
+                                      "topic_history": "URL and title similarity against local projects only",
+                                      "viewer_interest": "editorial judgment only; no audience analytics supplied"},
+                "editorial_note": "These are unverified leads. Retrieve original material and corroborate claims before selection or production."}
 
     def retrieve_article(self, url: str) -> dict:
         from scripts.DataFetcher.news_extractor import NewsExtractor
@@ -461,9 +655,18 @@ class VideoNewsStudio:
             project = self._read(job_id)
             self._require_editable(project)
             project["script"] = script.strip()
-            for key, value in (("images", []), ("voice", ""), ("word_boundaries", ""),
-                               ("subtitles", ""), ("video", "")):
+            for key, value in (("voice", ""), ("word_boundaries", ""),
+                               ("subtitles", ""), ("video", ""), ("preview", "")):
                 project[key] = value
+            storyboard = project.get("storyboard", [])
+            if len(storyboard) == 1 and storyboard[0].get("id") == "scene-1":
+                storyboard[0]["narration"] = script.strip()
+                project["narration"] = [{"scene_id": "scene-1", "text": script.strip()}]
+            else:
+                project["narration"] = []
+                project["storyboard"] = []
+                project["images"] = []
+                project["asset_records"] = []
             self._invalidate_review(project)
             self._save(project)
             return self._public(project)
@@ -473,6 +676,18 @@ class VideoNewsStudio:
         if project["status"] in ("uploading", "upload_unknown", "published"):
             raise StudioError("Publication underway or completed; create a new project")
 
+    @classmethod
+    def _require_approved_brief(cls, project: dict) -> dict:
+        brief = cls._validate_editorial_brief(project.get("editorial_brief", {}))
+        if brief["approval_status"] != "approved":
+            raise StudioError("The active editorial brief is only a proposal; approve it before production")
+        if project.get("format") != brief["format"] or project.get("aspect_ratio") != brief["aspect_ratio"]:
+            raise StudioError("Project format conflicts with the approved editorial brief")
+        source_urls = {item.get("url") for item in project.get("sources", [])}
+        if not source_urls or brief["selected_story"]["primary_url"] not in source_urls:
+            raise StudioError("Save the approved story's verified source references before production")
+        return brief
+
     def generate_images(self, job_id: str, prompts: list[str] | None = None,
                         count: int = 5, style: str = "PHOTOREALISTIC") -> dict:
         if not 1 <= count <= 12:
@@ -480,6 +695,7 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            self._require_approved_brief(project)
             if prompts is None:
                 prompts = [scene["visual_prompt"] for scene in project.get("storyboard", [])
                            if scene.get("visual_prompt")]
@@ -541,6 +757,7 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            self._require_approved_brief(project)
             scenes = project.get("storyboard", [])
             if not scenes:
                 raise StudioError("Save a scene-by-scene storyboard before requesting stock images")
@@ -623,6 +840,7 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            self._require_approved_brief(project)
             images = project.get("images", [])
             if not images or not Path(images[0]).is_file():
                 raise StudioError("Create or import at least one scene visual before the thumbnail")
@@ -729,6 +947,7 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            brief = self._require_approved_brief(project)
             from scripts.AI.text_to_speech import TTSEdge
             folder = self._dir(job_id)
             audio = folder / "narration.mp3"
@@ -741,7 +960,16 @@ class VideoNewsStudio:
             if (not audio.is_file() or audio.stat().st_size == 0
                     or not boundaries.is_file() or not boundaries.stat().st_size):
                 raise StudioError("TTS did not produce audio with word-boundary subtitles")
+            actual_duration = self._probe_duration(audio)
+            tolerance = max(brief["duration_tolerance_seconds"],
+                            round(brief["target_duration_seconds"] * 0.10))
+            if abs(actual_duration - brief["target_duration_seconds"]) > tolerance:
+                raise StudioError(
+                    f"Narration duration {actual_duration:.1f}s is outside the approved "
+                    f"target {brief['target_duration_seconds']}s ± {tolerance}s; revise the script"
+                )
             project["voice"] = str(audio)
+            project["actual_narration_duration_seconds"] = actual_duration
             project["word_boundaries"] = str(boundaries)
             project["subtitles"] = ""
             project["video"] = ""
@@ -755,6 +983,7 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            self._require_approved_brief(project)
             boundary_path = Path(project["word_boundaries"]) if project.get("word_boundaries") else None
             if (not boundary_path or not boundary_path.is_file()
                     or not boundary_path.read_text(encoding="utf-8").strip()):
@@ -789,6 +1018,28 @@ class VideoNewsStudio:
         return duration
 
     @staticmethod
+    def _probe_media(path: Path) -> dict[str, Any]:
+        result = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-show_format",
+                                 "-of", "json", str(path)], capture_output=True, text=True,
+                                timeout=30)
+        if result.returncode != 0:
+            raise StudioError("ffprobe could not inspect the rendered video")
+        try:
+            data = json.loads(result.stdout)
+            streams = data.get("streams", [])
+            video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+            audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+            duration = float(data.get("format", {}).get("duration", 0))
+            if not video or not audio or duration <= 0:
+                raise ValueError("required streams missing")
+            return {"duration_seconds": duration, "width": int(video.get("width", 0)),
+                    "height": int(video.get("height", 0)), "video_codec": video.get("codec_name", ""),
+                    "audio_codec": audio.get("codec_name", ""), "has_video": True,
+                    "has_audio": True}
+        except (ValueError, TypeError, StopIteration, json.JSONDecodeError) as exc:
+            raise StudioError("ffprobe returned incomplete or invalid media metadata") from exc
+
+    @staticmethod
     def _scene_image_durations(project: dict, audio_duration: float) -> list[float] | None:
         """Match storyboard narration segments to actual TTS word boundaries."""
         scenes = project.get("storyboard", [])
@@ -805,9 +1056,10 @@ class VideoNewsStudio:
 
         from scripts.MediaManagers.SRT_Processor import SRTProcessor
         entries = SRTProcessor(str(raw_path)).parse_srt()
-        words = [re.findall(r"[^\W_]+", entry["text"].casefold(), flags=re.UNICODE)
-                 for entry in entries]
-        tokens = [parts[0] if parts else "" for parts in words]
+        token_events = [(word, entry["start"])
+                        for entry in entries
+                        for word in re.findall(r"[^\W_]+", entry["text"].casefold(), flags=re.UNICODE)]
+        tokens = [word for word, _start in token_events]
         starts = []
         cursor = 0
         for scene_text in scene_texts:
@@ -818,7 +1070,7 @@ class VideoNewsStudio:
                           if tokens[index:index + len(expected)] == expected), None)
             if found is None:
                 raise StudioError("Storyboard narration does not match TTS word boundaries; align it to the saved script")
-            starts.append(entries[found]["start"])
+            starts.append(token_events[found][1])
             cursor = found + len(expected)
 
         boundaries = []
@@ -847,6 +1099,7 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            brief = self._require_approved_brief(project)
             images = [Path(s) for s in project["images"]]
             if not images or not all(p.is_file() and p.stat().st_size for p in images):
                 raise StudioError("Generate images first")
@@ -866,7 +1119,20 @@ class VideoNewsStudio:
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
+            media = self._probe_media(output)
+            tolerance = max(brief["duration_tolerance_seconds"],
+                            round(brief["target_duration_seconds"] * 0.10))
+            if abs(media["duration_seconds"] - brief["target_duration_seconds"]) > tolerance:
+                raise StudioError(
+                    f"Rendered duration {media['duration_seconds']:.1f}s is outside the approved "
+                    f"target {brief['target_duration_seconds']}s ± {tolerance}s"
+                )
+            expected = (1080, 1920) if brief["aspect_ratio"] == "9:16" else (1920, 1080)
+            if (media["width"], media["height"]) != expected:
+                raise StudioError(f"Rendered resolution {media['width']}x{media['height']} does not "
+                                  f"match approved {expected[0]}x{expected[1]} format")
             project["video"] = str(output)
+            project["actual_video_qa"] = media
             self._invalidate_review(project)
             self._save(project)
             return {"job_id": job_id, "video": str(output), "bytes": output.stat().st_size}
@@ -879,6 +1145,7 @@ class VideoNewsStudio:
             try:
                 project = self._read(job_id)
                 self._require_editable(project)
+                self._require_approved_brief(project)
                 images = [Path(s) for s in project["images"]]
                 audio = Path(project["voice"]) if project["voice"] else None
                 srt = Path(project["subtitles"]) if project["subtitles"] else None
@@ -913,6 +1180,11 @@ class VideoNewsStudio:
             project = self._read(job_id)
             self._require_editable(project)
             problems = []
+            brief = None
+            try:
+                brief = self._require_approved_brief(project)
+            except (StudioError, ValueError) as exc:
+                problems.append(str(exc))
             video = Path(project["video"]) if project["video"] else None
             if not video or not video.is_file() or not video.stat().st_size:
                 problems.append("Missing rendered video")
@@ -924,6 +1196,22 @@ class VideoNewsStudio:
                 problems.append("Missing illustrations")
             if not project["subtitles"] or not Path(project["subtitles"]).is_file():
                 problems.append("Missing subtitles")
+            if not project.get("youtube_metadata", {}).get("title"):
+                problems.append("Missing complete YouTube metadata")
+            if brief and project.get("sources"):
+                source_urls = {source.get("url") for source in project["sources"]}
+                if brief["selected_story"]["primary_url"] not in source_urls:
+                    problems.append("Approved story does not match saved source references")
+                description = str(project.get("youtube_metadata", {}).get("description", "")).casefold()
+                missing_credits = [source.get("publisher", "") for source in project["sources"]
+                                   if source.get("publisher") and source["publisher"].casefold() not in description]
+                if missing_credits:
+                    problems.append("YouTube description must credit source publishers: " +
+                                    ", ".join(dict.fromkeys(missing_credits)))
+            metadata_text = json.dumps(project.get("youtube_metadata", {}), ensure_ascii=False)
+            if "\ufffd" in metadata_text or any(ord(character) < 32 and character not in "\n\r\t"
+                                                    for character in metadata_text):
+                problems.append("YouTube metadata contains invalid Unicode or control characters")
             duration = None
             if video and video.is_file() and video.stat().st_size:
                 probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
@@ -935,8 +1223,47 @@ class VideoNewsStudio:
                     duration = 0
                 if duration <= 0:
                     problems.append("Invalid video duration")
+                else:
+                    try:
+                        media = self._probe_media(video)
+                        expected = (1080, 1920) if project.get("aspect_ratio") == "9:16" else (1920, 1080)
+                        if (media["width"], media["height"]) != expected:
+                            problems.append(f"Video resolution {media['width']}x{media['height']} does not "
+                                            f"match {expected[0]}x{expected[1]}")
+                        if media["video_codec"] != "h264":
+                            problems.append("Video codec must be H.264")
+                        if media["audio_codec"] not in ("aac", "mp3"):
+                            problems.append("Audio codec must be AAC or MP3")
+                        if brief:
+                            tolerance = max(brief["duration_tolerance_seconds"],
+                                            round(brief["target_duration_seconds"] * 0.10))
+                            if abs(duration - brief["target_duration_seconds"]) > tolerance:
+                                problems.append(
+                                    f"Video duration {duration:.1f}s does not match the approved "
+                                    f"target {brief['target_duration_seconds']}s ± {tolerance}s"
+                                )
+                    except StudioError as exc:
+                        problems.append(str(exc))
+            if project.get("subtitles") and Path(project["subtitles"]).is_file() and duration:
+                try:
+                    from scripts.MediaManagers.SRT_Processor import SRTProcessor
+                    captions = SRTProcessor(project["subtitles"]).parse_srt()
+                    if not captions:
+                        problems.append("Subtitle file contains no caption entries")
+                    elif captions[0]["start"] < 0 or captions[-1]["end"] > duration + 0.5:
+                        problems.append("Subtitle timing falls outside the video duration")
+                except Exception:
+                    problems.append("Subtitle file could not be parsed")
+            if project.get("storyboard"):
+                scene_ids = {scene.get("id") for scene in project["storyboard"]}
+                asset_scene_ids = {asset.get("scene_id") for asset in project.get("asset_records", [])}
+                if not scene_ids.issubset(asset_scene_ids):
+                    problems.append("At least one storyboard scene has no associated visual asset")
             result = {"job_id": job_id, "duration_seconds": duration, "issues": problems,
-                      "requires_human_fact_check": True, "privacy": "private",
+                      "target_duration_seconds": brief["target_duration_seconds"] if brief else None,
+                      "aspect_ratio": brief["aspect_ratio"] if brief else None,
+                      "requires_human_fact_check": True,
+                      "privacy": brief["privacy_status"] if brief else None,
                       "ready_for_editorial_review": not problems}
             return result
 
@@ -983,6 +1310,14 @@ class VideoNewsStudio:
         """Publish at the owner-enrolled status (PUBLIC by default) after verification."""
         with _LOCK:
             project = self._read(job_id)
+            if not (self._dir(job_id) / "owner-authorization.json").is_file():
+                from scripts import publishing_policy
+                enrolled = publishing_policy.load()
+                if enrolled and privacy_status is not None and privacy_status not in enrolled["allowed_privacy_statuses"]:
+                    raise StudioError("Requested privacy status is not allowed by the owner-enrolled policy")
+            brief = self._require_approved_brief(project)
+            if privacy_status is not None and privacy_status != brief["privacy_status"]:
+                raise StudioError("Requested YouTube privacy differs from the approved editorial brief")
             if project["status"] == "published":
                 return {"job_id": job_id, "video_id": project["video_id"],
                         "url": "https://www.youtube.com/watch?v=" + project["video_id"],
@@ -1103,6 +1438,7 @@ class VideoNewsStudio:
             project["video_id"] = str(video_id)
             project["privacy_status"] = verification["privacy_status"]
             project["youtube_verified_channel_id"] = verification["channel_id"]
+            project["published_at"] = datetime.now(timezone.utc).isoformat()
             project["status"] = "published"
             self._save(project)
             publishing_policy.audit(job_id, video_hash, account_id, "uploaded",

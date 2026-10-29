@@ -1,0 +1,274 @@
+{
+  "$defs": {
+    "BriefAlternative": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "primary_url": {
+          "maxLength": 2000,
+          "minLength": 8,
+          "pattern": "^https://",
+          "title": "Primary Url",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "primary_url",
+        "reason"
+      ],
+      "title": "BriefAlternative",
+      "type": "object"
+    },
+    "BriefSource": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 2000,
+          "minLength": 8,
+          "pattern": "^https://",
+          "title": "Url",
+          "type": "string"
+        },
+        "publisher": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Publisher",
+          "type": "string"
+        },
+        "published_at": {
+          "maxLength": 100,
+          "title": "Published At",
+          "type": "string"
+        },
+        "supports": {
+          "maxLength": 3000,
+          "minLength": 1,
+          "title": "Supports",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "url",
+        "publisher",
+        "published_at",
+        "supports"
+      ],
+      "title": "BriefSource",
+      "type": "object"
+    },
+    "BriefStory": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 3000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "primary_url": {
+          "maxLength": 2000,
+          "minLength": 8,
+          "pattern": "^https://",
+          "title": "Primary Url",
+          "type": "string"
+        },
+        "why_selected": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Why Selected",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "summary",
+        "primary_url",
+        "why_selected"
+      ],
+      "title": "BriefStory",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "selection_mode": {
+      "enum": [
+        "manual",
+        "delegated"
+      ],
+      "title": "Selection Mode",
+      "type": "string"
+    },
+    "selected_story": {
+      "$ref": "#/$defs/BriefStory"
+    },
+    "alternatives": {
+      "items": {
+        "$ref": "#/$defs/BriefAlternative"
+      },
+      "maxItems": 20,
+      "title": "Alternatives",
+      "type": "array"
+    },
+    "verified_sources": {
+      "items": {
+        "$ref": "#/$defs/BriefSource"
+      },
+      "maxItems": 30,
+      "minItems": 1,
+      "title": "Verified Sources",
+      "type": "array"
+    },
+    "format": {
+      "enum": [
+        "short",
+        "long"
+      ],
+      "title": "Format",
+      "type": "string"
+    },
+    "aspect_ratio": {
+      "enum": [
+        "9:16",
+        "16:9"
+      ],
+      "title": "Aspect Ratio",
+      "type": "string"
+    },
+    "target_duration_seconds": {
+      "maximum": 3600,
+      "minimum": 10,
+      "title": "Target Duration Seconds",
+      "type": "integer"
+    },
+    "editorial_angle": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Editorial Angle",
+      "type": "string"
+    },
+    "tone": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Tone",
+      "type": "string"
+    },
+    "target_audience": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Target Audience",
+      "type": "string"
+    },
+    "language": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Language",
+      "type": "string"
+    },
+    "narrative_concept": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Narrative Concept",
+      "type": "string"
+    },
+    "opening_hook": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Opening Hook",
+      "type": "string"
+    },
+    "visual_strategy": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Visual Strategy",
+      "type": "string"
+    },
+    "image_sources": {
+      "items": {
+        "maxLength": 300,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Image Sources",
+      "type": "array"
+    },
+    "destination": {
+      "const": "NewSphere",
+      "title": "Destination",
+      "type": "string"
+    },
+    "privacy_status": {
+      "enum": [
+        "public",
+        "private",
+        "unlisted"
+      ],
+      "title": "Privacy Status",
+      "type": "string"
+    },
+    "approval_status": {
+      "enum": [
+        "proposed",
+        "approved"
+      ],
+      "title": "Approval Status",
+      "type": "string"
+    },
+    "duration_tolerance_seconds": {
+      "maximum": 300,
+      "minimum": 3,
+      "title": "Duration Tolerance Seconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "selection_mode",
+    "selected_story",
+    "alternatives",
+    "verified_sources",
+    "format",
+    "aspect_ratio",
+    "target_duration_seconds",
+    "editorial_angle",
+    "tone",
+    "target_audience",
+    "language",
+    "narrative_concept",
+    "opening_hook",
+    "visual_strategy",
+    "image_sources",
+    "destination",
+    "privacy_status",
+    "approval_status",
+    "duration_tolerance_seconds"
+  ],
+  "title": "EditorialBrief",
+  "type": "object"
+}
