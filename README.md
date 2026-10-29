@@ -5,8 +5,8 @@ primary workflow is operated through ChatGPT connected to the local Python
 engine over a private MCP connection. ChatGPT performs research synthesis,
 editorial selection, fact checking, narration, storyboards, and YouTube metadata.
 Python validates and stores those artifacts, retrieves source material,
-processes assets, creates speech and subtitles, renders video, and uploads only
-after a separate owner approval from the local Windows console.
+processes licensed assets, creates speech and subtitles, renders video, and
+uploads privately only under a local policy explicitly enrolled by the owner.
 
 The Studio workflow does not make Python LLM calls to rewrite ChatGPT scripts.
 An optional CLI fallback can use configured automated providers. ChatGPT Plus
@@ -18,14 +18,16 @@ The private **VideoNews AI Studio** plugin includes a local stdio MCP launcher. 
 
 ```powershell
 .\bootstrap.ps1
-.\scripts\setup_desktop_mcp.ps1
 ```
 
-The bootstrap now installs the MCP SDK. The setup script sets `VIDEONEWS_REPO_PATH` for the Windows user and verifies the packaged launcher with a harmless MCP initialization, tool discovery, `studio_status` and `list_projects` call in an isolated temporary workspace. It does not call news APIs or publish videos.
+The bootstrap installs the MCP SDK, sets `VIDEONEWS_REPO_PATH` for the Windows user, and verifies the packaged launcher with a harmless MCP initialization, tool discovery, `studio_status` and `list_projects` call in an isolated temporary workspace. It does not call news APIs or publish videos. Rerun `scripts\\setup_desktop_mcp.ps1` when only the local MCP setup needs repair.
 
 **Completely restart ChatGPT Desktop** so it inherits the environment variable, install/update the private VideoNews AI Studio plugin, and start a **Work locally** conversation. Ask it to call `studio_status` and `list_projects`. Only a real call from ChatGPT Desktop proves the plugin works in the Desktop host.
 
-The local MCP server is not available to web/mobile/cloud Chat without a separate authenticated connection. ChatGPT-generated images still require manual staging in `output/studio/_imports`; Google OAuth credentials must be valid for YouTube uploading. See `docs/CHATGPT_STUDIO.md`.
+Local MCP is available to compatible Desktop **Work locally** conversations;
+web/mobile/cloud Chat requires a separate authenticated Secure MCP Tunnel.
+When configured, Pexels provides automatic scene-specific licensed visuals.
+See `docs/CHATGPT_STUDIO.md`.
 
 ## Windows setup
 
@@ -49,21 +51,23 @@ paid and disabled in the ChatGPT Studio unless
 
 ## ChatGPT workflow
 
-The MCP provides tools for sourced news retrieval, article extraction,
-structured project creation, scripts/storyboards/metadata persistence, validated
-asset import, speech, subtitles, preview and final rendering, project/job
-inspection, read-only quality review, and private YouTube publishing.
+The MCP provides sourced news retrieval, project/script/storyboard persistence,
+automatic Pexels stock visuals, validated asset import, Spanish narration,
+subtitles, preview and final rendering, read-only quality review, and private
+YouTube publishing.
 
-Long media operations return job IDs; poll `get_job`. Images generated or
-reviewed inside ChatGPT must be transferred manually to
-`output/studio/_imports` before importing. Python does not have automatic access
-to ChatGPT image-generation outputs.
+Long media operations return job IDs; poll `get_job`. `generate_stock_images`
+uses the configured Pexels key and stores provider, license and photographer
+credits per scene. ChatGPT-generated images remain a manual import option;
+there is no silent ChatGPT image export API.
 
-Run `.\.venv\Scripts\python.exe -m scripts.owner_authorize_upload PROJECT_ID`
-only after inspecting the rendered file locally. This interactive action binds a
-single-use, expiring grant to the exact video hash, OAuth channel, private
-privacy status, and YouTube upload operation. MCP cannot issue that grant.
-Unknown upload outcomes require manual reconciliation and are never retried.
+One-time owner enrollment is available through
+`.\.venv\Scripts\python.exe -m scripts.owner_publish_policy enroll`; it verifies
+the OAuth channel and stores a user-only, private-only policy with a daily
+limit. After enrollment, an explicit conversational request can call
+`publish_youtube` without another per-video console command. The stricter
+one-use `owner_authorize_upload.py` flow remains available. Unknown upload
+outcomes require reconciliation and are never retried.
 
 See [docs/CHATGPT_STUDIO.md](docs/CHATGPT_STUDIO.md) for project schema,
 workflow details, Secure MCP Tunnel setup, account permissions, asset provenance,
@@ -71,17 +75,12 @@ and publishing safeguards.
 
 ## Secure ChatGPT connection
 
-The repository server currently runs over local MCP stdio. Connecting ChatGPT
-requires OpenAI Secure MCP Tunnel, a `tunnel_id`, a restricted runtime API key,
-Platform Tunnels Read + Use permissions, and permission to add custom MCP servers
-in the target ChatGPT workspace. Creating/managing a tunnel also requires
-Platform Tunnels Read + Manage. Do not expose the local server on an
-unauthenticated public endpoint.
-
-The current checkout has not proven a live ChatGPT call: `tunnel-client` and
-account permission visibility were unavailable in the checked environment.
-Install `mcp` with `requirements-mcp.txt`, complete the tunnel/account steps,
-and verify a real call before calling the integration complete.
+The local Desktop mode uses the private plugin's stdio launcher from a ChatGPT
+**Work locally** conversation. A normal cloud Chat connection requires Secure
+MCP Tunnel, Platform Tunnels Read + Use, and workspace permission to add custom
+MCP servers; tunnel management also requires Tunnels Read + Manage. Do not
+expose the local server on an unauthenticated public endpoint. A stdio smoke
+test does not prove a ChatGPT-hosted tool call.
 
 ## Local diagnostics and tests
 

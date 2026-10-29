@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -41,14 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     if not source.is_file():
         print("YouTube OAuth client secrets are not configured.")
         return 2
-    secrets = Path.cwd() / ".secrets"
-    secrets.mkdir(exist_ok=True)
-    destination = secrets / "client_secret.json"
-    if source != destination.resolve():
-        shutil.copy2(source, destination)
-
     from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
-    uploader = YoutubeMediaUploader(client_secrets_file="client_secret.json")
+    token_file = Path(config["youtube"].get("token_file", ".secrets/token.json")).resolve()
+    uploader = YoutubeMediaUploader(client_secrets_file=str(source),
+                                    token_file=str(token_file))
     channel_id = uploader.get_channel_id()
     grant = studio.issue_owner_authorization(
         project["id"], owner_confirmed=True, target_account_id=channel_id)

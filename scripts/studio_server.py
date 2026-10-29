@@ -98,6 +98,18 @@ def generate_images(job_id: str, prompts: list[str] | None = None,
 
 
 @mcp.tool()
+def generate_stock_images(job_id: str) -> dict:
+    """Fetch licensed, scene-matched Pexels images asynchronously; no paid generation."""
+    return call("start_job", action="generate_stock_images", project_id=job_id)
+
+
+@mcp.tool()
+def create_thumbnail(job_id: str) -> dict:
+    """Create a validated NewSphere thumbnail asynchronously from project visuals and metadata."""
+    return call("start_job", action="create_thumbnail", project_id=job_id)
+
+
+@mcp.tool()
 def import_asset(job_id: str, staged_filename: str, scene_id: str,
                  provenance: dict) -> dict:
     """Import a validated image from output/studio/_imports into a project."""
@@ -151,7 +163,7 @@ def review_video(job_id: str) -> dict:
 
 @mcp.tool()
 def publish_youtube(job_id: str) -> dict:
-    """Upload PRIVATE only when a local one-use owner authorization exists."""
+    """Upload PRIVATE only under the local owner authorization or enrolled private policy."""
     return call("publish_youtube", job_id=job_id)
 
 

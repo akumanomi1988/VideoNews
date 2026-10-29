@@ -10,7 +10,8 @@ def isolated_settings(tmp_path, monkeypatch):
         "SERPAPI_API_KEY", "PEXELS_API_KEY", "NEWS_API_KEY", "CURRENTS_API_KEY",
         "GROQ_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT",
         "OLLAMA_MODEL", "VIDEO_TEMP_DIR", "MEDIA_SOURCE", "TTS_VOICE",
-        "OLLAMA_ENABLED", "YOUTUBE_CLIENT_SECRETS_FILE", "SERPAPI_USE_CACHE", "SERPAPI_CACHE_TTL_HOURS"
+        "OLLAMA_ENABLED", "YOUTUBE_CLIENT_SECRETS_FILE", "YOUTUBE_TOKEN_FILE",
+        "SERPAPI_USE_CACHE", "SERPAPI_CACHE_TTL_HOURS"
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -26,6 +27,10 @@ def test_defaults_are_isolated_between_calls():
     second = load_runtime_config()
     assert second["serpapi"]["api_key"] == ""
     assert all(item["type"] != "bad" for item in second["llm"]["providers"])
+
+def test_youtube_token_path_can_be_isolated_from_existing_credentials(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_TOKEN_FILE", ".secrets/youtube-desktop/token.json")
+    assert load_runtime_config()["youtube"]["token_file"] == ".secrets/youtube-desktop/token.json"
 
 def test_partial_nested_override_keeps_other_default_fields(tmp_path):
     path = _settings(tmp_path, {"settings": {"parallel_workers": 1}})

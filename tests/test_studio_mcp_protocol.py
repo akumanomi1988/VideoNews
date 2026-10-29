@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 
@@ -28,18 +29,26 @@ async def test_stdio_mcp_discovers_tools_and_calls_list_projects(tmp_path):
             await session.initialize()
             tools = await session.list_tools()
             names = {tool.name for tool in tools.tools}
-            assert {"create_project", "save_script", "get_job", "publish_youtube", "studio_status"} <= names
+            assert {"create_project", "save_script", "get_job", "create_thumbnail",
+                    "generate_stock_images", "publish_youtube", "studio_status"} <= names
             assert "review_video" in names
             review_tool = next(tool for tool in tools.tools if tool.name == "review_video")
             assert "approve" not in review_tool.inputSchema.get("properties", {})
             result = await session.call_tool("list_projects", {"limit": 1})
             assert not result.isError
-            assert result.structuredContent == {"result": []}
+            projects = result.structuredContent
+            if projects is None:
+                projects = json.loads(result.content[0].text)
+            while isinstance(projects, dict) and isinstance(projects.get("result"), list):
+                projects = projects["result"]
+            assert projects == []
             status = await session.call_tool("studio_status", {})
             assert not status.isError
-            readiness = status.structuredContent or {}
-            if isinstance(readiness.get("result"), dict):
+            readiness = status.structuredContent
+            if readiness is None:
+                readiness = json.loads(status.content[0].text)
+            while isinstance(readiness, dict) and isinstance(readiness.get("result"), dict):
                 readiness = readiness["result"]
             assert readiness.get("transport") == "stdio"
-            assert readiness.get("publishing_policy") == "private_with_separate_local_owner_approval"
+            assert readiness.get("publishing_policy") == "private_owner_enrollment_required"
             assert "youtube_client_secrets_present" in readiness

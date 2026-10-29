@@ -17,7 +17,8 @@ init(autoreset=True)
 log = logging.getLogger(__name__)
 
 class YoutubeMediaUploader:
-    SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+    SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
+              "https://www.googleapis.com/auth/youtube.readonly"]
 
     def __init__(self, client_secrets_file, token_file='token.json', channel_description=""):
         try:
@@ -167,7 +168,13 @@ class YoutubeMediaUploader:
                 raise RuntimeError("All description candidates rejected by YouTube API")
 
             if thumbnail_path:
-                self.set_thumbnail(response['id'], thumbnail_path)
+                try:
+                    self.set_thumbnail(response['id'], thumbnail_path)
+                except Exception as thumbnail_error:
+                    # The video insert already returned an ID; do not turn a
+                    # thumbnail failure into an ambiguous upload that may be retried.
+                    log.warning("Video uploaded, but thumbnail update failed: %s", thumbnail_error)
+                    response['thumbnail_warning'] = str(thumbnail_error)[:500]
 
             self.safe_print(Fore.GREEN + f"Short uploaded successfully: {title[:60]}")
             return response

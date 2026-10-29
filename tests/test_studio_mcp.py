@@ -222,8 +222,9 @@ def _authorize(studio, project, monkeypatch):
 
 def _install_fake_youtube(monkeypatch, upload):
     class Uploader:
-        def __init__(self, client_secrets_file):
-            assert client_secrets_file == "client_secret.json"
+        def __init__(self, client_secrets_file, token_file=None):
+            assert Path(client_secrets_file).is_absolute()
+            assert Path(token_file).is_absolute()
 
         def upload(self, *args, **kwargs):
             return upload(*args, **kwargs)
@@ -243,7 +244,7 @@ def _setup_oauth(studio, monkeypatch, tmp_path):
 
 
 def test_no_publish_without_review(studio, project):
-    with pytest.raises(StudioError, match="local Windows console"):
+    with pytest.raises(StudioError, match="local console"):
         studio.publish_youtube(project["id"])
 
 
@@ -287,9 +288,117 @@ def test_uncertain_upload_never_auto_retries(studio, project, monkeypatch, tmp_p
     with pytest.raises(TimeoutError):
         studio.publish_youtube(project["id"])
     assert studio._read(project["id"])["status"] == "upload_unknown"
-    with pytest.raises(StudioError, match="local Windows console"):
+    with pytest.raises(StudioError, match="uncertain"):
         studio.publish_youtube(project["id"])
     assert upload.call_count == 1
+
+
+def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import private_publish_policy
+
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
+        returncode=0, stdout="20.5\n"))
+    studio.save_youtube_metadata(project["id"], {
+        "title": "A verified private Short", "description": "Source-backed report.", "tags": []})
+    private_publish_policy.enroll("UCtestChannel123", 1)
+    _setup_oauth(studio, monkeypatch, tmp_path)
+    upload = Mock(return_value={"id": "YT_AUTO_PRIVATE_1"})
+    _install_fake_youtube(monkeypatch, upload)
+
+    result = studio.publish_youtube(project["id"])
+    assert result["privacy"] == "private"
+    assert upload.call_args.kwargs["privacy_status"] == "private"
+    assert studio.publish_youtube(project["id"])["already_published"] is True
+    assert upload.call_count == 1
+    records = private_publish_policy.records()
+    assert [record["outcome"] for record in records] == ["upload_started", "uploaded"]
+    assert all(record["channel_id"] == "UCtestChannel123" for record in records)
+    assert all(record["video_sha256"] == studio._hash(Path(project["video"])) for record in records)
+
+
+def test_auto_publish_unknown_outcome_is_audited_and_never_retried(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import private_publish_policy
+
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
+        returncode=0, stdout="20.5\n"))
+    studio.save_youtube_metadata(project["id"], {
+        "title": "A verified private Short", "description": "Source-backed report.", "tags": []})
+    private_publish_policy.enroll("UCtestChannel123", 2)
+    _setup_oauth(studio, monkeypatch, tmp_path)
+    upload = Mock(side_effect=TimeoutError("Network lost after transfer"))
+    _install_fake_youtube(monkeypatch, upload)
+
+    with pytest.raises(TimeoutError):
+        studio.publish_youtube(project["id"])
+    assert studio._read(project["id"])["status"] == "upload_unknown"
+    assert private_publish_policy.records()[-1]["outcome"] == "upload_unknown"
+    with pytest.raises(StudioError, match="uncertain"):
+        studio.publish_youtube(project["id"])
+    assert upload.call_count == 1
+
+
+def test_auto_publish_policy_requires_enrollment(studio, project, monkeypatch):
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(project["id"]))
+    with pytest.raises(StudioError, match="enroll once"):
+        studio.publish_youtube(project["id"])
+
+
+def test_pexels_assets_are_scene_specific_licensed_and_resumable(studio, monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    import requests
+
+    project = studio.create_project("Pexels storyboard asset proof")
+    studio.save_storyboard(project["id"], [
+        {"id": "scene-1", "visual_prompt": "A European data center corridor"},
+        {"id": "scene-2", "visual_prompt": "A scientist reviewing AI research"},
+    ])
+    monkeypatch.setattr(studio, "_config", lambda: {"pexels": {"api_key": "test-key"}})
+    monkeypatch.setattr("scripts.url_safety.validate_public_url", lambda _url: None)
+    image = BytesIO()
+    Image.new("RGB", (16, 16), "navy").save(image, format="JPEG")
+    image_bytes = image.getvalue()
+    calls = []
+
+    class Response:
+        headers = {"Content-Type": "image/jpeg"}
+
+        def __init__(self, search=False, query=""):
+            self.search = search
+            self.query = query
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"photos": [{"url": "https://www.pexels.com/photo/123/",
+                                "photographer": "Pexels Photographer",
+                                "photographer_url": "https://www.pexels.com/@photo",
+                                "src": {"large2x": "https://images.pexels.com/photos/123/photo.jpeg"}}]}
+
+        def iter_content(self, chunk_size):
+            return [image_bytes]
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if "api.pexels.com" in url:
+            return Response(search=True)
+        return Response()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    first = studio.generate_stock_images(project["id"])
+    assert first["provider"] == "Pexels"
+    assert len(first["assets"]) == 2
+    saved = studio.get_project(project["id"])
+    assert [asset["scene_id"] for asset in saved["asset_records"]] == ["scene-1", "scene-2"]
+    assert all(asset["provenance"]["license"] == "Pexels License" for asset in saved["asset_records"])
+    assert all(asset["synthetic_media"] is False for asset in saved["asset_records"])
+    assert len(studio.generate_stock_images(project["id"])["assets"]) == 2
+    assert len(calls) == 4
 
 
 def test_news_requires_real_search_credentials(studio, monkeypatch):
@@ -366,7 +475,7 @@ def test_asset_import_is_project_scoped_and_synthetic_disclosure_is_sticky(studi
 
     studio.save_storyboard(project["id"], [{"id": "scene-1", "visual_prompt": "A newsroom illustration"}])
     inbox = studio.workspace / "_imports"
-    inbox.mkdir()
+    inbox.mkdir(exist_ok=True)
     Image.new("RGB", (64, 64), "navy").save(inbox / "reviewed.png")
     imported = studio.import_asset(project["id"], "reviewed.png", "scene-1", {
         "source": "ChatGPT generated illustration", "license": "owner-reviewed",
@@ -392,7 +501,7 @@ def test_asset_import_order_follows_storyboard_not_upload_order(studio, project)
         {"id": "scene-2", "visual_prompt": "Second visual"},
     ])
     inbox = studio.workspace / "_imports"
-    inbox.mkdir()
+    inbox.mkdir(exist_ok=True)
     Image.new("RGB", (32, 32), "navy").save(inbox / "first.png")
     Image.new("RGB", (32, 32), "gold").save(inbox / "second.png")
     provenance = {"source": "Original test artwork", "synthetic_media": False}
@@ -404,6 +513,44 @@ def test_asset_import_order_follows_storyboard_not_upload_order(studio, project)
     assert [scene["asset_ids"][0] for scene in saved["storyboard"]] == [
         asset["id"] for asset in saved["asset_records"]
     ]
+
+
+def test_thumbnail_uses_project_visuals_and_validated_spanish_metadata(studio, project):
+    from PIL import Image
+
+    image = Path(project["images"][0])
+    Image.new("RGB", (300, 500), "navy").save(image)
+    studio.save_youtube_metadata(project["id"], {
+        "title": "La nueva ley sobre chatbots", "description": "Resumen verificado.",
+        "tags": ["tecnología"], "thumbnail_text": "Nueva ley para chatbots",
+    })
+    result = studio.create_thumbnail(project["id"])
+    with Image.open(result["thumbnail"]) as thumbnail:
+        assert thumbnail.size == (1280, 720)
+        assert thumbnail.format == "JPEG"
+    saved = studio.get_project(project["id"])
+    assert saved["youtube_metadata"]["thumbnail_path"] == result["thumbnail"]
+
+
+def test_thumbnail_failure_does_not_hide_successful_video_insert(tmp_path):
+    from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+    from googleapiclient.http import MediaFileUpload
+
+    uploader = YoutubeMediaUploader.__new__(YoutubeMediaUploader)
+    uploader.channel_description = ""
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"mock video")
+    uploader.validate_short_parameters = lambda *args: None
+    uploader.youtube = Mock()
+    uploader.youtube.videos.return_value.insert.return_value.execute.return_value = {"id": "private-id"}
+    uploader.set_thumbnail = Mock(side_effect=RuntimeError("thumbnail API unavailable"))
+    uploader.safe_print = lambda *_args: None
+    uploader.handle_error = lambda *_args: None
+
+    result = uploader.upload(str(video), "A valid title", "description", [],
+                             thumbnail_path="thumbnail.jpg")
+    assert result["id"] == "private-id"
+    assert "thumbnail API unavailable" in result["thumbnail_warning"]
 
 
 def test_asset_import_rejects_paths_outside_staging_inbox(studio, project):
@@ -434,6 +581,27 @@ def test_async_job_persists_result_and_reuses_idempotency_key(studio, project, m
     second = studio.start_job("generate_voice", project["id"], {"voice": "test"},
                               idempotency_key="voice-job-0001")
     assert second["job_id"] == first["job_id"]
+
+
+def test_async_provider_output_does_not_pollute_stdout_mcp_channel(studio, project, capsys, monkeypatch):
+    finished = threading.Event()
+
+    def noisy_provider(project_id, voice):
+        print("provider progress")
+        finished.set()
+        return {"job_id": project_id, "voice": voice}
+
+    monkeypatch.setattr(studio, "generate_voice", noisy_provider)
+    task = studio.start_job("generate_voice", project["id"], {"voice": "test"})
+    assert finished.wait(3)
+    deadline = time.monotonic() + 3
+    result = studio.get_job(task["job_id"])
+    while result["status"] in ("queued", "running") and time.monotonic() < deadline:
+        time.sleep(0.01)
+        result = studio.get_job(task["job_id"])
+    captured = capsys.readouterr()
+    assert result["status"] == "succeeded"
+    assert "provider progress" not in captured.out
 
 
 def test_project_listing_suppresses_approval_data(studio, project):

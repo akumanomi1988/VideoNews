@@ -6,6 +6,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location -LiteralPath $root
+. (Join-Path $root 'scripts\configure_ffmpeg_path.ps1')
+Add-VideoNewsFfmpegToPath
 
 function Invoke-Checked {
     param([string]$program, [string[]]$arguments)
@@ -67,8 +69,9 @@ Invoke-Checked -program $venvPython -arguments @('-c', 'import news_video_proces
 if (-not $SkipTests) {
     Invoke-Checked -program $venvPython -arguments @('-m', 'pytest', '-q')
 }
+& (Join-Path $root 'scripts\setup_desktop_mcp.ps1')
+if (-not $?) { throw 'ChatGPT Desktop MCP setup failed.' }
 Write-Host 'Windows installation complete.' -ForegroundColor Green
-Write-Host 'Configure .env and inspect every video locally before authorizing a private YouTube upload.'
+Write-Host 'Configure .env, restart ChatGPT Desktop, and inspect every video before authorizing upload.'
 Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.doctor --mode studio'
-Write-Host 'Run .\scripts\setup_desktop_mcp.ps1 to prepare the ChatGPT Desktop plugin'
 Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.cli --title "VideoNews demonstration" --format short'

@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+. (Join-Path $PSScriptRoot 'configure_ffmpeg_path.ps1')
+Add-VideoNewsFfmpegToPath
 $python = Join-Path $repo '.venv\Scripts\python.exe'
 $launcher = Join-Path $repo 'chatgpt-plugin\server\launch.py'
 if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
@@ -26,10 +28,11 @@ if ($LASTEXITCODE -ne 0 -or $version -ne '3.11') {
 }
 Push-Location $repo
 try {
-    & $python -c 'import mcp; import scripts.studio_server; print("MCP runtime: OK")'
+    & $python -c 'import mcp; import scripts.studio_server'
     if ($LASTEXITCODE -ne 0) {
         throw 'Install MCP: .\.venv\Scripts\python.exe -m pip install -r requirements-mcp.txt'
     }
+    Write-Host 'MCP runtime: OK' -ForegroundColor Green
     $env:VIDEONEWS_REPO_PATH = $repo
     [Environment]::SetEnvironmentVariable('VIDEONEWS_REPO_PATH', $repo, 'User')
     Write-Host "VIDEONEWS_REPO_PATH configured: $repo" -ForegroundColor Green

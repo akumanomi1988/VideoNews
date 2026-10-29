@@ -15,6 +15,8 @@ import tempfile
 import threading
 import uuid
 import copy
+import contextlib
+import sys
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -79,7 +81,8 @@ class VideoNewsStudio:
 
     def start_job(self, action: str, project_id: str, arguments: dict[str, Any] | None = None,
                   idempotency_key: str = "") -> dict:
-        actions = {"generate_images", "generate_voice", "generate_subtitles", "render_preview", "render_video"}
+        actions = {"generate_images", "generate_stock_images", "create_thumbnail", "generate_voice",
+                   "generate_subtitles", "render_preview", "render_video"}
         if action not in actions:
             raise ValueError("Unsupported asynchronous studio action")
         if idempotency_key and not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", idempotency_key):
@@ -112,7 +115,9 @@ class VideoNewsStudio:
         record["started_at"] = datetime.now(timezone.utc).isoformat()
         path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
         try:
-            result = getattr(self, record["action"])(record["project_id"], **arguments)
+            # Provider libraries print progress; keep it off the stdio MCP protocol channel.
+            with contextlib.redirect_stdout(sys.stderr):
+                result = getattr(self, record["action"])(record["project_id"], **arguments)
             record["status"] = "succeeded"
             record["result"] = result
         except Exception as exc:
@@ -332,6 +337,8 @@ class VideoNewsStudio:
                  "tags": [str(tag)[:60] for tag in tags[:30]],
                  "hashtags": [str(tag)[:80] for tag in metadata.get("hashtags", [])[:15]],
                  "thumbnail_concept": str(metadata.get("thumbnail_concept", ""))[:1000],
+                 "thumbnail_text": str(metadata.get("thumbnail_text", title))[:100],
+                 "thumbnail_path": "",
                  "language": str(metadata.get("language", "es"))[:10],
                  "category_id": str(metadata.get("category_id", "25"))[:4],
                  "contains_synthetic_media": bool(metadata.get("contains_synthetic_media", False))}
@@ -519,6 +526,143 @@ class VideoNewsStudio:
             self._invalidate_review(project)
             self._save(project)
             return {"job_id": job_id, "images": output, "prompts": prompt_list}
+
+    def generate_stock_images(self, job_id: str) -> dict:
+        """Retrieve one licensed, scene-matched Pexels image per missing scene."""
+        from io import BytesIO
+        from urllib.parse import urlsplit
+        import requests
+        from PIL import Image
+
+        config = self._config()
+        api_key = config.get("pexels", {}).get("api_key", "")
+        if not api_key:
+            raise StudioError("PEXELS_API_KEY is required for automatic licensed visuals")
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            scenes = project.get("storyboard", [])
+            if not scenes:
+                raise StudioError("Save a scene-by-scene storyboard before requesting stock images")
+            existing = {record.get("scene_id") for record in project.get("asset_records", [])}
+            folder = self._dir(job_id) / "images"
+            folder.mkdir(exist_ok=True)
+            records = project.setdefault("asset_records", [])
+            for scene in scenes:
+                scene_id = scene.get("id")
+                prompt = str(scene.get("visual_prompt", "")).strip()
+                if scene_id in existing:
+                    continue
+                if not prompt:
+                    raise StudioError(f"Scene {scene_id} has no visual_prompt")
+                search = requests.get(
+                    "https://api.pexels.com/v1/search",
+                    params={"query": prompt[:500], "per_page": 1,
+                            "orientation": "portrait" if project["format"] == "short" else "landscape"},
+                    headers={"Authorization": api_key}, timeout=(10, 30),
+                )
+                search.raise_for_status()
+                photos = search.json().get("photos", [])
+                if not photos:
+                    raise StudioError(f"Pexels returned no licensed image for scene {scene_id}")
+                photo = photos[0]
+                image_url = str(photo.get("src", {}).get("large2x") or photo.get("src", {}).get("large", ""))
+                parsed = urlsplit(image_url)
+                if parsed.scheme != "https" or parsed.hostname != "images.pexels.com":
+                    raise StudioError("Pexels returned an untrusted image host")
+                from scripts.url_safety import validate_public_url
+                validate_public_url(image_url)
+                response = requests.get(image_url, stream=True, allow_redirects=False,
+                                        timeout=(10, 45))
+                response.raise_for_status()
+                content_type = response.headers.get("Content-Type", "").split(";", 1)[0]
+                if content_type not in ("image/jpeg", "image/png", "image/webp"):
+                    raise StudioError("Pexels returned an unsupported image type")
+                content = bytearray()
+                for chunk in response.iter_content(65536):
+                    content.extend(chunk)
+                    if len(content) > 20 * 1024 * 1024:
+                        raise StudioError("Pexels image exceeds the 20MB import limit")
+                if not content:
+                    raise StudioError("Pexels returned an empty image")
+                try:
+                    with Image.open(BytesIO(content)) as image:
+                        image.verify()
+                        image_format = image.format
+                except Exception as exc:
+                    raise StudioError("Pexels response was not a valid image") from exc
+                extension = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}.get(image_format)
+                if not extension:
+                    raise StudioError("Pexels image format is not supported")
+                target = folder / (uuid.uuid4().hex + extension)
+                target.write_bytes(content)
+                credit = {"provider": "Pexels", "license": "Pexels License",
+                          "source_url": str(photo.get("url", "")),
+                          "photographer": str(photo.get("photographer", "")),
+                          "photographer_url": str(photo.get("photographer_url", "")),
+                          "visual_prompt": prompt}
+                records.append({"id": target.stem, "scene_id": scene_id, "path": str(target),
+                                "sha256": self._hash(target), "mime_type": content_type,
+                                "synthetic_media": False, "provenance": credit,
+                                "imported_at": datetime.now(timezone.utc).isoformat()})
+                existing.add(scene_id)
+                scene.setdefault("asset_ids", []).append(target.stem)
+                project["images"] = [item["path"] for scene_item in scenes
+                                      for item in records if item.get("scene_id") == scene_item.get("id")]
+                project["video"] = ""
+                self._invalidate_review(project)
+                self._save(project)
+            return {"job_id": job_id, "assets": [r for r in records if r.get("scene_id") in existing],
+                    "provider": "Pexels", "license": "Pexels License"}
+
+    def create_thumbnail(self, job_id: str) -> dict:
+        """Compose a readable 16:9 thumbnail from a project asset and ChatGPT text."""
+        from PIL import Image, ImageDraw, ImageFont, ImageOps
+        import textwrap
+
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            images = project.get("images", [])
+            if not images or not Path(images[0]).is_file():
+                raise StudioError("Create or import at least one scene visual before the thumbnail")
+            metadata = project.get("youtube_metadata", {})
+            title = str(metadata.get("thumbnail_text") or metadata.get("title", project["title"]))
+            text_lines = textwrap.wrap(title[:80], width=22, break_long_words=True)[:3]
+            source = Image.open(images[0]).convert("RGB")
+            canvas = ImageOps.fit(source, (1280, 720), method=Image.Resampling.LANCZOS).convert("RGBA")
+            overlay = Image.new("RGBA", canvas.size, (5, 20, 34, 95))
+            canvas = Image.alpha_composite(canvas, overlay)
+            draw = ImageDraw.Draw(canvas)
+            draw.rectangle((0, 0, 18, 720), fill=(0, 190, 210, 255))
+            draw.rectangle((56, 492, 1215, 704), fill=(4, 18, 31, 208))
+            font_path = Path(os.getenv("WINDIR", "C:/Windows")) / "Fonts" / "arialbd.ttf"
+            font_size = 72
+            brand_font = ImageFont.truetype(str(font_path), 25) if font_path.is_file() else ImageFont.load_default()
+            while font_size > 34:
+                font = ImageFont.truetype(str(font_path), font_size) if font_path.is_file() else ImageFont.load_default()
+                boxes = [draw.textbbox((0, 0), line, font=font) for line in text_lines]
+                total_height = sum(box[3] - box[1] for box in boxes) + 3 * (len(boxes) - 1)
+                if all(box[2] <= 1110 for box in boxes) and total_height <= 130:
+                    break
+                font_size -= 4
+            draw.text((82, 505), "NEWSPHERE", font=brand_font, fill=(0, 215, 225, 255))
+            text_y = 545
+            for index, line in enumerate(text_lines):
+                box = draw.textbbox((0, 0), line, font=font)
+                draw.text((82, text_y), line, font=font,
+                          fill=(255, 255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0, 255))
+                text_y += box[3] - box[1] + 3
+            output = self._dir(job_id) / "thumbnail.jpg"
+            canvas.convert("RGB").save(output, format="JPEG", quality=90, optimize=True)
+            metadata["thumbnail_path"] = str(output)
+            project["youtube_metadata"] = metadata
+            self._save(project)
+            with Image.open(output) as check:
+                if check.size != (1280, 720) or check.format != "JPEG":
+                    raise StudioError("Generated thumbnail failed format validation")
+            return {"job_id": job_id, "thumbnail": str(output), "width": 1280,
+                    "height": 720, "bytes": output.stat().st_size, "text": title}
 
     def import_asset(self, job_id: str, staged_filename: str, scene_id: str,
                      provenance: dict[str, Any]) -> dict:
@@ -830,46 +974,81 @@ class VideoNewsStudio:
                     "privacy": "private", "expires_in_seconds": ttl_seconds}
 
     def publish_youtube(self, job_id: str) -> dict:
-        """Upload only PRIVATE; never retry an uncertain upload automatically."""
+        """Upload PRIVATE using a local owner grant or enrolled private-only policy."""
         with _LOCK:
             project = self._read(job_id)
             if project["status"] == "published":
                 return {"job_id": job_id, "video_id": project["video_id"],
                         "url": "https://www.youtube.com/watch?v=" + project["video_id"],
                         "privacy": "private", "already_published": True}
-            if project["status"] != "owner_approved":
-                raise StudioError("Owner must authorize this exact upload in the local Windows console")
+            if project["status"] in ("uploading", "upload_unknown"):
+                raise StudioError("Upload outcome is uncertain; reconcile it before any retry")
             authorization_path = self._dir(job_id) / "owner-authorization.json"
-            try:
-                authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise StudioError("Local owner authorization is missing or invalid") from exc
             video = Path(project["video"]).resolve()
-            if (authorization.get("project_id") != job_id
-                    or authorization.get("privacy") != "private"
-                    or authorization.get("operation") != "youtube_upload"
-                    or authorization.get("expires_at", 0) < datetime.now(timezone.utc).timestamp()
-                    or not video.is_file()
-                    or self._hash(video) != authorization.get("video_sha256")):
-                raise StudioError("Owner authorization expired or no longer matches this upload")
+            from scripts import private_publish_policy
+            automatic_policy = None
+            if authorization_path.is_file():
+                try:
+                    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise StudioError("Local owner authorization is missing or invalid") from exc
+                if (project["status"] != "owner_approved"
+                        or authorization.get("project_id") != job_id
+                        or authorization.get("privacy") != "private"
+                        or authorization.get("operation") != "youtube_upload"
+                        or authorization.get("expires_at", 0) < datetime.now(timezone.utc).timestamp()
+                        or not video.is_file()
+                        or self._hash(video) != authorization.get("video_sha256")):
+                    raise StudioError("Owner authorization expired or no longer matches this upload")
+            else:
+                automatic_policy = private_publish_policy.load()
+                if not automatic_policy:
+                    raise StudioError("Owner must enroll once in private auto-publishing from the local console")
+                report = self.review_video(job_id)
+                if not report["ready_for_editorial_review"]:
+                    raise StudioError("Resolve Studio review issues before private publishing")
+                if not video.is_file():
+                    raise StudioError("Rendered video is missing")
+                video_hash = self._hash(video)
+                history = private_publish_policy.records()
+                if any(r.get("project_id") == job_id for r in history):
+                    raise StudioError("This project already has a publishing attempt; reconcile it or create a new project")
+                today = datetime.now(timezone.utc).date().isoformat()
+                daily_projects = {
+                    r.get("project_id") for r in history
+                    if r.get("channel_id") == automatic_policy["channel_id"]
+                    and r.get("outcome") == "upload_started"
+                    and str(r.get("at", "")).startswith(today)
+                }
+                daily_count = len(daily_projects)
+                if daily_count >= automatic_policy["max_uploads_per_day"]:
+                    raise StudioError("Owner-configured daily private upload limit reached")
+                metadata = project.get("youtube_metadata", {})
+                if not metadata.get("title"):
+                    raise StudioError("Save complete YouTube metadata before publishing")
             config = self._config()
             secret_file = Path(config["youtube"]["credentials_file"]).resolve()
+            token_file = Path(config["youtube"].get("token_file", ".secrets/token.json")).resolve()
             if not secret_file.is_file():
                 raise StudioError("YouTube OAuth client secrets not configured")
-            secrets = Path.cwd() / ".secrets"
-            secrets.mkdir(exist_ok=True)
-            destination = secrets / "client_secret.json"
-            if secret_file != destination.resolve():
-                shutil.copy2(secret_file, destination)
             from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
-            uploader = YoutubeMediaUploader(client_secrets_file="client_secret.json")
+            uploader = YoutubeMediaUploader(client_secrets_file=str(secret_file),
+                                            token_file=str(token_file))
             account_id = uploader.get_channel_id()
-            if account_id != authorization["target_account_id"]:
+            if automatic_policy:
+                if account_id != automatic_policy["channel_id"]:
+                    raise StudioError("Authenticated YouTube channel does not match the owner-enrolled channel")
+                if private_publish_policy.load() != automatic_policy:
+                    raise StudioError("Owner revoked or changed automatic publishing before upload")
+            elif account_id != authorization["target_account_id"]:
                 raise StudioError("Authorized YouTube account changed; create a new local approval")
 
             project["status"] = "uploading"
-            authorization_path.unlink(missing_ok=True)
+            if authorization_path.is_file():
+                authorization_path.unlink(missing_ok=True)
             self._save(project)
+            if automatic_policy:
+                private_publish_policy.audit(job_id, video_hash, account_id, "upload_started")
             # If the upload request times out after acceptance, require reconciliation.
             try:
                 metadata = project.get("youtube_metadata", {})
@@ -879,6 +1058,7 @@ class VideoNewsStudio:
                     tags=metadata.get("tags", []), privacy_status="private",
                     contains_synthetic_media=metadata.get("contains_synthetic_media", False),
                     default_language=metadata.get("language", "es"),
+                    thumbnail_path=metadata.get("thumbnail_path") or None,
                 )
                 video_id = response.get("id")
                 if not video_id:
@@ -886,10 +1066,14 @@ class VideoNewsStudio:
             except BaseException:
                 project["status"] = "upload_unknown"
                 self._save(project)
+                if automatic_policy:
+                    private_publish_policy.audit(job_id, video_hash, account_id, "upload_unknown")
                 raise
             project["video_id"] = str(video_id)
             project["status"] = "published"
             self._save(project)
+            if automatic_policy:
+                private_publish_policy.audit(job_id, video_hash, account_id, "uploaded", str(video_id))
             return {"job_id": job_id, "video_id": video_id,
                     "url": "https://www.youtube.com/watch?v=" + str(video_id),
                     "privacy": "private"}
@@ -907,6 +1091,7 @@ class VideoNewsStudio:
             edge_version = "not-installed"
         images = config.get("azure_images", {})
         paid_images = os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() in ("true", "1", "yes")
+        from scripts.private_publish_policy import load as load_publish_policy
         return {
             "server": "VideoNews AI Studio",
             "transport": "stdio",
@@ -923,7 +1108,8 @@ class VideoNewsStudio:
                 config.get("youtube", {}).get("credentials_file", "")
             ).is_file(),
             "youtube_authorization_verified": False,
-            "publishing_policy": "private_with_separate_local_owner_approval",
+            "publishing_policy": "private_auto_enabled" if load_publish_policy()
+            else "private_owner_enrollment_required",
         }
 
     def list_projects(self, limit: int = 20) -> list[dict]:
