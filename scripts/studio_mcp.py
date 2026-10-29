@@ -893,6 +893,38 @@ class VideoNewsStudio:
                     "url": "https://www.youtube.com/watch?v=" + str(video_id),
                     "privacy": "private"}
 
+    def studio_status(self) -> dict[str, Any]:
+        """Read-only runtime checks. Credential presence does not prove an API works."""
+        import importlib.metadata
+        import shutil
+        import sys
+
+        config = self._config()
+        try:
+            edge_version = importlib.metadata.version("edge-tts")
+        except importlib.metadata.PackageNotFoundError:
+            edge_version = "not-installed"
+        images = config.get("azure_images", {})
+        paid_images = os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() in ("true", "1", "yes")
+        return {
+            "server": "VideoNews AI Studio",
+            "transport": "stdio",
+            "python_311": sys.version_info[:2] == (3, 11),
+            "ffmpeg_available": shutil.which("ffmpeg") is not None,
+            "ffprobe_available": shutil.which("ffprobe") is not None,
+            "news_search_configured": bool(config.get("serpapi", {}).get("api_key")),
+            "edge_tts_version": edge_version,
+            "image_import_inbox_ready": (self.workspace / "_imports").is_dir(),
+            "paid_image_generation_enabled": bool(
+                paid_images and images.get("endpoint") and images.get("api_key")
+            ),
+            "youtube_client_secrets_present": Path(
+                config.get("youtube", {}).get("credentials_file", "")
+            ).is_file(),
+            "youtube_authorization_verified": False,
+            "publishing_policy": "private_with_separate_local_owner_approval",
+        }
+
     def list_projects(self, limit: int = 20) -> list[dict]:
         if not 1 <= limit <= 100:
             raise ValueError("limit must be 1-100")
