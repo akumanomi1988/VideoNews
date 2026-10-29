@@ -51,6 +51,7 @@ if ($LASTEXITCODE -ne 0 -or $venvVersion -ne '3.11') {
 
 Invoke-Checked -program $venvPython -arguments @('-m', 'pip', 'install', '--upgrade', 'pip')
 Invoke-Checked -program $venvPython -arguments @('-m', 'pip', 'install', '-e', '.[dev]')
+Invoke-Checked -program $venvPython -arguments @('-m', 'pip', 'install', '-r', 'requirements-mcp.txt')
 $envPath = Join-Path $root '.env'
 if (-not (Test-Path -LiteralPath $envPath)) {
     Copy-Item -LiteralPath (Join-Path $root '.env.example') -Destination $envPath
@@ -68,5 +69,6 @@ if (-not $SkipTests) {
 }
 Write-Host 'Windows installation complete.' -ForegroundColor Green
 Write-Host 'Configure .env and inspect every video locally before authorizing a private YouTube upload.'
-Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.doctor --mode cli'
+Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.doctor --mode studio'
+Write-Host 'Run .\scripts\setup_desktop_mcp.ps1 to prepare the ChatGPT Desktop plugin'
 Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.cli --title "VideoNews demonstration" --format short'
