@@ -9,6 +9,11 @@ Set-StrictMode -Version Latest
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $python = Join-Path $repo '.venv\Scripts\python.exe'
 $launcher = Join-Path $repo 'chatgpt-plugin\server\launch.py'
+if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
+    throw 'The plugin MCP manifest uses the Windows py launcher. Install the Python Launcher for Windows, then run this setup again.'
+}
+& py -3.11 --version
+if ($LASTEXITCODE -ne 0) { throw 'py -3.11 must select Python 3.11 for this plugin.' }
 if (-not (Test-Path -LiteralPath $python)) {
     throw "Python venv missing. Run .\bootstrap.ps1 from $repo first."
 }
