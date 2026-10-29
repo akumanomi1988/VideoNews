@@ -162,6 +162,12 @@ def get_project(job_id: str) -> dict:
 
 
 @mcp.tool()
+def studio_status() -> dict:
+    """Read-only Windows readiness report without exposing tokens or keys."""
+    return call("studio_status")
+
+
+@mcp.tool()
 def list_projects(limit: int = 20) -> list[dict]:
     """List recent local projects and publishing states."""
     return call("list_projects", limit=limit)
