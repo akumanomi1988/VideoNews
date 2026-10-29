@@ -28,10 +28,16 @@ async def test_stdio_mcp_discovers_tools_and_calls_list_projects(tmp_path):
             await session.initialize()
             tools = await session.list_tools()
             names = {tool.name for tool in tools.tools}
-            assert {"create_project", "save_script", "get_job", "publish_youtube"} <= names
+            assert {"create_project", "save_script", "get_job", "publish_youtube", "studio_status"} <= names
             assert "review_video" in names
             review_tool = next(tool for tool in tools.tools if tool.name == "review_video")
             assert "approve" not in review_tool.inputSchema.get("properties", {})
             result = await session.call_tool("list_projects", {"limit": 1})
             assert not result.isError
             assert result.structuredContent == {"result": []}
+            status = await session.call_tool("studio_status", {})
+            assert not status.isError
+            readiness = status.structuredContent or {}
+            assert readiness.get("transport") == "stdio"
+            assert readiness.get("publishing_policy") == "private_with_separate_local_owner_approval"
+            assert "youtube_client_secrets_present" in readiness
