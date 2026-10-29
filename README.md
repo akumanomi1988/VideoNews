@@ -12,6 +12,21 @@ The Studio workflow does not make Python LLM calls to rewrite ChatGPT scripts.
 An optional CLI fallback can use configured automated providers. ChatGPT Plus
 does not provide an OpenAI API key or free API image/audio usage.
 
+## ChatGPT Desktop — local MCP
+
+The private **VideoNews AI Studio** plugin includes a local stdio MCP launcher. For the Windows workflow, install Python 3.11 and FFmpeg and run from PowerShell at the repository root:
+
+```powershell
+.\bootstrap.ps1
+.\scripts\setup_desktop_mcp.ps1
+```
+
+The bootstrap now installs the MCP SDK. The setup script sets `VIDEONEWS_REPO_PATH` for the Windows user and verifies the packaged launcher with a harmless MCP initialization, tool discovery, `studio_status` and `list_projects` call in an isolated temporary workspace. It does not call news APIs or publish videos.
+
+**Completely restart ChatGPT Desktop** so it inherits the environment variable, install/update the private VideoNews AI Studio plugin, and start a **Work locally** conversation. Ask it to call `studio_status` and `list_projects`. Only a real call from ChatGPT Desktop proves the plugin works in the Desktop host.
+
+The local MCP server is not available to web/mobile/cloud Chat without a separate authenticated connection. ChatGPT-generated images still require manual staging in `output/studio/_imports`; Google OAuth credentials must be valid for YouTube uploading. See `docs/CHATGPT_STUDIO.md`.
+
 ## Windows setup
 
 Requirements: Windows 10/11, Python 3.11, and a full FFmpeg build containing
