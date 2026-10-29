@@ -62,11 +62,11 @@ foreach ($folder in @('output', 'metrics', '.temp', '.secrets')) {
     New-Item -ItemType Directory -Path (Join-Path $root $folder) -Force | Out-Null
 }
 
-Invoke-Checked -program $venvPython -arguments @('-c', 'import bot.main; import news_video_processor; import scripts.cli; print("Python imports OK")')
+Invoke-Checked -program $venvPython -arguments @('-c', 'import news_video_processor; import scripts.cli; import scripts.studio_mcp; print("Core Python imports OK")')
 if (-not $SkipTests) {
     Invoke-Checked -program $venvPython -arguments @('-m', 'pytest', '-q')
 }
 Write-Host 'Windows installation complete.' -ForegroundColor Green
-Write-Host 'Configure .env and keep VIDEO_UPLOAD_ENABLED=false for your first render.'
+Write-Host 'Configure .env and inspect every video locally before authorizing a private YouTube upload.'
 Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.doctor --mode cli'
 Write-Host 'Run .\.venv\Scripts\python.exe -m scripts.cli --title "VideoNews demonstration" --format short'

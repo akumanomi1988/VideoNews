@@ -1,6 +1,6 @@
 """No-network production prerequisite checks for VideoNews.
 
-Run: python -m scripts.doctor --mode cli|telegram --json
+Run: python -m scripts.doctor --mode studio|cli --json
 Never prints credential values.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 
-def audit(mode: str = "cli") -> list[dict]:
+def audit(mode: str = "studio") -> list[dict]:
     try:
         from dotenv import load_dotenv
         load_dotenv()
@@ -45,20 +45,18 @@ def audit(mode: str = "cli") -> list[dict]:
             add("subtitle_filter", False, "required", "Could not inspect FFmpeg filters")
 
     mode = mode.lower()
-    if mode == "telegram":
-        raw = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "")
-        try:
-            allowed = [int(value.strip()) for value in raw.split(",") if value.strip()]
-        except ValueError:
-            allowed = []
-        add("telegram_token", bool(os.getenv("TELEGRAM_BOT_TOKEN")), "required", "Bot token configured")
-        add("telegram_admins", bool(allowed), "required", "Numeric admin allowlist configured")
-
-    ollama = os.getenv("OLLAMA_ENABLED", "true").lower() in ("1", "yes", "true")
+    ollama = os.getenv("OLLAMA_ENABLED", "false").lower() in ("1", "yes", "true")
     groq = bool(os.getenv("GROQ_API_KEY"))
     azure = bool(os.getenv("AZURE_OPENAI_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"))
-    add("llm_configuration", ollama or groq or azure, "required",
-        "At least one LLM provider configured (reachability not tested)")
+    add("automated_llm", ollama or groq or azure, "optional",
+        "Optional automated-provider fallback; ChatGPT-first mode needs no Python LLM key")
+    has_mcp = importlib.util.find_spec("mcp") is not None
+    add("mcp_sdk", has_mcp, "required" if mode == "studio" else "optional",
+        "MCP SDK installed" if has_mcp else "Install requirements-mcp.txt to run the local MCP server")
+    add("secure_mcp_tunnel", shutil.which("tunnel-client") is not None, "optional",
+        "Install and configure OpenAI tunnel-client to connect ChatGPT to this Windows host")
+    add("news_api_credentials", bool(os.getenv("SERPAPI_API_KEY")), "optional",
+        "SerpAPI is configured" if os.getenv("SERPAPI_API_KEY") else "Set SERPAPI_API_KEY for live news search")
 
     media = bool(os.getenv("PEXELS_API_KEY")) or bool(
         os.getenv("AZURE_IMAGE_ENDPOINT") and os.getenv("AZURE_IMAGE_API_KEY")
@@ -77,19 +75,6 @@ def audit(mode: str = "cli") -> list[dict]:
         add("bark_module", importlib.util.find_spec("bark") is not None,
             "required", "Install optional local-ai dependencies")
 
-    if os.getenv("VIDEO_UPLOAD_ENABLED", "false").lower() in ("1", "true", "yes"):
-        platform = os.getenv("VIDEO_UPLOAD_PLATFORM", "youtube").lower()
-        if platform == "youtube":
-            path = os.getenv("YOUTUBE_CLIENT_SECRETS_FILE", ".secrets/client_secret.json")
-            add("youtube_oauth", Path(path).is_file(), "required", "OAuth client secrets file present")
-        elif platform == "tiktok":
-            has_token = bool(os.getenv("TIKTOK_ACCESS_TOKEN"))
-            token_file = Path(os.getenv("TIKTOK_TOKEN_FILE", ".secrets/tiktok_token.json"))
-            add("tiktok_oauth", has_token or token_file.is_file(), "required",
-                "Authorized user access token present; creator confirms publication")
-        else:
-            add("publishing_platform", False, "required", "Use youtube or tiktok")
-
     from scripts.job_registry import review_required
     pending = review_required()
     add("job_reconciliation", not pending, "optional",
@@ -100,7 +85,7 @@ def audit(mode: str = "cli") -> list[dict]:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="VideoNews deployment diagnostics")
-    parser.add_argument("--mode", choices=("cli", "telegram"), default="cli")
+    parser.add_argument("--mode", choices=("studio", "cli"), default="studio")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     checks = audit(args.mode)

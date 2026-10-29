@@ -20,7 +20,8 @@ class ConfigValidator:
         self._schema = {
             'api_keys': {
                 'type': dict,
-                'required': True,                'fields': {
+                'required': True,
+                'fields': {
                     'news_api': {'type': str, 'required': True},
                     'currents_api': {'type': str, 'required': False},
                     'pexels_api': {'type': str, 'required': True},
@@ -31,13 +32,15 @@ class ConfigValidator:
             'oauth': {
                 'type': dict,
                 'required': True,
-                'fields': {                    'youtube': {
+                'fields': {
+                    'youtube': {
                         'type': dict,
                         'required': False,
                         'fields': {
                             'credentials_file': {'type': str, 'required': True}
                         }
-                    },                    'tiktok': {
+                    },
+                    'tiktok': {
                         'type': dict,
                         'required': False,
                         'fields': {
@@ -46,15 +49,6 @@ class ConfigValidator:
                             'client_id': {'type': str, 'required': True}
                         }
                     }
-                }
-            },
-            'telegram': {
-                'type': dict,
-                'required': False,
-                'fields': {
-                    'bot_token': {'type': str, 'required': True},
-                    'webhook_url': {'type': str, 'required': False},
-                    'admin_chat_id': {'type': str, 'required': True}
                 }
             },
             'database': {

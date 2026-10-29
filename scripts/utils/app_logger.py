@@ -248,7 +248,6 @@ def setup_logging(level=logging.INFO, sqlite_level=logging.DEBUG, console_level=
     root.addHandler(sqlite)
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("telegram.ext").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("moviepy").setLevel(logging.WARNING)

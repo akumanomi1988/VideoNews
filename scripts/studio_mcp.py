@@ -14,10 +14,14 @@ import subprocess
 import tempfile
 import threading
 import uuid
+import copy
+from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 _LOCK = threading.RLock()
+_JOB_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="videonews-studio")
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _SUPPORTED = {"short": "9:16", "long": "16:9"}
 
@@ -30,6 +34,17 @@ class VideoNewsStudio:
     def __init__(self, workspace: str | Path | None = None):
         self.workspace = Path(workspace or os.getenv("VIDEO_STUDIO_DIR", "output/studio")).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
+        jobs_dir = self.workspace / "jobs"
+        if jobs_dir.is_dir():
+            for path in jobs_dir.glob("[0-9a-f]" * 32 + ".json"):
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                    if record.get("status") in ("queued", "running"):
+                        record["status"] = "interrupted"
+                        record["error"] = "Studio process exited before the job completed; review artifacts before retrying."
+                        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+                except (OSError, json.JSONDecodeError):
+                    continue
 
     def _dir(self, job_id: str) -> Path:
         if not _ID.fullmatch(job_id):
@@ -56,6 +71,63 @@ class VideoNewsStudio:
             if os.path.exists(name):
                 os.unlink(name)
 
+    def _jobs_dir(self) -> Path:
+        folder = self.workspace / "jobs"
+        folder.mkdir(exist_ok=True)
+        return folder
+
+    def start_job(self, action: str, project_id: str, arguments: dict[str, Any] | None = None,
+                  idempotency_key: str = "") -> dict:
+        actions = {"generate_images", "generate_voice", "generate_subtitles", "render_preview", "render_video"}
+        if action not in actions:
+            raise ValueError("Unsupported asynchronous studio action")
+        if idempotency_key and not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", idempotency_key):
+            raise ValueError("idempotency_key must contain 8-100 safe characters")
+        self._read(project_id)
+        folder = self._jobs_dir()
+        if idempotency_key:
+            idem = folder / (hashlib.sha256(idempotency_key.encode()).hexdigest() + ".json")
+            with _LOCK:
+                if idem.is_file():
+                    existing_id = json.loads(idem.read_text(encoding="utf-8"))["job_id"]
+                    existing = self.get_job(existing_id)
+                    if existing.get("action") != action or existing.get("project_id") != project_id:
+                        raise StudioError("Idempotency key was already used for a different job")
+                    return existing
+        job_id = uuid.uuid4().hex
+        record = {"job_id": job_id, "project_id": project_id, "action": action,
+                  "status": "queued", "created_at": datetime.now(timezone.utc).isoformat(),
+                  "result": None, "error": None}
+        path = folder / (job_id + ".json")
+        with _LOCK:
+            path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+            if idempotency_key:
+                idem.write_text(json.dumps({"job_id": job_id}), encoding="utf-8")
+        _JOB_EXECUTOR.submit(self._run_job, path, record, dict(arguments or {}))
+        return {"job_id": job_id, "project_id": project_id, "status": "queued"}
+
+    def _run_job(self, path: Path, record: dict[str, Any], arguments: dict[str, Any]) -> None:
+        record["status"] = "running"
+        record["started_at"] = datetime.now(timezone.utc).isoformat()
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            result = getattr(self, record["action"])(record["project_id"], **arguments)
+            record["status"] = "succeeded"
+            record["result"] = result
+        except Exception as exc:
+            record["status"] = "failed"
+            record["error"] = f"{type(exc).__name__}: {exc}"[:1000]
+        record["finished_at"] = datetime.now(timezone.utc).isoformat()
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def get_job(self, job_id: str) -> dict:
+        if not _ID.fullmatch(job_id):
+            raise ValueError("Invalid job identifier")
+        path = self._jobs_dir() / (job_id + ".json")
+        if not path.is_file():
+            raise StudioError("Job not found")
+        return json.loads(path.read_text(encoding="utf-8"))
+
     @staticmethod
     def _config() -> dict[str, Any]:
         from scripts.runtime_config import load_runtime_config
@@ -81,9 +153,201 @@ class VideoNewsStudio:
     def _invalidate_review(self, project: dict[str, Any]) -> None:
         project.pop("approval_digest", None)
         project.pop("review_fingerprint", None)
+        project.pop("owner_authorization", None)
         project["status"] = "draft"
 
-    def research_news(self, query: str, language: str = "es", limit: int = 10) -> dict:
+    @staticmethod
+    def _revision(project: dict[str, Any], section: str, value: Any) -> None:
+        """Keep an auditable, bounded history of ChatGPT-authored changes."""
+        versions = project.setdefault("versions", [])
+        versions.append({
+            "version": len(versions) + 1,
+            "section": section,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "value": copy.deepcopy(value),
+        })
+        del versions[:-50]
+        project["schema_version"] = 2
+
+    def create_project(self, title: str, video_format: str = "short") -> dict:
+        title = title.strip() if isinstance(title, str) else ""
+        if not 5 <= len(title) <= 240:
+            raise ValueError("title must contain 5-240 characters")
+        if video_format not in _SUPPORTED:
+            raise ValueError("video_format must be short or long")
+        project = {
+            "schema_version": 2, "id": uuid.uuid4().hex, "title": title,
+            "format": video_format, "aspect_ratio": _SUPPORTED[video_format],
+            "sources": [], "editorial_brief": {}, "script": "", "narration": [],
+            "storyboard": [], "youtube_metadata": {}, "asset_records": [],
+            "source_text": "", "source_url": "", "summary": "", "images": [],
+            "voice": "", "subtitles": "", "video": "", "status": "draft",
+            "video_id": "", "privacy": "private", "versions": [],
+        }
+        with _LOCK:
+            self._revision(project, "project", {"title": title, "format": video_format})
+            self._save(project)
+        return self._public(project)
+
+    def save_sources(self, job_id: str, sources: list[dict[str, Any]]) -> dict:
+        if not isinstance(sources, list) or not 1 <= len(sources) <= 30:
+            raise ValueError("sources must contain 1-30 source records")
+        from scripts.url_safety import validate_public_url
+        clean = []
+        for source in sources:
+            if not isinstance(source, dict):
+                raise ValueError("each source must be an object")
+            url = str(source.get("url", "")).strip()
+            validate_public_url(url)
+            clean.append({
+                "title": str(source.get("title", ""))[:500], "url": url,
+                "publisher": str(source.get("publisher", source.get("source", "")))[:200],
+                "published_at": str(source.get("published_at", source.get("publishedAt", "")))[:100],
+                "summary": str(source.get("summary", source.get("description", "")))[:5000],
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            })
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            project["sources"] = clean
+            project["source_url"] = clean[0]["url"]
+            project["source_text"] = clean[0]["summary"]
+            self._revision(project, "sources", clean)
+            self._invalidate_review(project)
+            self._save(project)
+            return self._public(project)
+
+    def save_editorial_brief(self, job_id: str, brief: dict[str, Any]) -> dict:
+        if not isinstance(brief, dict) or len(json.dumps(brief, ensure_ascii=False)) > 20000:
+            raise ValueError("brief must be an object no larger than 20000 characters")
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            project["editorial_brief"] = copy.deepcopy(brief)
+            self._revision(project, "editorial_brief", brief)
+            self._invalidate_review(project)
+            self._save(project)
+            return self._public(project)
+
+    def save_script(self, job_id: str, narration: str | list[dict[str, Any]]) -> dict:
+        if isinstance(narration, str):
+            text = narration.strip()
+            segments = [{"text": text, "scene_id": "scene-1"}] if text else []
+        elif isinstance(narration, list):
+            if not 1 <= len(narration) <= 200:
+                raise ValueError("narration must contain 1-200 segments")
+            segments = []
+            for index, segment in enumerate(narration, 1):
+                if not isinstance(segment, dict) or not isinstance(segment.get("text"), str):
+                    raise ValueError("each narration segment must include text")
+                text_part = segment["text"].strip()
+                if not text_part or len(text_part) > 4000:
+                    raise ValueError("narration segment text must contain 1-4000 characters")
+                segments.append({"text": text_part, "scene_id": str(segment.get("scene_id", f"scene-{index}"))[:100]})
+            text = " ".join(item["text"] for item in segments)
+        else:
+            raise ValueError("narration must be text or a list of segments")
+        if not 30 <= len(text) <= 20000:
+            raise ValueError("script must contain 30-20000 characters")
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            changed = project.get("script") != text
+            project["script"] = text
+            project["narration"] = segments
+            project["summary"] = ""
+            self._revision(project, "script", {"narration": segments})
+            if changed:
+                project["images"] = []
+                project["asset_records"] = []
+                project["voice"] = project["subtitles"] = project["video"] = ""
+            self._invalidate_review(project)
+            self._save(project)
+            return self._public(project)
+
+    def save_storyboard(self, job_id: str, scenes: list[dict[str, Any]]) -> dict:
+        if not isinstance(scenes, list) or not 1 <= len(scenes) <= 60:
+            raise ValueError("storyboard must contain 1-60 scenes")
+        normalized = []
+        scene_ids = set()
+        for index, scene in enumerate(scenes, 1):
+            if not isinstance(scene, dict):
+                raise ValueError("each scene must be an object")
+            scene_id = str(scene.get("id", f"scene-{index}"))[:100]
+            if not scene_id or scene_id in scene_ids:
+                raise ValueError("scene IDs must be non-empty and unique")
+            scene_ids.add(scene_id)
+            visual_prompt = str(scene.get("visual_prompt", ""))[:2000]
+            normalized.append({
+                "id": scene_id,
+                "narration": str(scene.get("narration", ""))[:4000],
+                "visual_prompt": visual_prompt,
+                "on_screen_text": str(scene.get("on_screen_text", ""))[:500],
+                "visual_type": str(scene.get("visual_type", "illustration"))[:40],
+                "duration_seconds": scene.get("duration_seconds"),
+                "asset_ids": list(scene.get("asset_ids", []))[:20],
+            })
+            duration = normalized[-1]["duration_seconds"]
+            if duration is not None and (not isinstance(duration, (int, float)) or not 0.2 <= duration <= 120):
+                raise ValueError("scene duration must be between 0.2 and 120 seconds")
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            previous = {scene["id"]: scene for scene in project.get("storyboard", [])}
+            unchanged_scene_ids = {
+                scene["id"] for scene in normalized
+                if scene["id"] in previous
+                and scene["visual_prompt"] == previous[scene["id"]].get("visual_prompt", "")
+                and scene["visual_type"] == previous[scene["id"]].get("visual_type", "illustration")
+            }
+            retained_assets = [
+                asset for asset in project.get("asset_records", [])
+                if asset.get("scene_id") in unchanged_scene_ids
+            ]
+            retained_by_scene: dict[str, list[str]] = {}
+            for asset in retained_assets:
+                retained_by_scene.setdefault(asset["scene_id"], []).append(asset["id"])
+            for scene in normalized:
+                scene["asset_ids"] = retained_by_scene.get(scene["id"], [])
+            project["storyboard"] = normalized
+            project["asset_records"] = retained_assets
+            project["images"] = [asset["path"] for asset in retained_assets]
+            project["video"] = ""
+            self._revision(project, "storyboard", normalized)
+            self._invalidate_review(project)
+            self._save(project)
+            return self._public(project)
+
+    def save_youtube_metadata(self, job_id: str, metadata: dict[str, Any]) -> dict:
+        if not isinstance(metadata, dict):
+            raise ValueError("metadata must be an object")
+        title = str(metadata.get("title", "")).strip()
+        description = str(metadata.get("description", "")).strip()
+        tags = metadata.get("tags", [])
+        if not 5 <= len(title) <= 100 or len(description) > 5000 or not isinstance(tags, list):
+            raise ValueError("invalid YouTube title, description or tags")
+        clean = {"title": title, "description": description,
+                 "tags": [str(tag)[:60] for tag in tags[:30]],
+                 "hashtags": [str(tag)[:80] for tag in metadata.get("hashtags", [])[:15]],
+                 "thumbnail_concept": str(metadata.get("thumbnail_concept", ""))[:1000],
+                 "language": str(metadata.get("language", "es"))[:10],
+                 "category_id": str(metadata.get("category_id", "25"))[:4],
+                 "contains_synthetic_media": bool(metadata.get("contains_synthetic_media", False))}
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            if any(item.get("synthetic_media") for item in project.get("asset_records", [])):
+                clean["contains_synthetic_media"] = True
+            project["youtube_metadata"] = clean
+            project["title"] = title
+            project["summary"] = description
+            self._revision(project, "youtube_metadata", clean)
+            self._invalidate_review(project)
+            self._save(project)
+            return self._public(project)
+
+    def research_news(self, query: str, language: str = "es", limit: int = 10,
+                      country: str = "es", category: str = "") -> dict:
         """Read-only search. Results are source leads, not verified claims."""
         if not query.strip() or len(query) > 200:
             raise ValueError("query must contain 1-200 characters")
@@ -96,44 +360,58 @@ class VideoNewsStudio:
         from scripts.DataFetcher.serpapi_client import SerpAPIProvider
         provider = SerpAPIProvider(api_key=api_key, use_cache=config["serpapi"]["use_cache"],
                                    cache_ttl_hours=config["serpapi"]["cache_ttl_hours"])
-        results = provider.search_news(query, language=language, limit=limit)
-        return {"query": query, "count": len(results), "articles": [
-            {k: item.get(k) for k in ("title", "url", "description", "source", "publishedAt")}
-            for item in results
-        ], "editorial_note": "Verify dates, original sources and claims before publication."}
+        if not re.fullmatch(r"[a-zA-Z]{2}", country):
+            raise ValueError("country must be a two-letter country code")
+        if category and category not in ("business", "entertainment", "general", "health", "science", "sports", "technology"):
+            raise ValueError("Unsupported news category")
+        from difflib import SequenceMatcher
+        from scripts.dbControllers.processed_news_controller import is_url_processed
+        raw = provider.search_news(query, language=language, country=country,
+                                   category=category or None, limit=limit)
+        articles = []
+        for item in raw:
+            title = str(item.get("title", ""))
+            duplicate_of = next((entry["url"] for entry in articles
+                                 if SequenceMatcher(None, title.lower(), entry["title"].lower()).ratio() >= 0.82), None)
+            url = str(item.get("url", ""))
+            try:
+                already_processed = bool(url and is_url_processed(url))
+            except Exception:
+                already_processed = False
+            articles.append({
+                "title": title, "url": url, "description": item.get("description", ""),
+                "source": item.get("source", ""), "publishedAt": item.get("publishedAt"),
+                "already_processed": already_processed, "duplicate_of": duplicate_of,
+            })
+        return {"query": query, "country": country.lower(), "language": language,
+                "count": len(articles), "articles": articles,
+                "scoring_rubric": "ChatGPT should judge timeliness, source quality, audience relevance and visual potential qualitatively; no search-volume or virality analytics are supplied.",
+                "editorial_note": "These are leads. Verify original sources, dates and claims before publication."}
+
+    def retrieve_article(self, url: str) -> dict:
+        from scripts.DataFetcher.news_extractor import NewsExtractor
+        from scripts.url_safety import validate_public_url
+        validate_public_url(url)
+        article = NewsExtractor().extract_article(url)
+        if not article or not article.text:
+            raise StudioError("Could not extract article text from the supplied source")
+        return {"title": article.title[:500], "url": url,
+                "authors": article.authors[:20], "published_at": str(article.publish_date or ""),
+                "text": article.text[:12000], "truncated": len(article.text) > 12000}
 
     def create_script(self, title: str, source_text: str, source_url: str = "",
                       video_format: str = "short") -> dict:
-        """Draft with the repo's own Chatbot. Source facts must be verified by a person."""
+        """Compatibility helper that persists caller-authored text without invoking an LLM."""
         if video_format not in _SUPPORTED:
             raise ValueError("video_format must be short or long")
         title = title.strip()
         source_text = source_text.strip()
         if not 5 <= len(title) <= 240 or not 30 <= len(source_text) <= 12000:
             raise ValueError("title (5-240) and source_text (30-12000) required")
+        project = self.create_project(title, video_format)
         if source_url:
-            from scripts.url_safety import validate_public_url
-            validate_public_url(source_url)
-        with _LOCK:
-            config = self._config()
-            bot = self._chatbot(config)
-            topic = title + "\nSource material (do not invent additional facts): " + source_text[:6000]
-            if video_format == "short":
-                script = bot.generate_short_article(topic, source=source_url)
-                summary = ""
-            else:
-                script, summary = bot.generate_full_article(topic)
-            if not isinstance(script, str) or len(script.strip()) < 30:
-                raise StudioError("LLM returned an empty or invalid script")
-            project = {
-                "id": uuid.uuid4().hex, "title": title, "source_text": source_text,
-                "source_url": source_url, "format": video_format, "script": script.strip(),
-                "summary": summary, "images": [], "voice": "", "subtitles": "",
-                "video": "", "status": "draft", "video_id": "",
-                "privacy": "private",
-            }
-            self._save(project)
-            return self._public(project)
+            self.save_sources(project["id"], [{"url": source_url, "title": title, "summary": source_text}])
+        return self.save_script(project["id"], source_text)
 
     @staticmethod
     def _public(project: dict) -> dict:
@@ -143,6 +421,10 @@ class VideoNewsStudio:
     def get_project(self, job_id: str) -> dict:
         with _LOCK:
             return self._public(self._read(job_id))
+
+    def list_assets(self, job_id: str) -> list[dict[str, Any]]:
+        with _LOCK:
+            return copy.deepcopy(self._read(job_id).get("asset_records", []))
 
     def revise_script(self, job_id: str, script: str) -> dict:
         if len(script.strip()) < 30 or len(script) > 20000:
@@ -169,6 +451,13 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            if prompts is None:
+                prompts = [scene["visual_prompt"] for scene in project.get("storyboard", [])
+                           if scene.get("visual_prompt")]
+            if not prompts:
+                raise StudioError("Save a ChatGPT-authored storyboard or import reviewed assets first")
+            if os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() not in ("1", "true", "yes"):
+                raise StudioError("Paid image generation is disabled; import reviewed assets instead")
             config = self._config()
             from scripts.AI.text_to_image import FluxImageGenerator, StylePreset, AspectRatio
             if style not in StylePreset.__members__:
@@ -199,10 +488,66 @@ class VideoNewsStudio:
                     shutil.copy2(generated, target)
                 output.append(str(target))
             project["images"] = output
+            project["asset_records"] = [
+                {"id": Path(path).stem, "path": path, "sha256": self._hash(Path(path)),
+                 "provenance": "generated", "synthetic_media": True, "prompt": prompt}
+                for path, prompt in zip(output, prompt_list)
+            ]
             project["video"] = ""
             self._invalidate_review(project)
             self._save(project)
             return {"job_id": job_id, "images": output, "prompts": prompt_list}
+
+    def import_asset(self, job_id: str, staged_filename: str, scene_id: str,
+                     provenance: dict[str, Any]) -> dict:
+        """Import an image only from the explicitly staged, workspace-scoped inbox."""
+        if not isinstance(staged_filename, str) or Path(staged_filename).name != staged_filename:
+            raise ValueError("staged_filename must be a plain filename in the studio import inbox")
+        if (not isinstance(provenance, dict) or not str(provenance.get("source", "")).strip()
+                or not isinstance(provenance.get("synthetic_media"), bool)):
+            raise ValueError("provenance.source and boolean provenance.synthetic_media are required")
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            inbox = (self.workspace / "_imports").resolve()
+            source = (inbox / staged_filename).resolve()
+            if source.parent != inbox or not source.is_file() or source.stat().st_size > 40 * 1024 * 1024:
+                raise StudioError("Asset must be a file <=40MB in the configured studio import inbox")
+            from PIL import Image
+            try:
+                with Image.open(source) as image:
+                    image.verify()
+                    mime = Image.MIME.get(image.format)
+                    extension = "." + (Image.EXTENSION.get(image.format, "").lstrip("."))
+            except Exception as exc:
+                raise StudioError("Imported asset is not a valid supported image") from exc
+            if mime not in ("image/jpeg", "image/png", "image/webp") or not extension:
+                raise StudioError("Only JPEG, PNG, and WebP assets are supported")
+            target_dir = self._dir(job_id) / "images"
+            target_dir.mkdir(exist_ok=True)
+            target = target_dir / (uuid.uuid4().hex + extension)
+            shutil.copy2(source, target)
+            record = {
+                "id": target.stem, "scene_id": str(scene_id)[:100], "path": str(target),
+                "sha256": self._hash(target), "mime_type": mime,
+                "synthetic_media": provenance["synthetic_media"],
+                "provenance": {key: str(value)[:1000] for key, value in provenance.items()},
+                "imported_at": datetime.now(timezone.utc).isoformat(),
+            }
+            scene_ids = {scene.get("id") for scene in project.get("storyboard", [])}
+            if scene_ids and record["scene_id"] not in scene_ids:
+                target.unlink(missing_ok=True)
+                raise ValueError("scene_id must reference a scene in the saved storyboard")
+            project.setdefault("asset_records", []).append(record)
+            for scene in project.get("storyboard", []):
+                if scene.get("id") == record["scene_id"]:
+                    scene.setdefault("asset_ids", []).append(record["id"])
+            project["images"] = [item["path"] for item in project["asset_records"]]
+            project["video"] = ""
+            self._revision(project, "asset_import", record)
+            self._invalidate_review(project)
+            self._save(project)
+            return {"job_id": job_id, "asset": record}
 
     def generate_voice(self, job_id: str, voice: str = "es-ES-ElviraNeural") -> dict:
         """Use the existing Edge TTS engine and its word-level timing events."""
@@ -274,8 +619,39 @@ class VideoNewsStudio:
             self._save(project)
             return {"job_id": job_id, "video": str(output), "bytes": output.stat().st_size}
 
-    def review_video(self, job_id: str, approve: bool = False) -> dict:
-        """Review actual artifacts. approve=True yields a single-use token for PRIVATE upload."""
+    def render_preview(self, job_id: str) -> dict:
+        """Produce a low-resolution review render without approving publication."""
+        with _LOCK:
+            old_resolution = os.getenv("VIDEO_RENDER_RESOLUTION")
+            os.environ["VIDEO_RENDER_RESOLUTION"] = "360p"
+            try:
+                project = self._read(job_id)
+                self._require_editable(project)
+                images = [Path(s) for s in project["images"]]
+                audio = Path(project["voice"]) if project["voice"] else None
+                srt = Path(project["subtitles"]) if project["subtitles"] else None
+                if not images or not all(p.is_file() and p.stat().st_size for p in images):
+                    raise StudioError("Import reviewed images first")
+                if not audio or not audio.is_file() or not srt or not srt.is_file() or not srt.stat().st_size:
+                    raise StudioError("Generate narration and subtitles first")
+                from scripts.video_assembler import VideoAssembler
+                output = self._dir(job_id) / "preview.mp4"
+                VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
+                               output_file=str(output), media_images=[str(p) for p in images],
+                               aspect_ratio=_SUPPORTED[project["format"]]).assemble_video()
+                if not output.is_file() or not output.stat().st_size:
+                    raise StudioError("Preview render produced no playable video")
+                project["preview"] = str(output)
+                self._save(project)
+                return {"job_id": job_id, "preview": str(output), "bytes": output.stat().st_size}
+            finally:
+                if old_resolution is None:
+                    os.environ.pop("VIDEO_RENDER_RESOLUTION", None)
+                else:
+                    os.environ["VIDEO_RENDER_RESOLUTION"] = old_resolution
+
+    def review_video(self, job_id: str) -> dict:
+        """Read-only quality inspection. Owner approval is issued by the local console."""
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
@@ -305,22 +681,42 @@ class VideoNewsStudio:
             result = {"job_id": job_id, "duration_seconds": duration, "issues": problems,
                       "requires_human_fact_check": True, "privacy": "private",
                       "ready_for_editorial_review": not problems}
-            self._invalidate_review(project)
-            if approve:
-                if problems:
-                    raise StudioError("Resolve review issues before approval: " + "; ".join(problems))
-                # This confirms editorial review by the operator, not automatic fact verification.
-                code = uuid.uuid4().hex
-                fingerprint = self._hash(video)
-                project["review_fingerprint"] = fingerprint
-                project["approval_digest"] = hashlib.sha256(code.encode()).hexdigest()
-                project["status"] = "approved"
-                result["approval_code"] = code
-                result["status"] = "approved"
-            self._save(project)
             return result
 
-    def publish_youtube(self, job_id: str, approval_code: str) -> dict:
+    def issue_owner_authorization(self, job_id: str, *, owner_confirmed: bool,
+                                  target_account_id: str, ttl_seconds: int = 600) -> dict:
+        """Local CLI only: mint a one-use grant tied to the exact private upload."""
+        if not owner_confirmed:
+            raise StudioError("Owner confirmation is required in the local console")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{5,100}", target_account_id):
+            raise ValueError("A YouTube channel ID is required")
+        if not 60 <= ttl_seconds <= 900:
+            raise ValueError("Authorization lifetime must be 60-900 seconds")
+        with _LOCK:
+            project = self._read(job_id)
+            report = self.review_video(job_id)
+            if not report["ready_for_editorial_review"]:
+                raise StudioError("Resolve review issues before owner authorization")
+            video = Path(project["video"]).resolve()
+            metadata = project.get("youtube_metadata", {})
+            if not metadata.get("title"):
+                raise StudioError("Save complete YouTube metadata before approval")
+            authorization = {
+                "token": uuid.uuid4().hex,
+                "project_id": job_id,
+                "video_sha256": self._hash(video),
+                "target_account_id": target_account_id,
+                "privacy": "private", "operation": "youtube_upload",
+                "expires_at": datetime.now(timezone.utc).timestamp() + ttl_seconds,
+            }
+            (self._dir(job_id) / "owner-authorization.json").write_text(
+                json.dumps(authorization), encoding="utf-8")
+            project["status"] = "owner_approved"
+            self._save(project)
+            return {"project_id": job_id, "target_account_id": target_account_id,
+                    "privacy": "private", "expires_in_seconds": ttl_seconds}
+
+    def publish_youtube(self, job_id: str) -> dict:
         """Upload only PRIVATE; never retry an uncertain upload automatically."""
         with _LOCK:
             project = self._read(job_id)
@@ -328,14 +724,21 @@ class VideoNewsStudio:
                 return {"job_id": job_id, "video_id": project["video_id"],
                         "url": "https://www.youtube.com/watch?v=" + project["video_id"],
                         "privacy": "private", "already_published": True}
-            if project["status"] != "approved" or not approval_code:
-                raise StudioError("Editorial approval required (run review_video with approve=True)")
-            provided = hashlib.sha256(approval_code.encode()).hexdigest()
-            if not __import__("hmac").compare_digest(provided, project.get("approval_digest", "")):
-                raise StudioError("Invalid approval code")
-            video = Path(project["video"])
-            if not video.is_file() or self._hash(video) != project.get("review_fingerprint"):
-                raise StudioError("Video changed after approval; review again")
+            if project["status"] != "owner_approved":
+                raise StudioError("Owner must authorize this exact upload in the local Windows console")
+            authorization_path = self._dir(job_id) / "owner-authorization.json"
+            try:
+                authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise StudioError("Local owner authorization is missing or invalid") from exc
+            video = Path(project["video"]).resolve()
+            if (authorization.get("project_id") != job_id
+                    or authorization.get("privacy") != "private"
+                    or authorization.get("operation") != "youtube_upload"
+                    or authorization.get("expires_at", 0) < datetime.now(timezone.utc).timestamp()
+                    or not video.is_file()
+                    or self._hash(video) != authorization.get("video_sha256")):
+                raise StudioError("Owner authorization expired or no longer matches this upload")
             config = self._config()
             secret_file = Path(config["youtube"]["credentials_file"]).resolve()
             if not secret_file.is_file():
@@ -345,16 +748,25 @@ class VideoNewsStudio:
             destination = secrets / "client_secret.json"
             if secret_file != destination.resolve():
                 shutil.copy2(secret_file, destination)
+            from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+            uploader = YoutubeMediaUploader(client_secrets_file="client_secret.json")
+            account_id = uploader.get_channel_id()
+            if account_id != authorization["target_account_id"]:
+                raise StudioError("Authorized YouTube account changed; create a new local approval")
+
             project["status"] = "uploading"
-            project.pop("approval_digest", None)
+            authorization_path.unlink(missing_ok=True)
             self._save(project)
-            # If the request times out after YouTube accepts it, hold for reconciliation.
+            # If the upload request times out after acceptance, require reconciliation.
             try:
-                from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
-                uploader = YoutubeMediaUploader(client_secrets_file="client_secret.json")
-                response = uploader.upload(str(video), title=project["title"][:90],
-                                           description=project["summary"] or project["source_text"][:4000],
-                                           tags=[], privacy_status="private")
+                metadata = project.get("youtube_metadata", {})
+                response = uploader.upload(
+                    str(video), title=metadata.get("title", project["title"])[:90],
+                    description=metadata.get("description", project["summary"])[:4000],
+                    tags=metadata.get("tags", []), privacy_status="private",
+                    contains_synthetic_media=metadata.get("contains_synthetic_media", False),
+                    default_language=metadata.get("language", "es"),
+                )
                 video_id = response.get("id")
                 if not video_id:
                     raise StudioError("YouTube response lacked a video ID")

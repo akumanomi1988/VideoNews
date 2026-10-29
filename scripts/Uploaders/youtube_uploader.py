@@ -75,7 +75,15 @@ class YoutubeMediaUploader:
             self.handle_error("Error en autenticación", e, True)
             raise
 
-    def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='private'):
+    def get_channel_id(self):
+        """Return the channel bound to the currently authorized OAuth token."""
+        response = self.youtube.channels().list(part="id", mine=True).execute()
+        items = response.get("items", [])
+        if len(items) != 1 or not items[0].get("id"):
+            raise RuntimeError("Could not identify the authorized YouTube channel")
+        return str(items[0]["id"])
+
+    def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='private', contains_synthetic_media=False):
         try:
             self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
 
@@ -135,6 +143,7 @@ class YoutubeMediaUploader:
                         "status": {
                             "privacyStatus": privacy_status,
                             "selfDeclaredMadeForKids": False,
+                            "containsSyntheticMedia": bool(contains_synthetic_media),
                             "license": "youtube",
                             "embeddable": True,
                             "publicStatsViewable": True,
@@ -144,7 +153,10 @@ class YoutubeMediaUploader:
                 )
 
                 try:
-                    response = self.execute_request_with_retries(request)
+                    # Upload outcomes can be ambiguous after a network break. Let
+                    # Studio persist upload_unknown and require reconciliation;
+                    # never replay a video insert automatically.
+                    response = request.execute()
                     break
                 except HttpError as e:
                     if e.resp.status == 400 and 'invalidDescription' in str(e):
@@ -193,8 +205,8 @@ class YoutubeMediaUploader:
             if default_language not in valid_languages:
                 raise ValueError(f"Idioma inválido: {default_language}. Opciones válidas: {', '.join(valid_languages)}")
             
-            if privacy_status not in ["public", "private", "unlisted"]:
-                raise ValueError(f"Estado de privacidad inválido: {privacy_status}. Opciones válidas: public, private, unlisted")
+            if privacy_status != "private":
+                raise ValueError("VideoNews publishing only allows PRIVATE uploads")
         
         except Exception as e:
             self.handle_error("Validación fallida", e, True)

@@ -22,13 +22,13 @@ lint:
 	$(VENV)/Scripts/ruff check .
 
 typecheck:
-	$(VENV)/Scripts/mypy bot/ scripts/
+	$(VENV)/Scripts/mypy scripts/ news_video_processor.py
 
 test:
 	$(VENV)/Scripts/pytest -v
 
 run:
-	$(PYTHON) telegram_bot.py
+	$(PYTHON) -m scripts.cli --help
 
 run-dashboard:
 	$(PYTHON) scripts/run_dashboard.py

@@ -55,7 +55,7 @@ def test_completed_upload_is_not_reset_on_later_error():
     job_id = jobs.claim(url, "short")
     jobs.advance(job_id, "UPLOADING")
     jobs.complete(job_id, "https://www.youtube.com/watch?v=example")
-    jobs.fail(job_id, "Telegram delivery failed")
+    jobs.fail(job_id, "Local notification delivery failed")
     assert jobs.get(url)["state"] == "COMPLETED"
 
 

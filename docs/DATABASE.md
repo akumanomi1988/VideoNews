@@ -1,193 +1,51 @@
-# Database Architecture
+# Local persistence
 
-## Overview
-The system uses SQLite databases for persistent storage, with separate databases handling different aspects of the application:
-- `processed_news.db`: Stores processed articles and analytics
-- `users.db`: Manages Telegram user information
+VideoNews uses local SQLite databases for article/job reconciliation and
+project-scoped JSON files for editorial work. No Telegram user database is
+required.
 
-## Schema Definitions
+## Processed articles
 
-### Processed News Database
-```sql
-CREATE TABLE processed_news (
-    url TEXT PRIMARY KEY,
-    title TEXT,
-    summary TEXT,
-    sentiment_polarity_textblob REAL,
-    sentiment_compound_vader REAL,
-    sentiment_compound_title REAL,
-    keyword_count INTEGER,
-    title_length INTEGER,
-    readability_score REAL,
-    virality_score REAL,
-    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+`processed_news.db` stores source URLs and legacy article-analysis fields. The
+`processed_news` table uses the URL as its primary key and stores title,
+summary, analysis measurements, and processing timestamp. Studio news search
+uses the URL check to flag prior work; it does not treat old heuristic scores
+as audience analytics.
 
-#### Fields Description
-- `url`: Unique identifier for the news article
-- `title`: Article headline
-- `summary`: Generated summary of the article
-- `sentiment_polarity_textblob`: TextBlob sentiment analysis score
-- `sentiment_compound_vader`: VADER sentiment analysis score
-- `sentiment_compound_title`: Title-specific sentiment score
-- `keyword_count`: Number of identified keywords
-- `title_length`: Character count of the title
-- `readability_score`: Computed readability metric
-- `virality_score`: Calculated viral potential
-- `processed_at`: Timestamp of processing
+The `scripts.dbControllers.processed_news_controller` module exposes
+`is_url_processed(url)` and `save_processed_news(news_data)` for this store.
 
-### Users Database
-```sql
-CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER UNIQUE,
-    username TEXT,
-    first_name TEXT,
-    last_name TEXT
-);
-```
+## Studio projects
 
-#### Fields Description
-- `id`: Internal unique identifier
-- `user_id`: Telegram user ID
-- `username`: Telegram username
-- `first_name`: User's first name
-- `last_name`: User's last name
+By default, projects are stored in `output/studio/<project-id>/project.json`.
+Set `VIDEO_STUDIO_DIR` to change the root. JSON is written atomically and uses
+schema version 2. It contains source references, editorial briefs, script and
+storyboard versions, production format, asset provenance and checksums, YouTube
+metadata, and current artifact paths. Generated media stays inside the project
+folder. The `_imports` inbox is scoped under the same Studio root.
 
-## Database Controllers
+Long-running Studio jobs have durable status records in
+`output/studio/jobs/<job-id>.json`. Jobs interrupted by a process restart are
+marked `interrupted`; they are never silently replayed. Inspect completed video
+and uncertain upload records before taking another action.
 
-### ProcessedNewsController
-- Manages article processing history
-- Prevents duplicate processing
-- Tracks content metrics
-- Maintains processing analytics
+## Upload authorization
 
-#### Key Methods
-```python
-def is_url_processed(url: str) -> bool
-def save_processed_news(news_data: dict) -> None
-```
+One-use owner grants are stored in a project-local
+`owner-authorization.json` file and are excluded from MCP responses. They bind
+the video SHA-256, YouTube channel ID, private privacy status, operation, and
+expiry. A grant is consumed before the upload attempt. An unknown outcome moves
+the project to `upload_unknown`, where an automatic retry is forbidden.
 
-### UserController
-- Handles Telegram user management
-- Tracks user interactions
-- Maintains user statistics
+## Reconciliation database
 
-#### Key Methods
-```python
-def add_user(update: Update) -> None
-def list_users() -> list
-def get_user_count() -> int
-```
+`VIDEO_JOBS_DB` defaults to `videonews_jobs.sqlite3`. The
+`scripts.job_registry` module keeps URL-level production claims, state changes,
+and uncertain external publication outcomes. Operators must reconcile remote
+YouTube state before retrying a job whose upload result is unknown.
 
-## Data Flow
+## Backups and secrets
 
-### News Processing Pipeline
-1. URL submission
-2. Duplicate check
-3. Content processing
-4. Metrics calculation
-5. Database storage
-
-### User Management Pipeline
-1. User interaction
-2. Profile validation
-3. Database update
-4. Statistics tracking
-
-## Performance Considerations
-
-### Optimizations
-- Connection pooling via context managers
-- Prepared statements for frequent queries
-- Index optimization for URL lookups
-- Atomic transactions for data integrity
-
-### Best Practices
-- Use context managers for connections
-- Implement proper error handling
-- Regular database maintenance
-- Performance monitoring
-
-## Example Usage
-
-### Processing News
-```python
-from scripts.dbControllers.processed_news_controller import is_url_processed, save_processed_news
-
-# Check if article was already processed
-if not is_url_processed(article_url):
-    # Process article
-    news_data = process_article(article_url)
-    # Save to database
-    save_processed_news(news_data)
-```
-
-### Managing Users
-```python
-from scripts.dbControllers.user_controller import UserController
-
-user_ctrl = UserController()
-
-# Add new user
-user_ctrl.add_user(telegram_update)
-
-# Get user statistics
-total_users = user_ctrl.get_user_count()
-```
-
-## Maintenance
-
-### Database Backup
-```bash
-# Backup processed news database
-sqlite3 processed_news.db ".backup 'backup_processed_news.db'"
-
-# Backup users database
-sqlite3 users.db ".backup 'backup_users.db'"
-```
-
-### Database Optimization
-```sql
--- Analyze tables
-ANALYZE processed_news;
-ANALYZE users;
-
--- Rebuild indexes
-REINDEX processed_news;
-REINDEX users;
-```
-
-## Error Handling
-
-### Common Issues
-1. **Database Locked**
-   - Use proper connection timeout
-   - Implement retry logic
-   - Check for long-running transactions
-
-2. **Constraint Violations**
-   - Validate data before insertion
-   - Handle unique constraint violations
-   - Implement proper error messages
-
-3. **Connection Issues**
-   - Implement connection pooling
-   - Handle connection timeouts
-   - Proper resource cleanup
-
-### Error Recovery
-```python
-@contextmanager
-def get_db_connection():
-    try:
-        conn = sqlite3.connect(DATABASE_NAME)
-        conn.row_factory = sqlite3.Row
-        yield conn
-    except sqlite3.Error as e:
-        logger.error(f"Database error: {e}")
-        raise
-    finally:
-        conn.close()
-```
+Back up `processed_news.db`, `videonews_jobs.sqlite3`, and `output/studio` as
+needed. Keep `.env`, `.secrets`, OAuth tokens, and API credentials outside Git.
+The Windows bootstrap preserves existing credentials and generated videos.

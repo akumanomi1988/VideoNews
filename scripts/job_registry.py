@@ -161,7 +161,7 @@ def reconcile(source_url: str, *, published: bool, reference: str = "") -> None:
 
     published=True: a real external publication ID/URL has been confirmed.
     published=False: operator explicitly verified that nothing was published.
-    This operation is deliberately unavailable through Telegram or public HTTP.
+    This operation is deliberately unavailable through model-callable interfaces.
     """
     if published and not reference:
         raise ValueError("Verified published outcome requires a remote reference")

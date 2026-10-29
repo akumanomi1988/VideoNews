@@ -17,7 +17,7 @@ def private_job_db(tmp_path, monkeypatch):
 
 
 def _stub_service(monkeypatch, tmp_path, *, upload=False, first_failure=False):
-    from bot.services import video_service as video
+    from scripts.services import video_service as video
     from scripts import job_registry as jobs
 
     starts = []

@@ -1,4 +1,4 @@
-"""Single runtime configuration for the Telegram and video workers.
+"""Single runtime configuration for local video production workers.
 
 Secrets come from environment variables; checked-in JSON files are defaults only.
 Existing settings.json files remain compatible during migration.
@@ -29,7 +29,6 @@ DEFAULTS: dict[str, Any] = {
     "huggingface": {"api_key": ""},
     "azure_images": {"endpoint": "", "api_key": "", "model": "MAI-Image-2e"},
     "youtube": {"credentials_file": ".secrets/client_secret.json"},
-    "tiktok": {"session_file": ""},
     "tts_edge": {"voice": "es-ES-ElviraNeural", "language": "es"},
     "video_result": {"background_music": ""},
     "llm": {"providers": []},
@@ -86,7 +85,6 @@ def load_runtime_config(config_file: str = "settings.json") -> dict[str, Any]:
         ("azure_images", "api_key"): "AZURE_IMAGE_API_KEY",
         ("azure_images", "model"): "AZURE_IMAGE_MODEL",
         ("youtube", "credentials_file"): "YOUTUBE_CLIENT_SECRETS_FILE",
-        ("tiktok", "session_file"): "TIKTOK_SESSION_FILE",
         ("article_settings", "language"): "NEWS_LANGUAGE",
         ("article_settings", "model"): "OLLAMA_MODEL",
         ("tts_edge", "voice"): "TTS_VOICE",

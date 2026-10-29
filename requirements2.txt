@@ -110,7 +110,6 @@ msal-extensions==1.3.1
 mss==10.1.0
 multidict==6.6.4
 murmurhash==1.0.13
-nest-asyncio==1.6.0
 networkx==3.4.2
 newsapi-python==0.2.7
 newspaper3k==0.2.8
@@ -160,7 +159,6 @@ python-dotenv==1.1.1
 python-multipart==0.0.20
 python-pptx==1.0.2
 python-socks==2.7.2
-python-telegram-bot
 pythonnet==3.0.5
 pyttsx3==2.99
 pytz==2025.2

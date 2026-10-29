@@ -6,12 +6,10 @@ import uuid
 import shutil
 import random
 import logging
-import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from colorama import Fore, init
-from telegram import Bot, CallbackQuery, Message
 from scripts.AI.natural_language_generation import Chatbot
 from scripts.AI.text_to_speech import TTSFactory, TTSProvider
 from scripts.AI.text_to_image import FluxImageGenerator, AspectRatio, StylePreset
@@ -20,7 +18,6 @@ from scripts.DataFetcher.serpapi_client import SerpAPIProvider
 from scripts.MediaManagers.SRT_Processor import SRTProcessor
 from scripts.video_assembler import VideoAssembler
 from scripts.helpers.media_helper import ImageHelper, Position, Style
-from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
 from scripts.utils.app_logger import trace
 from scripts.utils.rate_limiter import RateLimiter
 from scripts.runtime_config import load_runtime_config
@@ -52,18 +49,9 @@ class NewsVideoProcessor:
     def __init__(
         self,
         config_file: str = DEFAULT_CONFIG_FILE,
-        callback_query: Optional[Union[CallbackQuery, Message]] = None,
-        event_loop: Optional[asyncio.AbstractEventLoop] = None,
-        bot: Optional[Bot] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ):
-        self.callback_query = callback_query
-        self._event_loop = event_loop
-        self._bot = bot
-        if not self._bot and callback_query is not None:
-            try:
-                self._bot = callback_query.get_bot() if hasattr(callback_query, 'get_bot') else None
-            except Exception:
-                self._bot = None
+        self._progress_callback = progress_callback
         self.config_file = config_file
         self.config = self._load_configuration()
         self.temp_dir = self.config[CONFIG_SETTINGS]['temp_dir']
@@ -107,38 +95,17 @@ class NewsVideoProcessor:
         self.logger = logging.getLogger(__name__)
         self.job_id = uuid.uuid4().hex
         self.job_started_at = time.time()
-        self.on_publish_start = None  # Optional durable upload checkpoint.
         self.video_files: List[str] = []
         self.cover_path: Optional[str] = None
 
     @trace()
     def send_progress(self, message_text: str) -> None:
-        if not self._bot or not self._event_loop:
+        if self._progress_callback is None:
             return
-        msg_obj = getattr(self.callback_query, "message", self.callback_query)
-        chat_id = None
-        if msg_obj:
-            chat_id = getattr(msg_obj, "chat_id", None) or getattr(getattr(msg_obj, "chat", None), "id", None)
-        if not chat_id:
-            return
-        loop = self._event_loop
-        if loop.is_closed():
-            return
-        text = message_text
         try:
-            asyncio.run_coroutine_threadsafe(
-                self._bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown"),
-                loop,
-            )
+            self._progress_callback(message_text)
         except Exception as e:
-            self.logger.warning("Error sending progress message: %s", e)
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    self._bot.send_message(chat_id=chat_id, text=text.replace("*", "").replace("_", "")),
-                    loop,
-                )
-            except Exception as ex:
-                self.logger.warning("Failed to send message even without Markdown: %s", ex)
+            self.logger.warning("Progress callback failed: %s", e)
 
     @trace()
     def _load_configuration(self) -> Dict[str, Any]:
@@ -201,66 +168,20 @@ class NewsVideoProcessor:
 
     def _publish(self, output_file: str, title: str, description: str,
                  tags: List[str]) -> Dict[str, Any]:
-        """Explicit publishing switch: local video by default, YouTube on demand."""
+        """Save CLI output locally; all uploads go through the Studio owner gate."""
         if not os.path.isfile(output_file) or os.path.getsize(output_file) == 0:
             raise ValueError("Cannot publish a missing or empty rendered video")
-        enabled = os.getenv("VIDEO_UPLOAD_ENABLED", "false").strip().lower() in ("true", "1", "yes")
-        if not enabled:
-            output_dir = os.getenv("VIDEO_OUTPUT_DIR", "output")
-            os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(
-                output_dir, f"{uuid.uuid4().hex[:8]}_{os.path.basename(output_file)}"
-            )
-            shutil.copy2(output_file, output_path)
-            if self.cover_path and os.path.isfile(self.cover_path):
-                cover_path = os.path.splitext(output_path)[0] + "_cover.png"
-                shutil.copy2(self.cover_path, cover_path)
-            self.send_progress(f"Video saved locally: {output_path}")
-            return {"id": "local", "local_path": output_path, "snippet": {"title": title}}
-
-        platform = os.getenv("VIDEO_UPLOAD_PLATFORM", "youtube").lower()
-        if platform == "tiktok":
-            from scripts.Uploaders.tiktok_uploader import TiktokMediaUploader
-            uploader = TiktokMediaUploader()
-            if callable(self.on_publish_start):
-                self.on_publish_start()
-            upload = uploader.upload_media(output_file)
-            return {
-                "id": upload["publish_id"],
-                "platform": "tiktok",
-                "publish_id": upload["publish_id"],
-                "status": upload["status"],
-                "snippet": {"title": title},
-            }
-        if platform != "youtube":
-            raise ValueError(f"Unsupported VIDEO_UPLOAD_PLATFORM: {platform}")
-
-        configured_path = self.config[CONFIG_YOUTUBE]["credentials_file"]
-        secrets_dir = os.path.join(os.getcwd(), ".secrets")
-        os.makedirs(secrets_dir, exist_ok=True)
-        if os.path.isfile(configured_path):
-            target_path = os.path.join(secrets_dir, "client_secret.json")
-            if os.path.abspath(configured_path) != os.path.abspath(target_path):
-                shutil.copy2(configured_path, target_path)
-        else:
-            raise FileNotFoundError("YouTube client secrets are missing")
-        uploader = YoutubeMediaUploader(
-            client_secrets_file="client_secret.json",
-            channel_description="",
+        output_dir = os.getenv("VIDEO_OUTPUT_DIR", "output")
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(
+            output_dir, f"{uuid.uuid4().hex[:8]}_{os.path.basename(output_file)}"
         )
-        privacy = os.getenv("VIDEO_YOUTUBE_PRIVACY", "private").lower()
-        if privacy not in ("private", "unlisted", "public"):
-            raise ValueError("VIDEO_YOUTUBE_PRIVACY must be private, unlisted or public")
-        if callable(self.on_publish_start):
-            self.on_publish_start()
-        return uploader.upload(
-            output_file,
-            title=title[:80],
-            thumbnail_path=self.cover_path,
-            description=description,
-            tags=tags,
-            privacy_status=privacy,
-        )
+        shutil.copy2(output_file, output_path)
+        if self.cover_path and os.path.isfile(self.cover_path):
+            cover_path = os.path.splitext(output_path)[0] + "_cover.png"
+            shutil.copy2(self.cover_path, cover_path)
+        self.send_progress(f"Video saved locally: {output_path}")
+        return {"id": "local", "local_path": output_path, "snippet": {"title": title}}
 
     @trace()
     def cleanup_temp_folder(self) -> None:

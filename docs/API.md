@@ -71,24 +71,15 @@
   - Video management
   - Account stats
 
-## Telegram Integration
+## ChatGPT Studio MCP
 
-### Bot API
-- **Base URL**: `https://api.telegram.org/bot{token}/`
-- **Features**:
-  - Command handling
-  - User management
-  - Media sharing
-  - Progress updates
-
-### Webhook Configuration
-```python
-{
-    "url": "https://akumanomi1988.example.com/webhook",
-    "allowed_updates": ["message", "callback_query"],
-    "max_connections": 100
-}
-```
+The local MCP server is exposed through `scripts.studio_server` over stdio and
+can be reached from ChatGPT through a private Secure MCP Tunnel. Its tools cover
+news retrieval, article extraction, structured project persistence, asset
+import, asynchronous media jobs, read-only review, and owner-gated private
+YouTube upload. See [CHATGPT_STUDIO.md](CHATGPT_STUDIO.md) for schemas,
+authorization boundaries, and setup. A saved plugin manifest does not prove a
+live ChatGPT connection.
 
 ## Error Handling
 

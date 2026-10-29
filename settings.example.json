@@ -28,9 +28,6 @@
   "youtube": {
     "credentials_file": ".secrets/client_secret.json"
   },
-  "tiktok": {
-    "session_file": ""
-  },
   "tts_edge": {
     "voice": "es-ES-ElviraNeural",
     "language": "es"

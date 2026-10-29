@@ -43,11 +43,14 @@ class SerpAPIProvider(NewsProvider):
     def search_news(self,
                    query: str,
                    language: Optional[str] = None,
+                   country: Optional[str] = None,
                    category: Optional[str] = None,
                    start_date: Optional[datetime] = None,
                    end_date: Optional[datetime] = None,
                    limit: int = 20) -> List[Dict[str, Any]]:
-        return self._search(query, language, limit)
+        if category and category in CATEGORY_QUERIES:
+            query = f"{query} {CATEGORY_QUERIES[category]}".strip()
+        return self._search(query, language, limit, country=country)
 
     def fetch_news(self, query: str, language: Optional[str] = None,
                    limit: int = 20, use_cache: Optional[bool] = None) -> List[Dict[str, Any]]:
@@ -59,7 +62,8 @@ class SerpAPIProvider(NewsProvider):
         return lang.split('-')[0].split('_')[0].lower()
 
     def _search(self, query: str, language: Optional[str] = None,
-                limit: int = 20, use_cache: Optional[bool] = None) -> List[Dict[str, Any]]:
+                limit: int = 20, use_cache: Optional[bool] = None,
+                country: Optional[str] = None) -> List[Dict[str, Any]]:
         params = {
             'engine': ENGINE,
             'q': query,
@@ -68,7 +72,7 @@ class SerpAPIProvider(NewsProvider):
         }
 
         lang = self._normalize_lang(language)
-        gl = GL_MAP.get(lang)
+        gl = (country or "").strip().lower() or GL_MAP.get(lang)
         if gl:
             params['gl'] = gl
         params['hl'] = lang

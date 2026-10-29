@@ -5,8 +5,6 @@ import os
 import threading
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-from telegram import Bot, CallbackQuery
-
 from news_video_processor import NewsVideoProcessor
 from scripts.runtime_config import load_runtime_config
 from scripts.dbControllers.processed_news_controller import is_url_processed, save_processed_news
@@ -33,30 +31,16 @@ class VideoService:
         news_item_title: str,
         news_item_description: str,
         style: Optional[str] = None,
-        callback_query: Optional[CallbackQuery] = None,
-        bot: Optional[Bot] = None,
     ) -> Optional[Dict[str, Any]]:
         logger.info("Processing short news - Title: %s", news_item_title)
 
-        loop = asyncio.get_running_loop()
-        if bot is None and callback_query is not None and hasattr(callback_query, "get_bot"):
-            try:
-                bot = callback_query.get_bot()
-            except Exception:
-                bot = None
-
         def _sync_run() -> Optional[Dict[str, Any]]:
-            # The lock belongs to the worker thread: a cancelled Telegram
-            # coroutine cannot cause overlapping renders.
+            # A cancelled caller cannot cause overlapping native renders.
             with _thread_render_lock:
                 return _render()
 
         def _render() -> Optional[Dict[str, Any]]:
-            processor = NewsVideoProcessor(
-                callback_query=callback_query,
-                event_loop=loop,
-                bot=bot,
-            )
+            processor = NewsVideoProcessor()
             news_data = {"title": news_item_title[:240], "description": news_item_description,
                          "source": news_item_description or news_item_title}
             if style:
@@ -75,30 +59,16 @@ class VideoService:
         news_item_title: str,
         news_item_description: str,
         style: Optional[str] = None,
-        callback_query: Optional[CallbackQuery] = None,
-        bot: Optional[Bot] = None,
     ) -> Optional[Dict[str, Any]]:
         logger.info("Processing long news - Title: %s", news_item_title)
 
-        loop = asyncio.get_running_loop()
-        if bot is None and callback_query is not None and hasattr(callback_query, "get_bot"):
-            try:
-                bot = callback_query.get_bot()
-            except Exception:
-                bot = None
-
         def _sync_run() -> Optional[Dict[str, Any]]:
-            # The lock belongs to the worker thread: a cancelled Telegram
-            # coroutine cannot cause overlapping renders.
+            # A cancelled caller cannot cause overlapping native renders.
             with _thread_render_lock:
                 return _render()
 
         def _render() -> Optional[Dict[str, Any]]:
-            processor = NewsVideoProcessor(
-                callback_query=callback_query,
-                event_loop=loop,
-                bot=bot,
-            )
+            processor = NewsVideoProcessor()
             news_data = {"title": news_item_title[:240], "description": news_item_description,
                          "source": news_item_description or news_item_title}
             if style:
@@ -115,7 +85,6 @@ class VideoService:
     async def process_url_short(
         self,
         url: str,
-        callback_query: Optional[CallbackQuery] = None,
         config_path: str = "settings.json",
         progress_callback: Optional[Callable[[Dict], None]] = None,
     ) -> str:
@@ -126,7 +95,6 @@ class VideoService:
     async def process_url_long(
         self,
         url: str,
-        callback_query: Optional[CallbackQuery] = None,
         config_path: str = "settings.json",
         progress_callback: Optional[Callable[[Dict], None]] = None,
     ) -> str:
@@ -139,8 +107,8 @@ class VideoService:
     ) -> str:
         """Submit a complete idempotent job to one worker thread.
 
-        Cancellation of a Telegram request does not cancel/release the worker
-        or its durable state and will never permit a concurrent second upload.
+        Cancellation of the caller does not release the durable claim or allow
+        a second renderer to overlap the first.
         """
         return await asyncio.to_thread(
             self._run_article_sync, url, fmt, config_path, progress_callback

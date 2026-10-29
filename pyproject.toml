@@ -5,15 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "videonews"
 version = "1.0.0"
-description = "Automated news-to-video generation pipeline with Telegram bot"
+description = "ChatGPT-first local news video production studio with MCP and CLI fallback"
 requires-python = ">=3.11,<3.12"
 readme = "README.md"
 license = {text = "MIT"}
 
 dependencies = [
-    # Bot
-    "python-telegram-bot>=22.0,<23.0",
-    "nest-asyncio>=1.6.0",
     "python-dotenv>=1.0.0",
 
     # HTTP / Networking
@@ -91,6 +88,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+studio = ["mcp>=1.18,<2"]
 local-ai = [
     "openai-whisper>=20231101",
     "torch>=2.0.0",
@@ -113,7 +111,7 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["bot", "bot.*", "scripts", "scripts.*"]
+include = ["scripts", "scripts.*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

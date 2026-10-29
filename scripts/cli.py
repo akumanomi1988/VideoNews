@@ -1,4 +1,4 @@
-"""Command-line entry point for the same rendering service used by Telegram.
+"""Command-line fallback for deterministic local video production.
 
 Examples:
   python -m scripts.cli --title "Top technology story" --format short
@@ -25,25 +25,35 @@ def parse_args(argv=None):
 
 
 async def run(args):
-    from bot.services.video_service import VideoService
+    from news_video_processor import NewsVideoProcessor
+    from scripts.DataFetcher.news_extractor import NewsExtractor
 
-    service = VideoService()
+    processor = NewsVideoProcessor()
     if args.url:
-        handler = service.process_url_short if args.format == "short" else service.process_url_long
-        return await handler(args.url)
+        article = NewsExtractor().extract_article(args.url)
+        if not article or len(article.text.strip()) < 20:
+            raise ValueError("Could not extract enough article text from the provided URL")
+        title, description = article.title, article.text
+        source_url = args.url
 
-    if args.text_file:
+    elif args.text_file:
         text = args.text_file.read_text(encoding="utf-8").strip()
         if len(text) < 20:
             raise ValueError("Article must contain at least 20 characters")
         title, description = text[:100].split("\n", 1)[0], text
+        source_url = ""
     else:
         title, description = args.title.strip(), ""
+        source_url = ""
     if not title:
         raise ValueError("Article title cannot be empty")
 
-    handler = service.process_short_news if args.format == "short" else service.process_long_news
-    result = await handler(title, description, style=args.style.upper() if args.style else None)
+    news = {"title": title[:240], "description": description, "source": source_url or description}
+    if args.style:
+        news["style"] = args.style.upper()
+    handler = (processor.process_latest_news_in_short_format if args.format == "short"
+               else processor.process_latest_news_in_long_format)
+    result = await asyncio.to_thread(handler, news)
     if not result:
         raise RuntimeError("Video generation did not complete")
     if result.get("local_path"):
