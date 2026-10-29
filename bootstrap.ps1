@@ -34,7 +34,7 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
     if (Get-Command py -ErrorAction SilentlyContinue) {
         Invoke-Checked -program 'py' -arguments @('-3.11', '-m', 'venv', '.venv')
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-        $version = (& python -c 'import sys; print("{}.{}".format(*sys.version_info[:2]))').Trim()
+        $version = (& python -c 'import sys; print(str(sys.version_info.major)+chr(46)+str(sys.version_info.minor))').Trim()
         if ($LASTEXITCODE -ne 0 -or $version -ne '3.11') {
             throw 'Install Python 3.11 (winget install -e --id Python.Python.3.11).'
         }
@@ -44,7 +44,7 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
     }
 }
 if (-not (Test-Path -LiteralPath $venvPython)) { throw 'Virtual environment creation failed.' }
-$venvVersion = (& $venvPython -c 'import sys; print("{}.{}".format(*sys.version_info[:2]))').Trim()
+$venvVersion = (& $venvPython -c 'import sys; print(str(sys.version_info.major)+chr(46)+str(sys.version_info.minor))').Trim()
 if ($LASTEXITCODE -ne 0 -or $venvVersion -ne '3.11') {
     throw "Existing .venv uses Python $venvVersion. Rename .venv and rerun installer."
 }
@@ -62,7 +62,7 @@ foreach ($folder in @('output', 'metrics', '.temp', '.secrets')) {
     New-Item -ItemType Directory -Path (Join-Path $root $folder) -Force | Out-Null
 }
 
-Invoke-Checked -program $venvPython -arguments @('-c', 'import news_video_processor; import scripts.cli; import scripts.studio_mcp; print("Core Python imports OK")')
+Invoke-Checked -program $venvPython -arguments @('-c', 'import news_video_processor; import scripts.cli; import scripts.studio_mcp; import sys; print(sys.version_info[:2])')
 if (-not $SkipTests) {
     Invoke-Checked -program $venvPython -arguments @('-m', 'pytest', '-q')
 }

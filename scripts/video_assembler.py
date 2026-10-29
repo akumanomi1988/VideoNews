@@ -100,7 +100,8 @@ class VideoAssembler(VideoAssemblerInterface):
         media_images: Optional[List[str]] = None,
         media_videos: Optional[List[str]] = None,
         aspect_ratio: str = "16:9",
-        background_music: Optional[str] = None
+        background_music: Optional[str] = None,
+        image_durations: Optional[List[float]] = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.subtitle_file = subtitle_file
@@ -110,6 +111,7 @@ class VideoAssembler(VideoAssemblerInterface):
         self.media_videos = media_videos or []
         self.aspect_ratio = aspect_ratio
         self.background_music = background_music
+        self.image_durations = image_durations
         self._check_dependencies()
 
     @staticmethod
@@ -168,11 +170,11 @@ class VideoAssembler(VideoAssemblerInterface):
         adjusted_clips = []
         for media_file in self.media_videos:
             try:
-                print(Fore.CYAN + f"📹 Processing video: {media_file}")
+                print(Fore.CYAN + f"Processing video: {media_file}")
                 video_clip = VideoFileClip(media_file)
                 adjusted_clips.append(self.adjust_aspect_ratio(video_clip))
             except Exception as e:
-                print(Fore.RED + f"❌ Error processing video {media_file}: {e}")
+                print(Fore.RED + f"Error processing video {media_file}: {e}")
         return adjusted_clips
 
     def process_image_files(self, audio_duration: float) -> List[VideoFileClip]:
@@ -194,7 +196,7 @@ class VideoAssembler(VideoAssemblerInterface):
                 clip = self._create_zoom_clip(image_file, duration_per_image)
                 adjusted_clips.append(self.adjust_aspect_ratio(clip))
             except Exception as e:
-                print(Fore.RED + f"❌ Error processing image {image_file}: {e}")
+                print(Fore.RED + f"Error processing image {image_file}: {e}")
         return adjusted_clips
 
     def _create_zoom_clip(self, image_file: str, duration: float) -> ImageClip:
@@ -208,10 +210,10 @@ class VideoAssembler(VideoAssemblerInterface):
         Check if the image file exists and has a supported format.
         """
         if not os.path.isfile(image_file):
-            print(Fore.YELLOW + f"⚠️ File not found: {image_file}. Skipping.")
+            print(Fore.YELLOW + f"File not found: {image_file}. Skipping.")
             return False
         if not image_file.lower().endswith(SUPPORTED_IMAGE_FORMATS):
-            print(Fore.YELLOW + f"⚠️ Unsupported image format: {image_file}. Skipping.")
+            print(Fore.YELLOW + f"Unsupported image format: {image_file}. Skipping.")
             return False
         return True
 
@@ -237,6 +239,43 @@ class VideoAssembler(VideoAssemblerInterface):
             raise RuntimeError(f"ffprobe failed: {result.stderr}")
         info = json.loads(result.stdout)
         return float(info['format']['duration'])
+
+    @staticmethod
+    def _has_audible_audio(file_path: str) -> bool:
+        """Detect silent fixtures before applying EBU loudness normalization."""
+        result = subprocess.run(
+            ['ffmpeg', '-hide_banner', '-i', file_path, '-af', 'volumedetect',
+             '-f', 'null', os.devnull], capture_output=True, text=True, timeout=60,
+        )
+        match = re.search(r'mean_volume:\s*([^\s]+)\s+dB', result.stderr)
+        if not match:
+            return False
+        try:
+            return math.isfinite(float(match.group(1))) and float(match.group(1)) > -60.0
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _allocate_frame_counts(durations: List[float], total_frames: int) -> List[int]:
+        """Allocate every output frame to a scene in proportion to its narration time."""
+        if not durations or any(duration <= 0 for duration in durations):
+            raise ValueError("Image durations must contain positive values")
+        if total_frames < len(durations):
+            raise ValueError("Output needs at least one frame per image")
+        total_duration = sum(durations)
+        exact = [total_frames * duration / total_duration for duration in durations]
+        counts = [max(1, int(value)) for value in exact]
+        while sum(counts) < total_frames:
+            index = max(range(len(counts)), key=lambda i: (exact[i] - int(exact[i]), -i))
+            counts[index] += 1
+            exact[index] = int(exact[index])
+        while sum(counts) > total_frames:
+            candidates = [i for i, count in enumerate(counts) if count > 1]
+            if not candidates:
+                raise ValueError("Cannot allocate frames to the requested scene durations")
+            index = max(candidates, key=lambda i: counts[i])
+            counts[index] -= 1
+        return counts
 
     def _escape_filter_path(self, path: str) -> str:
         """Escape a path for use in ffmpeg filter graph options."""
@@ -281,9 +320,15 @@ class VideoAssembler(VideoAssemblerInterface):
         audio_duration = self._ffprobe_duration(self.voiceover_file)
         num_images = len(valid_images)
         total_frames = max(num_images, int(round(audio_duration * fps)))
-        frames_per_img_base = total_frames // num_images
-        extra_frames = total_frames % num_images
-        frame_counts = [frames_per_img_base + (1 if i < extra_frames else 0) for i in range(num_images)]
+        if self.image_durations is None:
+            frames_per_img_base = total_frames // num_images
+            extra_frames = total_frames % num_images
+            frame_counts = [frames_per_img_base + (1 if i < extra_frames else 0)
+                            for i in range(num_images)]
+        else:
+            frame_counts = self._allocate_frame_counts(self.image_durations, total_frames)
+            if len(frame_counts) != num_images:
+                raise ValueError("image_durations must have one entry per valid image")
 
         # --- Build filter_complex ---
         filters = []
@@ -293,7 +338,8 @@ class VideoAssembler(VideoAssemblerInterface):
             self.logger.info(f"  Image {i+1}/{num_images}: {os.path.basename(img)}")
             fc = frame_counts[i]
             if fc > 1:
-                zoom_expr = f"1+0.15*on/({fc}-1)"
+                # Restrained movement keeps edge titles and source credits inside frame.
+                zoom_expr = f"1+0.04*on/({fc}-1)"
             else:
                 zoom_expr = "1"
             filters.append(
@@ -329,6 +375,12 @@ class VideoAssembler(VideoAssemblerInterface):
             filters.append(f"[voice][bg]amix=inputs=2:duration=first[mix]")
             audio_map = "[mix]"
 
+        if self._has_audible_audio(str(self.voiceover_file)):
+            filters.append(f"{audio_map}loudnorm=I=-16:TP=-1.5:LRA=11[outa]")
+            audio_map = "[outa]"
+        else:
+            self.logger.warning("Audio is silent or unmeasurable; skipping loudness normalization")
+
         # --- Subtitles: copy to CWD with simple name (no colons) + quoted force_style (for commas) ---
         has_subtitles = False
         _local_srt = None
@@ -341,7 +393,10 @@ class VideoAssembler(VideoAssemblerInterface):
                 is_short = self.aspect_ratio == '9:16'
                 style_params = SubtitleHelper.get_style_parameters(style)
                 font_name = Path(style_params['font_path']).stem
-                font_size = min(style_params['fontsize'], 48 if is_short else 28)
+                # libass scales SRT font sizes from its virtual 288px canvas;
+                # keep the style size constant across output resolutions.
+                font_size = 12
+                # Place captions in the visual gap above source credits.
                 margin_v = 80 if is_short else 40
                 align_map = {
                     Position.BOTTOM_CENTER: '2',
@@ -392,9 +447,13 @@ class VideoAssembler(VideoAssemblerInterface):
 
         cmd.extend([
             '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
             '-preset', 'ultrafast',
             '-crf', '23',
             '-c:a', 'aac',
+            '-ar', '48000',
+            '-ac', '2',
+            '-b:a', '192k',
             '-shortest',
             '-movflags', '+faststart',
             str(self.output_file)
@@ -431,7 +490,7 @@ class VideoAssembler(VideoAssemblerInterface):
                 Fore.RED + f"❌ FFmpeg assembly failed (exit {result.returncode}). "
                 f"See {debug_log} for details."
             )
-        print(Fore.GREEN + f"✅ Video assembled via ffmpeg: {self.output_file}")
+        print(Fore.GREEN + f"Video assembled using ffmpeg: {self.output_file}")
 
     def split_subtitles(self, subtitle_text: str, width: int = 15) -> str:
         """

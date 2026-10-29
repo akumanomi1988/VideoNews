@@ -130,6 +130,75 @@ def test_render_requires_assets(studio, project):
         studio.render_video(project["id"])
 
 
+def test_scene_image_durations_follow_tts_word_boundaries(studio, tmp_path):
+    boundaries = tmp_path / "word_boundaries.srt"
+    words = [
+        ("Paraguay", 0.0, 0.5), ("presenta", 0.5, 0.9), ("el", 0.9, 1.0),
+        ("proyecto", 1.0, 1.5), ("Yguazú.", 1.5, 2.0),
+        ("La", 2.0, 2.2), ("iniciativa", 2.2, 2.9), ("se", 2.9, 3.0),
+        ("impulsa", 3.0, 3.5), ("con", 3.5, 3.7), ("Taiwán.", 3.7, 4.0),
+    ]
+    to_time = lambda value: f"00:00:{int(value):02},{int(round((value % 1) * 1000)):03}"
+    boundaries.write_text("\n\n".join(
+        f"{index}\n{to_time(start)} --> {to_time(end)}\n{text}"
+        for index, (text, start, end) in enumerate(words, 1)
+    ) + "\n", encoding="utf-8")
+    image_a, image_b = tmp_path / "a.png", tmp_path / "b.png"
+    project = {
+        "storyboard": [
+            {"id": "scene-1", "narration": "Paraguay presenta el proyecto Yguazú."},
+            {"id": "scene-2", "narration": "La iniciativa se impulsa con Taiwán."},
+        ],
+        "narration": [],
+        "word_boundaries": str(boundaries),
+        "asset_records": [
+            {"id": "a", "scene_id": "scene-1", "path": str(image_a)},
+            {"id": "b", "scene_id": "scene-2", "path": str(image_b)},
+        ],
+        "images": [str(image_a), str(image_b)],
+    }
+    assert studio._scene_image_durations(project, 4.0) == [2.0, 2.0]
+
+
+def test_generate_subtitles_persists_grouped_caption_path(studio):
+    project = studio.create_project("A short subtitle test project")
+    studio.save_script(project["id"], "La información pública se encuentra disponible hoy.")
+    boundaries = studio._dir(project["id"]) / "word_boundaries.srt"
+    boundaries.write_text(
+        "1\n00:00:00,000 --> 00:00:00,250\nLa\n\n"
+        "2\n00:00:00,250 --> 00:00:00,800\ninformación\n\n"
+        "3\n00:00:00,800 --> 00:00:01,100\npública\n\n"
+        "4\n00:00:01,100 --> 00:00:01,300\nse\n\n"
+        "5\n00:00:01,300 --> 00:00:01,600\nencuentra\n\n"
+        "6\n00:00:01,600 --> 00:00:01,800\ndisponible\n\n"
+        "7\n00:00:01,800 --> 00:00:02,100\nhoy.\n",
+        encoding="utf-8",
+    )
+    data = studio._read(project["id"])
+    data["word_boundaries"] = str(boundaries)
+    studio._save(data)
+
+    result = studio.generate_subtitles(project["id"])
+    saved = studio.get_project(project["id"])
+    assert result["subtitles"] == saved["subtitles"]
+    assert Path(saved["subtitles"]).is_file()
+    assert saved["word_boundaries"] != saved["subtitles"]
+    assert "información" in Path(saved["subtitles"]).read_text(encoding="utf-8")
+
+
+def test_scene_image_durations_reject_storyboard_text_not_in_script(studio, tmp_path):
+    boundaries = tmp_path / "word_boundaries.srt"
+    boundaries.write_text("1\n00:00:00,000 --> 00:00:00,500\nBuenos\n\n", encoding="utf-8")
+    project = {
+        "storyboard": [{"id": "scene-1", "narration": "Texto no pronunciado."}],
+        "narration": [], "word_boundaries": str(boundaries),
+        "asset_records": [{"id": "a", "scene_id": "scene-1", "path": "a.png"}],
+        "images": ["a.png"],
+    }
+    with pytest.raises(StudioError, match="does not match"):
+        studio._scene_image_durations(project, 1.0)
+
+
 def test_review_without_video_disallows_approval(studio, project):
     data = studio._read(project["id"])
     data["video"] = ""
@@ -229,6 +298,44 @@ def test_news_requires_real_search_credentials(studio, monkeypatch):
         studio.research_news("technology news")
 
 
+def test_news_normalizes_sources_dates_urls_and_duplicates(studio, monkeypatch):
+    monkeypatch.setattr(studio, "_config", lambda: {"serpapi": {
+        "api_key": "test-only", "use_cache": True, "cache_ttl_hours": 24,
+    }})
+    from scripts.DataFetcher import serpapi_client
+    from scripts.dbControllers import processed_news_controller
+
+    class Provider:
+        def __init__(self, **kwargs):
+            assert kwargs["api_key"] == "test-only"
+
+        def search_news(self, query, **kwargs):
+            assert kwargs["language"] == "es"
+            assert kwargs["country"] == "es"
+            return [
+                {"title": "Paraguay explores AI cooperation", "url": "https://example.com/story",
+                 "source": {"name": "DPL News"}, "publishedAt": "10/26/2026, 03:30 PM, +0000 UTC"},
+                {"title": "Paraguay explores AI cooperation today", "url": "http://localhost/private",
+                 "source": "Example News", "publishedAt": "not a date"},
+            ]
+
+    monkeypatch.setattr(serpapi_client, "SerpAPIProvider", Provider)
+    monkeypatch.setattr("scripts.url_safety.validate_public_url", lambda url: (
+        (_ for _ in ()).throw(ValueError("local URL")) if "localhost" in url else None
+    ))
+    monkeypatch.setattr(processed_news_controller, "is_url_processed", lambda _url: False)
+    result = studio.research_news("Paraguay IA", language="es", limit=5, country="es")
+
+    first, second = result["articles"]
+    assert first["source"] == "DPL News"
+    assert first["url_validated"] is True
+    assert first["published_at_iso"] == "2026-10-26T15:30:00+00:00"
+    assert second["source"] == "Example News"
+    assert second["url_validated"] is False
+    assert second["published_at_iso"] is None
+    assert second["duplicate_of"] == "https://example.com/story"
+
+
 @pytest.mark.parametrize("format_name", ["tiny", "", "vertical"])
 def test_script_rejects_unknown_formats(studio, format_name):
     with pytest.raises(ValueError):
@@ -267,12 +374,36 @@ def test_asset_import_is_project_scoped_and_synthetic_disclosure_is_sticky(studi
     })
     asset = imported["asset"]
     assert Path(asset["path"]).parent == studio._dir(project["id"]) / "images"
+    assert Path(asset["path"]).suffix == ".png"
+    assert asset["mime_type"] == "image/png"
     assert len(asset["sha256"]) == 64
     studio.save_youtube_metadata(project["id"], {
         "title": "Synthetic illustration test", "description": "Test", "tags": [],
         "contains_synthetic_media": False,
     })
     assert studio.get_project(project["id"])["youtube_metadata"]["contains_synthetic_media"] is True
+
+
+def test_asset_import_order_follows_storyboard_not_upload_order(studio, project):
+    from PIL import Image
+
+    studio.save_storyboard(project["id"], [
+        {"id": "scene-1", "visual_prompt": "First visual"},
+        {"id": "scene-2", "visual_prompt": "Second visual"},
+    ])
+    inbox = studio.workspace / "_imports"
+    inbox.mkdir()
+    Image.new("RGB", (32, 32), "navy").save(inbox / "first.png")
+    Image.new("RGB", (32, 32), "gold").save(inbox / "second.png")
+    provenance = {"source": "Original test artwork", "synthetic_media": False}
+    studio.import_asset(project["id"], "second.png", "scene-2", provenance)
+    studio.import_asset(project["id"], "first.png", "scene-1", provenance)
+
+    saved = studio._read(project["id"])
+    assert [asset["scene_id"] for asset in saved["asset_records"]] == ["scene-1", "scene-2"]
+    assert [scene["asset_ids"][0] for scene in saved["storyboard"]] == [
+        asset["id"] for asset in saved["asset_records"]
+    ]
 
 
 def test_asset_import_rejects_paths_outside_staging_inbox(studio, project):

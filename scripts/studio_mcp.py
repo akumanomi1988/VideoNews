@@ -181,7 +181,7 @@ class VideoNewsStudio:
             "sources": [], "editorial_brief": {}, "script": "", "narration": [],
             "storyboard": [], "youtube_metadata": {}, "asset_records": [],
             "source_text": "", "source_url": "", "summary": "", "images": [],
-            "voice": "", "subtitles": "", "video": "", "status": "draft",
+            "voice": "", "word_boundaries": "", "subtitles": "", "video": "", "status": "draft",
             "video_id": "", "privacy": "private", "versions": [],
         }
         with _LOCK:
@@ -260,7 +260,8 @@ class VideoNewsStudio:
             if changed:
                 project["images"] = []
                 project["asset_records"] = []
-                project["voice"] = project["subtitles"] = project["video"] = ""
+                project["voice"] = project["word_boundaries"] = ""
+                project["subtitles"] = project["video"] = ""
             self._invalidate_review(project)
             self._save(project)
             return self._public(project)
@@ -357,6 +358,7 @@ class VideoNewsStudio:
         api_key = config["serpapi"]["api_key"]
         if not api_key:
             raise StudioError("SERPAPI_API_KEY is required for news research")
+        from scripts.url_safety import validate_public_url
         from scripts.DataFetcher.serpapi_client import SerpAPIProvider
         provider = SerpAPIProvider(api_key=api_key, use_cache=config["serpapi"]["use_cache"],
                                    cache_ttl_hours=config["serpapi"]["cache_ttl_hours"])
@@ -375,12 +377,30 @@ class VideoNewsStudio:
                                  if SequenceMatcher(None, title.lower(), entry["title"].lower()).ratio() >= 0.82), None)
             url = str(item.get("url", ""))
             try:
+                validate_public_url(url)
+                url_validated = True
+            except ValueError:
+                url_validated = False
+            source = item.get("source", "")
+            source_name = (source.get("name", source.get("title", ""))
+                           if isinstance(source, dict) else str(source))
+            published_at = item.get("publishedAt")
+            published_at_iso = None
+            if published_at:
+                try:
+                    from dateutil import parser as dateparser
+                    parsed_date = dateparser.parse(str(published_at).replace(" UTC", ""))
+                    published_at_iso = parsed_date.isoformat()
+                except (ValueError, TypeError, OverflowError):
+                    pass
+            try:
                 already_processed = bool(url and is_url_processed(url))
             except Exception:
                 already_processed = False
             articles.append({
-                "title": title, "url": url, "description": item.get("description", ""),
-                "source": item.get("source", ""), "publishedAt": item.get("publishedAt"),
+                "title": title, "url": url, "url_validated": url_validated,
+                "description": item.get("description", ""), "source": source_name,
+                "publishedAt": published_at, "published_at_iso": published_at_iso,
                 "already_processed": already_processed, "duplicate_of": duplicate_of,
             })
         return {"query": query, "country": country.lower(), "language": language,
@@ -433,7 +453,8 @@ class VideoNewsStudio:
             project = self._read(job_id)
             self._require_editable(project)
             project["script"] = script.strip()
-            for key, value in (("images", []), ("voice", ""), ("subtitles", ""), ("video", "")):
+            for key, value in (("images", []), ("voice", ""), ("word_boundaries", ""),
+                               ("subtitles", ""), ("video", "")):
                 project[key] = value
             self._invalidate_review(project)
             self._save(project)
@@ -517,8 +538,9 @@ class VideoNewsStudio:
             try:
                 with Image.open(source) as image:
                     image.verify()
-                    mime = Image.MIME.get(image.format)
-                    extension = "." + (Image.EXTENSION.get(image.format, "").lstrip("."))
+                    image_format = image.format
+                    mime = Image.MIME.get(image_format)
+                    extension = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}.get(image_format, "")
             except Exception as exc:
                 raise StudioError("Imported asset is not a valid supported image") from exc
             if mime not in ("image/jpeg", "image/png", "image/webp") or not extension:
@@ -539,6 +561,12 @@ class VideoNewsStudio:
                 target.unlink(missing_ok=True)
                 raise ValueError("scene_id must reference a scene in the saved storyboard")
             project.setdefault("asset_records", []).append(record)
+            scene_order = {scene["id"]: index
+                           for index, scene in enumerate(project.get("storyboard", []))}
+            project["asset_records"].sort(key=lambda asset: (
+                scene_order.get(asset.get("scene_id", ""), len(scene_order)),
+                asset.get("imported_at", ""),
+            ))
             for scene in project.get("storyboard", []):
                 if scene.get("id") == record["scene_id"]:
                     scene.setdefault("asset_ids", []).append(record["id"])
@@ -559,20 +587,22 @@ class VideoNewsStudio:
             from scripts.AI.text_to_speech import TTSEdge
             folder = self._dir(job_id)
             audio = folder / "narration.mp3"
-            subtitles = folder / "subtitles.srt"
+            boundaries = folder / "word_boundaries.srt"
             engine = TTSEdge(output_dir=str(folder))
             engine.text_to_speech_file(
                 project["script"], language=voice[:2], voice=voice,
-                output_path=str(audio), srt_path=str(subtitles),
+                output_path=str(audio), srt_path=str(boundaries),
             )
-            if not audio.is_file() or audio.stat().st_size == 0:
-                raise StudioError("TTS did not produce an audio file")
+            if (not audio.is_file() or audio.stat().st_size == 0
+                    or not boundaries.is_file() or not boundaries.stat().st_size):
+                raise StudioError("TTS did not produce audio with word-boundary subtitles")
             project["voice"] = str(audio)
-            project["subtitles"] = str(subtitles) if subtitles.is_file() else ""
+            project["word_boundaries"] = str(boundaries)
+            project["subtitles"] = ""
             project["video"] = ""
             self._invalidate_review(project)
             self._save(project)
-            return {"job_id": job_id, "voice": str(audio), "subtitles": project["subtitles"]}
+            return {"job_id": job_id, "voice": str(audio), "word_boundaries": str(boundaries)}
 
     def generate_subtitles(self, job_id: str, max_words: int = 5) -> dict:
         if not 1 <= max_words <= 12:
@@ -580,19 +610,92 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
-            path = Path(project["subtitles"]) if project["subtitles"] else None
-            if not path or not path.is_file() or not path.read_text(encoding="utf-8").strip():
+            boundary_path = Path(project["word_boundaries"]) if project.get("word_boundaries") else None
+            if (not boundary_path or not boundary_path.is_file()
+                    or not boundary_path.read_text(encoding="utf-8").strip()):
                 raise StudioError("Generate Edge TTS narration with word boundaries first")
             from scripts.MediaManagers.SRT_Processor import SRTProcessor
+            path = self._dir(job_id) / "subtitles.srt"
+            shutil.copy2(boundary_path, path)
             processor = SRTProcessor(str(path), max_words=max_words,
                                      max_duration=2.0 if project["format"] == "short" else 4.0)
             processor.process()
             if not path.stat().st_size:
                 raise StudioError("Subtitle processing produced an empty SRT")
+            project["subtitles"] = str(path)
             project["video"] = ""
             self._invalidate_review(project)
             self._save(project)
             return {"job_id": job_id, "subtitles": str(path), "bytes": path.stat().st_size}
+
+    @staticmethod
+    def _probe_duration(path: Path) -> float:
+        result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                 "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+                                capture_output=True, text=True, timeout=20)
+        if result.returncode != 0:
+            raise StudioError("ffprobe could not read the narration duration")
+        try:
+            duration = float(result.stdout.strip())
+        except ValueError as exc:
+            raise StudioError("ffprobe returned an invalid narration duration") from exc
+        if duration <= 0:
+            raise StudioError("Narration duration must be positive")
+        return duration
+
+    @staticmethod
+    def _scene_image_durations(project: dict, audio_duration: float) -> list[float] | None:
+        """Match storyboard narration segments to actual TTS word boundaries."""
+        scenes = project.get("storyboard", [])
+        records = project.get("asset_records", [])
+        raw_path = Path(project.get("word_boundaries", "")) if project.get("word_boundaries") else None
+        if not scenes or not records or not raw_path or not raw_path.is_file():
+            return None
+        segment_text = {item.get("scene_id"): item.get("text", "")
+                        for item in project.get("narration", [])}
+        scene_texts = [scene.get("narration") or segment_text.get(scene.get("id"), "")
+                       for scene in scenes]
+        if not any(scene_texts):
+            return None
+
+        from scripts.MediaManagers.SRT_Processor import SRTProcessor
+        entries = SRTProcessor(str(raw_path)).parse_srt()
+        words = [re.findall(r"[^\W_]+", entry["text"].casefold(), flags=re.UNICODE)
+                 for entry in entries]
+        tokens = [parts[0] if parts else "" for parts in words]
+        starts = []
+        cursor = 0
+        for scene_text in scene_texts:
+            expected = re.findall(r"[^\W_]+", scene_text.casefold(), flags=re.UNICODE)
+            if not expected:
+                raise StudioError("Every storyboard scene needs narration matching the saved script")
+            found = next((index for index in range(cursor, len(tokens) - len(expected) + 1)
+                          if tokens[index:index + len(expected)] == expected), None)
+            if found is None:
+                raise StudioError("Storyboard narration does not match TTS word boundaries; align it to the saved script")
+            starts.append(entries[found]["start"])
+            cursor = found + len(expected)
+
+        boundaries = []
+        for index, start in enumerate(starts):
+            next_start = starts[index + 1] if index + 1 < len(starts) else audio_duration
+            boundaries.append(max(0.05, next_start - (0.0 if index == 0 else start)))
+
+        records_by_scene: dict[str, list[dict]] = {}
+        for record in records:
+            records_by_scene.setdefault(record.get("scene_id", ""), []).append(record)
+        duration_by_path = {}
+        for scene, duration in zip(scenes, boundaries):
+            scene_records = records_by_scene.get(scene.get("id"), [])
+            if not scene_records:
+                raise StudioError(f"Storyboard scene {scene.get('id')} has no imported image asset")
+            for record in scene_records:
+                duration_by_path[record["path"]] = duration / len(scene_records)
+        image_paths = project.get("images", [])
+        if (len(duration_by_path) != len(image_paths)
+                or any(path not in duration_by_path for path in image_paths)):
+            raise StudioError("Scene assets and project image order do not match")
+        return [duration_by_path[path] for path in image_paths]
 
     def render_video(self, job_id: str) -> dict:
         """Call existing FFmpeg VideoAssembler; no publishing side effects."""
@@ -607,11 +710,15 @@ class VideoNewsStudio:
             if not audio or not audio.is_file() or not srt or not srt.is_file() or not srt.stat().st_size:
                 raise StudioError("Generate narration and subtitles first")
             from scripts.video_assembler import VideoAssembler
+            from scripts.helpers.media_helper import Position
             output = self._dir(job_id) / "video.mp4"
+            duration = self._probe_duration(audio)
+            image_durations = self._scene_image_durations(project, duration)
             assembler = VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                        output_file=str(output), media_images=[str(p) for p in images],
-                                       aspect_ratio=_SUPPORTED[project["format"]])
-            assembler.assemble_video()
+                                       aspect_ratio=_SUPPORTED[project["format"]],
+                                       image_durations=image_durations)
+            assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
             project["video"] = str(output)
@@ -635,10 +742,15 @@ class VideoNewsStudio:
                 if not audio or not audio.is_file() or not srt or not srt.is_file() or not srt.stat().st_size:
                     raise StudioError("Generate narration and subtitles first")
                 from scripts.video_assembler import VideoAssembler
+                from scripts.helpers.media_helper import Position
                 output = self._dir(job_id) / "preview.mp4"
+                duration = self._probe_duration(audio)
+                image_durations = self._scene_image_durations(project, duration)
                 VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                output_file=str(output), media_images=[str(p) for p in images],
-                               aspect_ratio=_SUPPORTED[project["format"]]).assemble_video()
+                               aspect_ratio=_SUPPORTED[project["format"]],
+                               image_durations=image_durations).assemble_video(
+                                   position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
                     raise StudioError("Preview render produced no playable video")
                 project["preview"] = str(output)

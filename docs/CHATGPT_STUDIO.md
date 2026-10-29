@@ -46,7 +46,9 @@ YouTube OAuth client secrets under `.secrets`; never commit OAuth tokens.
    `output/studio/_imports`, then call `import_asset` with only the staged
    filename plus source, license, and synthetic-media provenance. The importer
    accepts JPEG, PNG, or WebP up to 40 MiB and copies it into that project's
-   folder with a SHA-256 checksum. It never opens arbitrary paths or URLs.
+   folder with a SHA-256 checksum. ChatGPT images are not fetched automatically:
+   download them from ChatGPT to this staging folder first. It never opens
+   arbitrary paths or URLs.
 6. `generate_voice`, `generate_subtitles`, `render_preview`, and
    `render_video` return job IDs immediately. Poll `get_job` for progress and
    results. Inspect the preview before final rendering.
@@ -77,6 +79,8 @@ local MCP clients. A private ChatGPT custom MCP connection needs OpenAI Secure
 MCP Tunnel: the local `tunnel-client` makes outbound HTTPS connections and
 forwards requests to this stdio process. No public unauthenticated endpoint or
 filesystem-wide tool is provided.
+Follow the current [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+for Platform workspace association, network requirements, and ChatGPT connector setup.
 
 Secure Tunnel needs a `tunnel_id`, a restricted runtime API key, and the
 `tunnel-client` executable. Platform access and ChatGPT workspace access are
@@ -85,28 +89,63 @@ selection need Tunnels Read + Use; the ChatGPT workspace must also allow custom
 MCP servers. The owner/RBAC admin grants Platform roles. The Platform tunnel
 must be associated with the intended ChatGPT workspace.
 
-Follow the current [Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels):
+The PowerShell setup script downloads the latest official Windows x64 release,
+checks its GitHub SHA-256 asset digest, keeps the runtime key out of the profile,
+restricts profile-directory ACLs to the current Windows identity, runs `doctor`,
+and only then starts the foreground tunnel:
 
-1. Download `tunnel-client` from Platform tunnel settings or the official
-   [OpenAI tunnel-client releases](https://github.com/openai/tunnel-client/releases).
-2. Create/reuse the private tunnel in Platform and associate the ChatGPT
-   workspace. Enter the runtime key locally; do not place it in chat, source
-   control, command history, or logs.
-3. Configure a stdio profile with `--mcp-command` pointing to
-   `\.venv\Scripts\python.exe -m scripts.studio_server` from the repository
-   root. Run `tunnel-client doctor --profile PROFILE --explain`, then
-   `tunnel-client run --profile PROFILE`.
-4. In ChatGPT Plugins, choose **Add custom MCP server**, **Tunnel**, then select
-   the same tunnel. Confirm the app risk warning and enable the VideoNews tools.
-5. Verify discovery and run `list_projects` or a harmless `research_news` call.
-   A saved plugin manifest alone is not proof of connectivity.
+```powershell
+.\scripts\setup_secure_mcp_tunnel.ps1 -TunnelId tunnel_...
+```
 
-The current Windows checkout has the MCP SDK installed and has passed local
-stdio discovery/call checks. It has not completed the account steps: no
-`tunnel-client` is installed, and this session cannot inspect Platform tunnel
-roles or ChatGPT workspace permissions. Therefore no real ChatGPT-to-Windows
-call is claimed. Obtain the account permissions, configure the tunnel, and
-record a successful ChatGPT tool call to complete this checkpoint.
+The profile uses `env:CONTROL_PLANE_API_KEY`; the script asks for the restricted
+runtime key with a secure PowerShell prompt and holds it only in the current
+process while validating and running the tunnel. Create the tunnel in Platform
+first and associate the intended ChatGPT workspace. Tunnel creation needs
+Tunnels Read + Manage; the runtime-key principal needs Tunnels Read + Use. The
+ChatGPT workspace must allow custom MCP servers. The owner/RBAC admin grants
+Platform roles.
+
+Keep the script running while connecting in ChatGPT settings: **Connectors →
+Create → Custom MCP server → Tunnel**. Select the same tunnel, then verify tool
+discovery and make a real `list_projects` call followed by `research_news`. A
+saved plugin manifest alone is not proof of connectivity.
+
+`chatgpt-plugin/mcp.json` is a local stdio plugin configuration; it does not
+connect ChatGPT web to Windows. The provided plugin ID
+`plugins_6ae2fff0dfd481918876f26571914914` was not installed in the ChatGPT
+account available to this session. Use the tunnel-backed custom MCP connection
+in that account; the existing private plugin can only be reused after it is
+available there and its connection is updated to the tunnel.
+
+The current Windows checkout has passed MCP stdio discovery and a local
+`tunnel-client init` preflight. The official Windows x64 `tunnel-client` binary
+was verified and installed. `doctor --explain` loaded the profile and identified
+the missing runtime API key. No real tunnel has been started because this
+session has no authorized tunnel ID/runtime key and cannot inspect or grant
+Platform roles. No real ChatGPT-to-Windows call is claimed.
+
+## Iteration 2 verification — 2026-10-29
+
+- Real `edge-tts==7.3.1` Spanish narration succeeded with
+  `es-ES-ElviraNeural`. The Studio project output is under
+  `output/studio/bcd2472b3c5347e197e688937285aee7/`; it contains the MP3,
+  raw word-boundary SRT, and grouped caption SRT.
+- A real preview and final vertical MP4 were rendered. The final file is
+  `output/studio/bcd2472b3c5347e197e688937285aee7/video.mp4` (H.264/yuv420p,
+  1080×1920, AAC-LC stereo/48 kHz, 45.125 seconds). FFprobe, audio loudness,
+  subtitle timing, black-frame scan, and contact-sheet visual review passed.
+  The content remains subject to a human factual review.
+- A live SerpAPI query for Spanish technology and AI news returned five
+  candidates. URLs passed public-address validation; the dates ranged from
+  2026-10-28 to 2026-06-19, so older results need editorial freshness filtering.
+- `tunnel-client` 0.0.18 is installed. The profile loaded, but
+  `doctor --explain` failed because `CONTROL_PLANE_API_KEY` is unavailable.
+  ChatGPT tool discovery and real calls have not been observed.
+- YouTube OAuth refresh returned `deleted_client` from Google. No channel was
+  identified and no upload was attempted. Replace the deleted OAuth client,
+  authorize it locally, then repeat the read-only channel check before any
+  separately authorized private upload.
 
 ## Automated provider fallback
 
