@@ -32,6 +32,10 @@ async def test_stdio_mcp_discovers_tools_and_calls_list_projects(tmp_path):
             assert {"create_project", "save_script", "get_job", "create_thumbnail",
                     "generate_stock_images", "publish_youtube", "studio_status"} <= names
             assert "review_video" in names
+            publish_tool = next(tool for tool in tools.tools if tool.name == "publish_youtube")
+            publish_schema = json.dumps(publish_tool.inputSchema)
+            assert all(f'"{mode}"' in publish_schema
+                       for mode in ("public", "private", "unlisted"))
             review_tool = next(tool for tool in tools.tools if tool.name == "review_video")
             assert "approve" not in review_tool.inputSchema.get("properties", {})
             result = await session.call_tool("list_projects", {"limit": 1})
@@ -50,5 +54,6 @@ async def test_stdio_mcp_discovers_tools_and_calls_list_projects(tmp_path):
             while isinstance(readiness, dict) and isinstance(readiness.get("result"), dict):
                 readiness = readiness["result"]
             assert readiness.get("transport") == "stdio"
-            assert readiness.get("publishing_policy") == "private_owner_enrollment_required"
+            assert readiness.get("publishing_policy") == "owner_enrollment_required"
+            assert readiness.get("publishing_default_privacy") is None
             assert "youtube_client_secrets_present" in readiness

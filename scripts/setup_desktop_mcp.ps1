@@ -37,10 +37,21 @@ try {
     [Environment]::SetEnvironmentVariable('VIDEONEWS_REPO_PATH', $repo, 'User')
     Write-Host "VIDEONEWS_REPO_PATH configured: $repo" -ForegroundColor Green
     if (-not $SkipSmokeTest) {
-        & $python -m scripts.desktop_mcp_smoke
-        if ($LASTEXITCODE -ne 0) { throw 'Local plugin launcher smoke test failed.' }
-        & $python -m scripts.doctor --mode studio
-        if ($LASTEXITCODE -ne 0) { throw 'Studio doctor reported a required failure.' }
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            # MCP server diagnostics are intentionally written to stderr. In
+            # Windows PowerShell, that stream otherwise becomes a terminating
+            # NativeCommandError despite a successful Python exit code.
+            $ErrorActionPreference = 'Continue'
+            & $python -m scripts.desktop_mcp_smoke
+            $smokeExitCode = $LASTEXITCODE
+            & $python -m scripts.doctor --mode studio
+            $doctorExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        if ($smokeExitCode -ne 0) { throw 'Local plugin launcher smoke test failed.' }
+        if ($doctorExitCode -ne 0) { throw 'Studio doctor reported a required failure.' }
     }
 } finally {
     Pop-Location

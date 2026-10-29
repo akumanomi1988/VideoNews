@@ -232,6 +232,13 @@ def _install_fake_youtube(monkeypatch, upload):
         def get_channel_id(self):
             return "UCtestChannel123"
 
+        def get_channel_info(self):
+            return {"id": "UCtestChannel123", "title": "NewSphere"}
+
+        def verify_video(self, video_id, expected_channel_id, expected_privacy_status):
+            return {"video_id": video_id, "channel_id": expected_channel_id,
+                    "privacy_status": expected_privacy_status}
+
     monkeypatch.setitem(sys.modules, "scripts.Uploaders.youtube_uploader",
                         types.SimpleNamespace(YoutubeMediaUploader=Uploader))
 
@@ -265,7 +272,7 @@ def test_render_modification_invalidates_approved_upload(studio, project, monkey
         studio.publish_youtube(project["id"])
 
 
-def test_private_only_upload_and_idempotence(studio, project, monkeypatch, tmp_path):
+def test_owner_granted_private_upload_and_idempotence(studio, project, monkeypatch, tmp_path):
     _authorize(studio, project, monkeypatch)
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(return_value={"id": "YT_PRIVATE_123"})
@@ -295,24 +302,25 @@ def test_uncertain_upload_never_auto_retries(studio, project, monkeypatch, tmp_p
 
 def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
         studio, project, monkeypatch, tmp_path):
-    from scripts import private_publish_policy
+    from scripts import publishing_policy
 
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
     studio.save_youtube_metadata(project["id"], {
         "title": "A verified private Short", "description": "Source-backed report.", "tags": []})
-    private_publish_policy.enroll("UCtestChannel123", 1)
+    publishing_policy.enroll("UCtestChannel123", 1, public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
-    upload = Mock(return_value={"id": "YT_AUTO_PRIVATE_1"})
+    upload = Mock(return_value={"id": "YT_AUTO_PUBLIC_1"})
     _install_fake_youtube(monkeypatch, upload)
 
     result = studio.publish_youtube(project["id"])
-    assert result["privacy"] == "private"
-    assert upload.call_args.kwargs["privacy_status"] == "private"
+    assert result["privacy"] == "public"
+    assert result["youtube_verified"] is True
+    assert upload.call_args.kwargs["privacy_status"] == "public"
     assert studio.publish_youtube(project["id"])["already_published"] is True
     assert upload.call_count == 1
-    records = private_publish_policy.records()
+    records = publishing_policy.records()
     assert [record["outcome"] for record in records] == ["upload_started", "uploaded"]
     assert all(record["channel_id"] == "UCtestChannel123" for record in records)
     assert all(record["video_sha256"] == studio._hash(Path(project["video"])) for record in records)
@@ -320,14 +328,14 @@ def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
 
 def test_auto_publish_unknown_outcome_is_audited_and_never_retried(
         studio, project, monkeypatch, tmp_path):
-    from scripts import private_publish_policy
+    from scripts import publishing_policy
 
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
     studio.save_youtube_metadata(project["id"], {
         "title": "A verified private Short", "description": "Source-backed report.", "tags": []})
-    private_publish_policy.enroll("UCtestChannel123", 2)
+    publishing_policy.enroll("UCtestChannel123", 2, public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(side_effect=TimeoutError("Network lost after transfer"))
     _install_fake_youtube(monkeypatch, upload)
@@ -335,10 +343,57 @@ def test_auto_publish_unknown_outcome_is_audited_and_never_retried(
     with pytest.raises(TimeoutError):
         studio.publish_youtube(project["id"])
     assert studio._read(project["id"])["status"] == "upload_unknown"
-    assert private_publish_policy.records()[-1]["outcome"] == "upload_unknown"
+    assert publishing_policy.records()[-1]["outcome"] == "upload_unknown"
     with pytest.raises(StudioError, match="uncertain"):
         studio.publish_youtube(project["id"])
     assert upload.call_count == 1
+
+
+def test_public_upload_must_be_verified_and_never_retried_on_mismatch(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import publishing_policy
+
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
+        returncode=0, stdout="20.5\n"))
+    studio.save_youtube_metadata(project["id"], {
+        "title": "A verified NewSphere Short", "description": "Source-backed report.", "tags": []})
+    publishing_policy.enroll("UCtestChannel123", 2, public_consent=True)
+    _setup_oauth(studio, monkeypatch, tmp_path)
+
+    class Uploader:
+        def __init__(self, client_secrets_file, token_file=None):
+            pass
+
+        def get_channel_info(self):
+            return {"id": "UCtestChannel123", "title": "NewSphere"}
+
+        def upload(self, *args, **kwargs):
+            assert kwargs["privacy_status"] == "public"
+            return {"id": "YT_PUBLIC_123"}
+
+        def verify_video(self, video_id, channel_id, privacy_status):
+            raise RuntimeError("YouTube returned private visibility")
+
+    monkeypatch.setitem(sys.modules, "scripts.Uploaders.youtube_uploader",
+                        types.SimpleNamespace(YoutubeMediaUploader=Uploader))
+    with pytest.raises(RuntimeError, match="private visibility"):
+        studio.publish_youtube(project["id"])
+    assert studio._read(project["id"])["status"] == "upload_verification_failed"
+    assert studio._read(project["id"])["video_id"] == "YT_PUBLIC_123"
+    assert publishing_policy.records()[-1]["outcome"] == "verification_failed"
+    with pytest.raises(StudioError, match="reconcile"):
+        studio.publish_youtube(project["id"])
+
+
+def test_model_cannot_expand_owner_enrolled_privacy_status(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import publishing_policy
+
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    publishing_policy.enroll("UCtestChannel123", 2, privacy_status="private")
+    with pytest.raises(StudioError, match="not allowed"):
+        studio.publish_youtube(project["id"], privacy_status="public")
 
 
 def test_auto_publish_policy_requires_enrollment(studio, project, monkeypatch):
@@ -551,6 +606,35 @@ def test_thumbnail_failure_does_not_hide_successful_video_insert(tmp_path):
                              thumbnail_path="thumbnail.jpg")
     assert result["id"] == "private-id"
     assert "thumbnail API unavailable" in result["thumbnail_warning"]
+
+
+@pytest.mark.parametrize("privacy", ["public", "private", "unlisted"])
+def test_youtube_readback_verifies_channel_and_privacy(privacy):
+    from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+
+    uploader = YoutubeMediaUploader.__new__(YoutubeMediaUploader)
+    uploader.youtube = Mock()
+    uploader.youtube.videos.return_value.list.return_value.execute.return_value = {
+        "items": [{"id": "video-id", "snippet": {"channelId": "UCnewsphere"},
+                   "status": {"privacyStatus": privacy}}]
+    }
+    assert uploader.verify_video("video-id", "UCnewsphere", privacy) == {
+        "video_id": "video-id", "channel_id": "UCnewsphere",
+        "privacy_status": privacy,
+    }
+
+
+def test_youtube_readback_rejects_wrong_privacy():
+    from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+
+    uploader = YoutubeMediaUploader.__new__(YoutubeMediaUploader)
+    uploader.youtube = Mock()
+    uploader.youtube.videos.return_value.list.return_value.execute.return_value = {
+        "items": [{"id": "video-id", "snippet": {"channelId": "UCnewsphere"},
+                   "status": {"privacyStatus": "private"}}]
+    }
+    with pytest.raises(RuntimeError, match="privacy verification"):
+        uploader.verify_video("video-id", "UCnewsphere", "public")
 
 
 def test_asset_import_rejects_paths_outside_staging_inbox(studio, project):

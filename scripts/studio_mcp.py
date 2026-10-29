@@ -973,19 +973,22 @@ class VideoNewsStudio:
             return {"project_id": job_id, "target_account_id": target_account_id,
                     "privacy": "private", "expires_in_seconds": ttl_seconds}
 
-    def publish_youtube(self, job_id: str) -> dict:
-        """Upload PRIVATE using a local owner grant or enrolled private-only policy."""
+    def publish_youtube(self, job_id: str,
+                        privacy_status: str | None = None) -> dict:
+        """Publish at the owner-enrolled status (PUBLIC by default) after verification."""
         with _LOCK:
             project = self._read(job_id)
             if project["status"] == "published":
                 return {"job_id": job_id, "video_id": project["video_id"],
                         "url": "https://www.youtube.com/watch?v=" + project["video_id"],
-                        "privacy": "private", "already_published": True}
-            if project["status"] in ("uploading", "upload_unknown"):
+                        "privacy": project.get("privacy_status", "unknown"),
+                        "already_published": True}
+            if project["status"] in ("uploading", "upload_unknown",
+                                      "upload_verification_failed"):
                 raise StudioError("Upload outcome is uncertain; reconcile it before any retry")
             authorization_path = self._dir(job_id) / "owner-authorization.json"
             video = Path(project["video"]).resolve()
-            from scripts import private_publish_policy
+            from scripts import publishing_policy
             automatic_policy = None
             if authorization_path.is_file():
                 try:
@@ -995,22 +998,27 @@ class VideoNewsStudio:
                 if (project["status"] != "owner_approved"
                         or authorization.get("project_id") != job_id
                         or authorization.get("privacy") != "private"
+                        or privacy_status not in (None, "private")
                         or authorization.get("operation") != "youtube_upload"
                         or authorization.get("expires_at", 0) < datetime.now(timezone.utc).timestamp()
                         or not video.is_file()
                         or self._hash(video) != authorization.get("video_sha256")):
                     raise StudioError("Owner authorization expired or no longer matches this upload")
+                requested_privacy = "private"
             else:
-                automatic_policy = private_publish_policy.load()
+                automatic_policy = publishing_policy.load()
                 if not automatic_policy:
-                    raise StudioError("Owner must enroll once in private auto-publishing from the local console")
+                    raise StudioError("Owner must enroll once in automatic YouTube publishing from the local console")
+                requested_privacy = privacy_status or automatic_policy["privacy_status"]
+                if requested_privacy not in automatic_policy["allowed_privacy_statuses"]:
+                    raise StudioError("Requested privacy status is not allowed by the owner-enrolled policy")
                 report = self.review_video(job_id)
                 if not report["ready_for_editorial_review"]:
-                    raise StudioError("Resolve Studio review issues before private publishing")
+                    raise StudioError("Resolve Studio quality issues before publishing")
                 if not video.is_file():
                     raise StudioError("Rendered video is missing")
                 video_hash = self._hash(video)
-                history = private_publish_policy.records()
+                history = publishing_policy.records()
                 if any(r.get("project_id") == job_id for r in history):
                     raise StudioError("This project already has a publishing attempt; reconcile it or create a new project")
                 today = datetime.now(timezone.utc).date().isoformat()
@@ -1022,7 +1030,7 @@ class VideoNewsStudio:
                 }
                 daily_count = len(daily_projects)
                 if daily_count >= automatic_policy["max_uploads_per_day"]:
-                    raise StudioError("Owner-configured daily private upload limit reached")
+                    raise StudioError("Owner-configured daily YouTube upload limit reached")
                 metadata = project.get("youtube_metadata", {})
                 if not metadata.get("title"):
                     raise StudioError("Save complete YouTube metadata before publishing")
@@ -1034,28 +1042,33 @@ class VideoNewsStudio:
             from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
             uploader = YoutubeMediaUploader(client_secrets_file=str(secret_file),
                                             token_file=str(token_file))
-            account_id = uploader.get_channel_id()
+            channel = uploader.get_channel_info()
+            account_id = channel["id"]
             if automatic_policy:
                 if account_id != automatic_policy["channel_id"]:
                     raise StudioError("Authenticated YouTube channel does not match the owner-enrolled channel")
-                if private_publish_policy.load() != automatic_policy:
+                if channel["title"].strip().casefold() != "newsphere":
+                    raise StudioError("Authenticated YouTube channel is not NewSphere")
+                if publishing_policy.load() != automatic_policy:
                     raise StudioError("Owner revoked or changed automatic publishing before upload")
             elif account_id != authorization["target_account_id"]:
                 raise StudioError("Authorized YouTube account changed; create a new local approval")
 
             project["status"] = "uploading"
+            project["privacy_status"] = requested_privacy
             if authorization_path.is_file():
                 authorization_path.unlink(missing_ok=True)
             self._save(project)
             if automatic_policy:
-                private_publish_policy.audit(job_id, video_hash, account_id, "upload_started")
-            # If the upload request times out after acceptance, require reconciliation.
+                publishing_policy.audit(job_id, video_hash, account_id,
+                                        "upload_started", privacy_status=requested_privacy)
+            video_id = None
             try:
                 metadata = project.get("youtube_metadata", {})
                 response = uploader.upload(
                     str(video), title=metadata.get("title", project["title"])[:90],
                     description=metadata.get("description", project["summary"])[:4000],
-                    tags=metadata.get("tags", []), privacy_status="private",
+                    tags=metadata.get("tags", []), privacy_status=requested_privacy,
                     contains_synthetic_media=metadata.get("contains_synthetic_media", False),
                     default_language=metadata.get("language", "es"),
                     thumbnail_path=metadata.get("thumbnail_path") or None,
@@ -1063,20 +1076,34 @@ class VideoNewsStudio:
                 video_id = response.get("id")
                 if not video_id:
                     raise StudioError("YouTube response lacked a video ID")
-            except BaseException:
-                project["status"] = "upload_unknown"
+                verification = uploader.verify_video(
+                    str(video_id), account_id, requested_privacy)
+            except BaseException as exc:
+                known_id = video_id or getattr(exc, "video_id", None)
+                project["status"] = ("upload_verification_failed" if known_id
+                                      else "upload_unknown")
+                if known_id:
+                    project["video_id"] = str(known_id)
                 self._save(project)
                 if automatic_policy:
-                    private_publish_policy.audit(job_id, video_hash, account_id, "upload_unknown")
+                    publishing_policy.audit(
+                        job_id, video_hash, account_id,
+                        "verification_failed" if known_id else "upload_unknown",
+                        str(known_id or ""), requested_privacy)
                 raise
             project["video_id"] = str(video_id)
+            project["privacy_status"] = verification["privacy_status"]
+            project["youtube_verified_channel_id"] = verification["channel_id"]
             project["status"] = "published"
             self._save(project)
             if automatic_policy:
-                private_publish_policy.audit(job_id, video_hash, account_id, "uploaded", str(video_id))
+                publishing_policy.audit(job_id, video_hash, account_id, "uploaded",
+                                        str(video_id), verification["privacy_status"])
             return {"job_id": job_id, "video_id": video_id,
                     "url": "https://www.youtube.com/watch?v=" + str(video_id),
-                    "privacy": "private"}
+                    "privacy": verification["privacy_status"],
+                    "channel_id": verification["channel_id"],
+                    "youtube_verified": True}
 
     def studio_status(self) -> dict[str, Any]:
         """Read-only runtime checks. Credential presence does not prove an API works."""
@@ -1091,7 +1118,8 @@ class VideoNewsStudio:
             edge_version = "not-installed"
         images = config.get("azure_images", {})
         paid_images = os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() in ("true", "1", "yes")
-        from scripts.private_publish_policy import load as load_publish_policy
+        from scripts.publishing_policy import load as load_publish_policy
+        publishing = load_publish_policy()
         return {
             "server": "VideoNews AI Studio",
             "transport": "stdio",
@@ -1108,8 +1136,11 @@ class VideoNewsStudio:
                 config.get("youtube", {}).get("credentials_file", "")
             ).is_file(),
             "youtube_authorization_verified": False,
-            "publishing_policy": "private_auto_enabled" if load_publish_policy()
-            else "private_owner_enrollment_required",
+            "publishing_policy": "automatic_enabled" if publishing
+            else "owner_enrollment_required",
+            "publishing_default_privacy": publishing["privacy_status"] if publishing else None,
+            "publishing_allowed_privacy": (publishing["allowed_privacy_statuses"]
+                                           if publishing else []),
         }
 
     def list_projects(self, limit: int = 20) -> list[dict]:

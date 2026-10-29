@@ -11,9 +11,16 @@ Add-VideoNewsFfmpegToPath
 
 function Invoke-Checked {
     param([string]$program, [string[]]$arguments)
+    $previousErrorActionPreference = $ErrorActionPreference
+    # Windows PowerShell can promote native stderr warnings to terminating
+    # errors even when the executable exits successfully (for example pip's
+    # warning about a stale temporary wheel directory).
+    $ErrorActionPreference = 'Continue'
     & $program @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$program returned exit code $LASTEXITCODE ($($arguments -join ' '))"
+    $commandExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorActionPreference
+    if ($commandExitCode -ne 0) {
+        throw "$program returned exit code $commandExitCode ($($arguments -join ' '))"
     }
 }
 

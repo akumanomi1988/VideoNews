@@ -1,6 +1,6 @@
 ---
 name: news-video-workflow
-description: Use VideoNews AI Studio for sourced NewSphere news research, ChatGPT-authored scripts, licensed stock visuals, Windows rendering, and owner-enrolled private YouTube publishing.
+description: Use VideoNews AI Studio for sourced NewSphere news research, ChatGPT-authored scripts, licensed stock visuals, Windows rendering, and owner-enrolled YouTube publishing.
 ---
 
 # VideoNews AI Studio
@@ -26,15 +26,15 @@ This private plugin runs the Python 3.11 MCP server on the owner's Windows PC. I
 3. Call `generate_stock_images` for automatic scene-matched Pexels images when configured. These are licensed stock illustrations, not authentic news footage. Keep provider, photographer, license and source URL credits in the project and YouTube description. If Pexels has no suitable result, explain the missing provider/asset; never fill the gap with unrelated imagery. The paid `generate_images` tool remains disabled unless the owner explicitly authorizes cost and configured credentials.
 4. Call `create_thumbnail` after visuals and metadata are ready. It creates a checked 1280×720 NewSphere composition using the approved Spanish thumbnail text.
 5. Call `generate_voice`, `generate_subtitles`, `render_preview`, then `render_video`. Poll every returned job with `get_job`; report a failed stage and resume only that stage after a fix.
-6. Call `review_video` and check project metadata, source support, disclosure, audio/subtitle presence, duration and codec. Do not claim semantic or visual quality that the tool did not verify. If the owner expressly delegates selection and requests full production plus upload, continue through the enrolled private upload path.
+6. Call `review_video` and check project metadata, source support, disclosure, audio/subtitle presence, duration and codec. Do not claim semantic or visual quality that the tool did not verify. If the owner expressly delegates selection and requests full production plus upload, continue through the enrolled publishing path.
 
-## Private YouTube publishing
+## YouTube publishing
 
-- Upload is always `private`; no MCP argument can select `public` or create owner enrollment.
-- Automatic private publishing works only after the owner has enrolled once at a local console with `python -m scripts.owner_publish_policy enroll`. Enrollment verifies the OAuth channel and requires the owner to type a channel-bound confirmation. It is stored under the Windows user profile with a user-only ACL and an upload-per-day limit.
-- Revoke immediately from the local console with `python -m scripts.owner_publish_policy revoke`. A stricter per-project one-use authorization remains available through `scripts.owner_authorize_upload.py`.
-- When the owner expressly asks to upload the exact finished video, call `publish_youtube`. It checks channel, hash, limit, review state and idempotency, records an audit event, and only requests `privacyStatus=private`.
+- Automatic publishing is disabled until the owner enrolls once from a local console using `python -m scripts.owner_publish_policy enroll`. OAuth verifies the authenticated channel and its title must be NewSphere. The default policy permits `public` and requires an exact channel-bound confirmation that names the status and daily limit. The owner may configure `private` or `unlisted` instead, and may add explicitly authorized modes with repeated `--allow-privacy-status` flags.
+- Public enrollment is explicit owner consent for automatic public uploads to NewSphere. ChatGPT cannot create or widen this policy. It is stored under the Windows user profile with a user-only ACL and a daily limit.
+- Revoke immediately from the local console with `python -m scripts.owner_publish_policy revoke`. A stricter per-project one-use authorization remains available through `scripts.owner_authorize_upload.py` and only approves private upload.
+- When the owner expressly asks to upload the finished video, call `publish_youtube`. Omitted `privacy_status` uses the owner-enrolled default (public by default); an explicit mode must be in the owner-authorized set. The tool checks channel, video hash, daily limit, review state and idempotency, records an audit event, then reads the inserted video back through YouTube Data API and verifies channel ID and effective privacy.
 - If the result is `upload_unknown` or `uploading`, stop and reconcile the existing YouTube upload. Never retry an uncertain upload.
 - Never request credentials in chat. For OAuth consent, let the owner authorize directly in Google's browser flow. ChatGPT Plus does not provide an API key.
 
-No public uploads, credential disclosure, fabricated reporting, silent paid generation or arbitrary filesystem access.
+No public upload before owner enrollment, credential disclosure, fabricated reporting, silent paid generation or arbitrary filesystem access.

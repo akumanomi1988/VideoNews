@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "videonews-ai-studio",
-  "version": "0.3.1",
-  "description": "Private Windows MCP studio for NewSphere: source news, create narrated videos with licensed visuals, and publish privately after owner enrollment.",
+  "version": "0.3.2",
+  "description": "Private Windows MCP studio for NewSphere: source news, create narrated videos with licensed visuals, and publish under an owner-enrolled YouTube policy.",
   "author": {
     "name": "AkumaDev"
   },
@@ -12,13 +12,13 @@
       "interface": {
         "displayName": "VideoNews AI Studio",
         "shortDescription": "Noticias a vídeo en Windows",
-        "longDescription": "VideoNews AI Studio: MCP local en Windows para investigar noticias, redactar guiones con ChatGPT, obtener imágenes de stock licenciadas, generar voz y subtítulos, renderizar y subir a YouTube en privado con una política activada por el propietario.",
+        "longDescription": "VideoNews AI Studio: MCP local en Windows para investigar noticias, redactar guiones con ChatGPT, obtener im?genes de stock licenciadas, generar voz y subt?tulos, renderizar y publicar en YouTube con una pol?tica activada por el propietario.",
         "developerName": "AkumaDev",
         "category": "Productivity",
         "capabilities": [
           "Interactive"
         ],
-        "defaultPrompt": "Investiga fuentes recientes, crea con ChatGPT un vídeo español verificable y, si te lo pido, súbelo en privado a mi canal autorizado."
+        "defaultPrompt": "Investiga fuentes recientes, crea con ChatGPT un v?deo espa?ol verificable y, si te pido publicarlo, usa la visibilidad autorizada para NewSphere."
       }
     }
   }

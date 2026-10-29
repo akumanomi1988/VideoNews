@@ -3,7 +3,7 @@
 VideoNews is a Windows-first production engine. ChatGPT owns editorial and
 creative decisions; Python validates structured data, retrieves source material,
 persists projects, processes media, renders video, and performs explicitly
-authorized private uploads. Python does not call an LLM to write a script in
+authorized YouTube uploads. Python does not call an LLM to write a script in
 the Studio workflow. The CLI remains an optional automated-provider fallback.
 
 ## Windows prerequisites
@@ -66,9 +66,12 @@ YouTube OAuth client secrets under `.secrets`; never commit OAuth tokens.
    exact confirmation. A stricter per-video grant remains available through
    `scripts.owner_authorize_upload.py`. Once enrolled, an explicit ChatGPT
    request to upload can call `publish_youtube(job_id)` without another console
-   command. VideoNews forces PRIVATE; hashes, channel, limit and per-project
-   idempotency are checked and every attempt is audited. An uncertain outcome
-   is locked for reconciliation; the video insert is never retried.
+   command. The enrolled default is PUBLIC; the owner can select PRIVATE or UNLISTED with
+   `--privacy-status` and explicitly authorize additional modes with repeated
+   `--allow-privacy-status`. Channel, file hash, limit and per-project idempotency
+   are checked and every attempt is audited. YouTube Data API reads back the
+   inserted video and verifies its channel and privacy. An uncertain or failed
+   verification is locked for reconciliation; the video insert is never retried.
 
 The disclosure field `youtube_metadata.contains_synthetic_media` is passed to
 YouTube. Set it when the video includes realistic synthetic or altered content.
@@ -143,10 +146,11 @@ needs a Platform runtime key and workspace association before a cloud Chat call.
 - `tunnel-client` 0.0.18 is installed. The profile loaded, but
   `doctor --explain` failed because `CONTROL_PLANE_API_KEY` is unavailable.
   ChatGPT tool discovery and real calls have not been observed.
-- YouTube OAuth refresh returned `deleted_client` from Google. No channel was
-  identified and no upload was attempted. Replace the deleted OAuth client,
-  authorize it locally, then repeat the read-only channel check before any
-  separately authorized private upload.
+- A replacement Desktop OAuth client is present at `.secrets/client_secret.json`
+  and the local `settings.json` points to it. The legacy token was backed up
+  before new consent. Browser consent, `channels.list(mine=true)` channel
+  identity and refresh verification still require the owner's interactive
+  Google OAuth approval; no upload was attempted.
 
 ## Automated provider fallback
 
@@ -171,7 +175,7 @@ system complete until a ChatGPT tool call and real short/landscape renders have
 been observed on Windows.
 
 
-## Local ChatGPT Desktop plugin v0.3.1
+## Local ChatGPT Desktop plugin v0.3.2
 
 Run from the Windows repository root:
 
@@ -183,7 +187,7 @@ Bootstrap installs the MCP SDK and runs the Desktop setup, which saves a per-use
 
 Completely restart ChatGPT Desktop, install/enable the private plugin, select **Work locally**, and request `studio_status`. The local smoke test is not a substitute for a real tool call made by ChatGPT Desktop.
 
-`review_video(job_id)` is read-only. The owner can enable private-only automatic publishing once with `python -m scripts.owner_publish_policy enroll` in a local console; `publish_youtube(job_id)` then needs only an explicit upload request. For stricter review, use the optional one-use `owner_authorize_upload.py` grant. Never call obsolete `approve=True` or `approval_code` arguments.
+`review_video(job_id)` is read-only. The owner can enable automatic publishing once with `python -m scripts.owner_publish_policy enroll` in a local console. The default is PUBLIC and the exact local confirmation is explicit consent; `publish_youtube(job_id)` then needs only an explicit upload request. For stricter review, use the optional one-use `owner_authorize_upload.py` grant. Never call obsolete `approve=True` or `approval_code` arguments.
 
 The `create_thumbnail(job_id)` tool is asynchronous and creates a checked 1280×720 NewSphere thumbnail from the first scene visual and saved Spanish thumbnail text. Poll its job with `get_job` before continuing.
 

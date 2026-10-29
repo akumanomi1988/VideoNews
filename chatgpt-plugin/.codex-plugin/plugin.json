@@ -2,17 +2,26 @@
   "interface": {
     "displayName": "VideoNews AI Studio",
     "shortDescription": "Noticias a video en Windows",
-    "longDescription": "MCP local en Windows para investigar noticias, redactar guiones con ChatGPT, obtener imagenes de stock licenciadas, generar voz y subtitulos, renderizar y subir a YouTube en privado con una politica activada por el propietario.",
+    "longDescription": "MCP local en Windows para investigar noticias, redactar guiones con ChatGPT, obtener im?genes de stock licenciadas, generar voz y subt?tulos, renderizar y publicar en YouTube con una pol?tica activada por el propietario.",
     "developerName": "AkumaDev",
     "category": "Productivity",
-    "capabilities": ["Interactive"],
-    "defaultPrompt": "Investiga fuentes recientes, crea con ChatGPT un video espanol verificable y, si te lo pido, subelo en privado a mi canal autorizado."
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": "Investiga fuentes recientes, crea con ChatGPT un v?deo espa?ol verificable y, si te pido publicarlo, usa la visibilidad autorizada para NewSphere."
   },
   "name": "videonews-ai-studio",
-  "version": "0.3.1",
-  "description": "Private Windows MCP studio for NewSphere: source news, create narrated videos with licensed visuals, and publish privately after owner enrollment.",
-  "author": {"name": "AkumaDev"},
-  "keywords": ["news", "video", "youtube", "mcp"],
+  "version": "0.3.2",
+  "description": "Private Windows MCP studio for NewSphere: source news, create narrated videos with licensed visuals, and publish under an owner-enrolled YouTube policy.",
+  "author": {
+    "name": "AkumaDev"
+  },
+  "keywords": [
+    "news",
+    "video",
+    "youtube",
+    "mcp"
+  ],
   "repository": "https://github.com/akumanomi1988/VideoNews",
   "skills": "./skills",
   "mcpServers": "./.mcp.json"

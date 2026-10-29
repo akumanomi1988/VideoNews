@@ -78,11 +78,33 @@ class YoutubeMediaUploader:
 
     def get_channel_id(self):
         """Return the channel bound to the currently authorized OAuth token."""
-        response = self.youtube.channels().list(part="id", mine=True).execute()
+        return self.get_channel_info()["id"]
+
+    def get_channel_info(self):
+        """Return the authenticated channel identity and display name."""
+        response = self.youtube.channels().list(part="id,snippet", mine=True).execute()
         items = response.get("items", [])
-        if len(items) != 1 or not items[0].get("id"):
+        if len(items) != 1 or not items[0].get("id") or not items[0].get("snippet", {}).get("title"):
             raise RuntimeError("Could not identify the authorized YouTube channel")
-        return str(items[0]["id"])
+        return {"id": str(items[0]["id"]),
+                "title": str(items[0]["snippet"]["title"])}
+
+    def verify_video(self, video_id, expected_channel_id, expected_privacy_status):
+        """Read the inserted video back and verify channel and effective visibility."""
+        response = self.youtube.videos().list(
+            part="status,snippet", id=video_id).execute()
+        items = response.get("items", [])
+        if len(items) != 1:
+            raise RuntimeError("YouTube did not return the uploaded video for verification")
+        video = items[0]
+        actual_privacy = video.get("status", {}).get("privacyStatus")
+        actual_channel = video.get("snippet", {}).get("channelId")
+        if actual_channel != expected_channel_id:
+            raise RuntimeError("Uploaded video belongs to a different YouTube channel")
+        if actual_privacy != expected_privacy_status:
+            raise RuntimeError("YouTube privacy verification did not match the requested status")
+        return {"video_id": str(video_id), "channel_id": actual_channel,
+                "privacy_status": actual_privacy}
 
     def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='private', contains_synthetic_media=False):
         try:
@@ -212,8 +234,8 @@ class YoutubeMediaUploader:
             if default_language not in valid_languages:
                 raise ValueError(f"Idioma inválido: {default_language}. Opciones válidas: {', '.join(valid_languages)}")
             
-            if privacy_status != "private":
-                raise ValueError("VideoNews publishing only allows PRIVATE uploads")
+            if privacy_status not in ("public", "private", "unlisted"):
+                raise ValueError("privacy_status must be public, private, or unlisted")
         
         except Exception as e:
             self.handle_error("Validación fallida", e, True)

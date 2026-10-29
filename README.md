@@ -6,7 +6,7 @@ engine over a private MCP connection. ChatGPT performs research synthesis,
 editorial selection, fact checking, narration, storyboards, and YouTube metadata.
 Python validates and stores those artifacts, retrieves source material,
 processes licensed assets, creates speech and subtitles, renders video, and
-uploads privately only under a local policy explicitly enrolled by the owner.
+uploads under a local visibility policy explicitly enrolled by the owner.
 
 The Studio workflow does not make Python LLM calls to rewrite ChatGPT scripts.
 An optional CLI fallback can use configured automated providers. ChatGPT Plus
@@ -53,8 +53,8 @@ paid and disabled in the ChatGPT Studio unless
 
 The MCP provides sourced news retrieval, project/script/storyboard persistence,
 automatic Pexels stock visuals, validated asset import, Spanish narration,
-subtitles, preview and final rendering, read-only quality review, and private
-YouTube publishing.
+subtitles, preview and final rendering, read-only quality review, and
+owner-configured YouTube publishing.
 
 Long media operations return job IDs; poll `get_job`. `generate_stock_images`
 uses the configured Pexels key and stores provider, license and photographer
@@ -63,11 +63,15 @@ there is no silent ChatGPT image export API.
 
 One-time owner enrollment is available through
 `.\.venv\Scripts\python.exe -m scripts.owner_publish_policy enroll`; it verifies
-the OAuth channel and stores a user-only, private-only policy with a daily
-limit. After enrollment, an explicit conversational request can call
-`publish_youtube` without another per-video console command. The stricter
-one-use `owner_authorize_upload.py` flow remains available. Unknown upload
-outcomes require reconciliation and are never retried.
+the OAuth channel is NewSphere and stores a user-only privacy policy with a
+daily limit. The default is `public`; the local confirmation explicitly enables
+that mode. `--privacy-status private|unlisted` selects another default, and
+`--allow-privacy-status` can authorize additional per-video choices. After
+enrollment, an explicit conversational request can call `publish_youtube`
+without another per-video console command. YouTube Data API read-back verifies
+the resulting channel and visibility. The stricter one-use
+`owner_authorize_upload.py` flow remains private-only. Unknown upload outcomes
+require reconciliation and are never retried.
 
 See [docs/CHATGPT_STUDIO.md](docs/CHATGPT_STUDIO.md) for project schema,
 workflow details, Secure MCP Tunnel setup, account permissions, asset provenance,

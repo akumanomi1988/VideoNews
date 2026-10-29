@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 import sys
 import threading
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -162,9 +162,10 @@ def review_video(job_id: str) -> dict:
 
 
 @mcp.tool()
-def publish_youtube(job_id: str) -> dict:
-    """Upload PRIVATE only under the local owner authorization or enrolled private policy."""
-    return call("publish_youtube", job_id=job_id)
+def publish_youtube(job_id: str,
+                    privacy_status: Literal["public", "private", "unlisted"] | None = None) -> dict:
+    """Publish after local owner enrollment; omitted privacy uses its default (PUBLIC)."""
+    return call("publish_youtube", job_id=job_id, privacy_status=privacy_status)
 
 
 @mcp.tool()
