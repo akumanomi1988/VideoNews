@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "videonews-ai-studio",
+  "version": "0.1.0",
+  "description": "Private Windows MCP companion that reuses VideoNews Python to research sourced news, create narrated subtitled videos, review editorially and upload privately to YouTube.",
+  "author": {
+    "name": "AkumaDev"
+  },
+  "repository": "https://github.com/akumanomi1988/VideoNews",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "VideoNews AI Studio",
+        "shortDescription": "Noticias a vídeo en Windows",
+        "longDescription": "Investigación, guiones, ilustraciones, voces, subtítulos, renderizado y publicación privada con aprobación editorial, usando tu motor Python en Windows.",
+        "developerName": "AkumaDev",
+        "category": "Productivity",
+        "capabilities": [
+          "Interactive"
+        ],
+        "defaultPrompt": "Investiga noticias verificables y prepara un vídeo privado de YouTube. Exige mi revisión editorial antes de subirlo."
+      }
+    }
+  }
+}

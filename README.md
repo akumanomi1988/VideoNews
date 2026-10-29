@@ -271,3 +271,13 @@ Telegram commands / callbacks
 ```
 
 License: MIT.
+
+## ChatGPT private plugin — VideoNews AI Studio
+
+A Windows-first, local stdio MCP adapter is available in
+[docs/CHATGPT_STUDIO.md](docs/CHATGPT_STUDIO.md). The package source is under
+[chatgpt-plugin/](chatgpt-plugin/). It reuses the existing engine to research
+news, draft narration, generate illustrated audio with subtitles, render local
+MP4 files, perform review checks and publish to YouTube **private only** after
+explicit editorial approval. A local MCP client is required: the ChatGPT
+web service cannot directly execute processes on your Windows PC.

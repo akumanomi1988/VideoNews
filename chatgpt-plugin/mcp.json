@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "videonews-windows": {
+      "type": "stdio",
+      "command": "py",
+      "args": [
+        "-3.11",
+        "${PLUGIN_ROOT}/server/launch.py"
+      ],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

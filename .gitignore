@@ -75,3 +75,5 @@ _ffmpeg_debug.log
 _*.py
 _*.mp3
 _*.srt
+# VideoNews Studio local projects and generated assets
+output/
