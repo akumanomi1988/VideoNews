@@ -38,6 +38,8 @@ async def test_stdio_mcp_discovers_tools_and_calls_list_projects(tmp_path):
             status = await session.call_tool("studio_status", {})
             assert not status.isError
             readiness = status.structuredContent or {}
+            if isinstance(readiness.get("result"), dict):
+                readiness = readiness["result"]
             assert readiness.get("transport") == "stdio"
             assert readiness.get("publishing_policy") == "private_with_separate_local_owner_approval"
             assert "youtube_client_secrets_present" in readiness
