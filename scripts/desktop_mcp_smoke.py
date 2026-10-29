@@ -49,7 +49,10 @@ async def verify() -> None:
                 projects = await session.call_tool("list_projects", {"limit": 1})
                 if status.isError or projects.isError:
                     raise RuntimeError("MCP read-only calls failed")
-                if (status.structuredContent or {}).get("transport") != "stdio":
+                data = status.structuredContent or {}
+                if isinstance(data.get("result"), dict):
+                    data = data["result"]
+                if data.get("transport") != "stdio":
                     raise RuntimeError("Invalid Studio transport status")
                 if projects.structuredContent != {"result": []}:
                     raise RuntimeError("Temporary test workspace was not empty")
