@@ -35,7 +35,8 @@ async def verify() -> None:
         env["VIDEONEWS_REPO_PATH"] = str(REPO)
         env["VIDEO_STUDIO_DIR"] = str(Path(tmp) / "studio")
         params = StdioServerParameters(
-            command=sys.executable, args=[str(LAUNCHER)],
+            command="py" if os.name == "nt" else sys.executable,
+            args=["-3.11", str(LAUNCHER)] if os.name == "nt" else [str(LAUNCHER)],
             cwd=str(REPO / "chatgpt-plugin"), env=env,
         )
         async with stdio_client(params) as (reader, writer):
