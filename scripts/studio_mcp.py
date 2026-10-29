@@ -34,6 +34,7 @@ class VideoNewsStudio:
     def __init__(self, workspace: str | Path | None = None):
         self.workspace = Path(workspace or os.getenv("VIDEO_STUDIO_DIR", "output/studio")).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
+        (self.workspace / "_imports").mkdir(parents=True, exist_ok=True)
         jobs_dir = self.workspace / "jobs"
         if jobs_dir.is_dir():
             for path in jobs_dir.glob("[0-9a-f]" * 32 + ".json"):
