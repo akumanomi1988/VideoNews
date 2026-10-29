@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "videonews-ai-studio",
-  "version": "0.1.0",
-  "description": "Private Windows MCP companion that reuses VideoNews Python to research sourced news, create narrated subtitled videos, review editorially and upload privately to YouTube.",
+  "version": "0.2.0",
+  "description": "Private Windows MCP plugin for NewSphere: research sourced news, save ChatGPT-authored scripts, render locally and upload privately to YouTube after independent owner approval.",
   "author": {
     "name": "AkumaDev"
   },
@@ -12,7 +12,7 @@
       "interface": {
         "displayName": "VideoNews AI Studio",
         "shortDescription": "Noticias a vídeo en Windows",
-        "longDescription": "Investigación, guiones, ilustraciones, voces, subtítulos, renderizado y publicación privada con aprobación editorial, usando tu motor Python en Windows.",
+        "longDescription": "VideoNews AI Studio: investigación de noticias, guiones de ChatGPT, imágenes importadas, voces, subtítulos y renderizado en Windows, con subida privada previa autorización local.",
         "developerName": "AkumaDev",
         "category": "Productivity",
         "capabilities": [
