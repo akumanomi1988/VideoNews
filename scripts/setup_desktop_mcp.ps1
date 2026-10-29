@@ -1,0 +1,42 @@
+# Configure the Windows-only local VideoNews MCP connection for ChatGPT Desktop.
+# Run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_desktop_mcp.ps1
+[CmdletBinding()]
+param([switch]$SkipSmokeTest)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$python = Join-Path $repo '.venv\Scripts\python.exe'
+$launcher = Join-Path $repo 'chatgpt-plugin\server\launch.py'
+if (-not (Test-Path -LiteralPath $python)) {
+    throw "Python venv missing. Run .\bootstrap.ps1 from $repo first."
+}
+if (-not (Test-Path -LiteralPath $launcher)) {
+    throw 'The local plugin launcher is missing.'
+}
+$version = (& $python -c 'import sys; print(str(sys.version_info.major)+chr(46)+str(sys.version_info.minor))').Trim()
+if ($LASTEXITCODE -ne 0 -or $version -ne '3.11') {
+    throw 'The local plugin requires Python 3.11.'
+}
+Push-Location $repo
+try {
+    & $python -c 'import mcp; import scripts.studio_server; print("MCP runtime: OK")'
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Install MCP: .\.venv\Scripts\python.exe -m pip install -r requirements-mcp.txt'
+    }
+    $env:VIDEONEWS_REPO_PATH = $repo
+    [Environment]::SetEnvironmentVariable('VIDEONEWS_REPO_PATH', $repo, 'User')
+    Write-Host "VIDEONEWS_REPO_PATH configured: $repo" -ForegroundColor Green
+    if (-not $SkipSmokeTest) {
+        & $python -m scripts.desktop_mcp_smoke
+        if ($LASTEXITCODE -ne 0) { throw 'Local plugin launcher smoke test failed.' }
+        & $python -m scripts.doctor --mode studio
+        if ($LASTEXITCODE -ne 0) { throw 'Studio doctor reported a required failure.' }
+    }
+} finally {
+    Pop-Location
+}
+Write-Host 'Restart ChatGPT Desktop fully to reload this user environment variable.' -ForegroundColor Cyan
+Write-Host 'Install VideoNews AI Studio in Plugins, use Work locally, and call studio_status.' -ForegroundColor Cyan
+Write-Host 'This verifies local Python MCP, not the ChatGPT Desktop UI connection.' -ForegroundColor Yellow
