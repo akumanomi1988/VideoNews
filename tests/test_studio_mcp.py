@@ -210,14 +210,15 @@ def test_review_without_video_disallows_approval(studio, project):
         studio.review_video(project["id"], approve=True)
 
 
-def _authorize(studio, project, monkeypatch):
+def _authorize(studio, project, monkeypatch, privacy_status="private"):
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
     assert studio.review_video(project["id"])["ready_for_editorial_review"]
     studio.save_youtube_metadata(project["id"], {
         "title": "Verified private test video", "description": "A test upload.", "tags": []})
     return studio.issue_owner_authorization(
-        project["id"], owner_confirmed=True, target_account_id="UCtestChannel123")
+        project["id"], owner_confirmed=True, target_account_id="UCtestChannel123",
+        privacy_status=privacy_status)
 
 
 def _install_fake_youtube(monkeypatch, upload):
@@ -284,6 +285,29 @@ def test_owner_granted_private_upload_and_idempotence(studio, project, monkeypat
     assert studio._read(project["id"])["status"] == "published"
     second = studio.publish_youtube(project["id"])
     assert second["already_published"] is True
+    assert upload.call_count == 1
+
+
+def test_exact_owner_grant_can_publish_public_once_to_newssphere(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import publishing_policy
+
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    studio.save_youtube_metadata(project["id"], {
+        "title": "An explicitly approved public test Short",
+        "description": "Source-backed report.", "tags": []})
+    grant = _authorize(studio, project, monkeypatch, privacy_status="public")
+    assert grant["privacy"] == "public"
+    _setup_oauth(studio, monkeypatch, tmp_path)
+    upload = Mock(return_value={"id": "YT_PUBLIC_ONE_USE_1"})
+    _install_fake_youtube(monkeypatch, upload)
+
+    result = studio.publish_youtube(project["id"], privacy_status="public")
+    assert result["privacy"] == "public"
+    assert upload.call_args.kwargs["privacy_status"] == "public"
+    assert publishing_policy.records()[-1]["outcome"] == "uploaded"
+    assert publishing_policy.records()[-1]["privacy_status"] == "public"
+    assert studio.publish_youtube(project["id"])['already_published'] is True
     assert upload.call_count == 1
 
 

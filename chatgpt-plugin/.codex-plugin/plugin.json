@@ -11,7 +11,7 @@
     "defaultPrompt": "Investiga fuentes recientes, crea con ChatGPT un v?deo espa?ol verificable y, si te pido publicarlo, usa la visibilidad autorizada para NewSphere."
   },
   "name": "videonews-ai-studio",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Private Windows MCP studio for NewSphere: source news, create narrated videos with licensed visuals, and publish under an owner-enrolled YouTube policy.",
   "author": {
     "name": "AkumaDev"

@@ -69,9 +69,10 @@ that mode. `--privacy-status private|unlisted` selects another default, and
 `--allow-privacy-status` can authorize additional per-video choices. After
 enrollment, an explicit conversational request can call `publish_youtube`
 without another per-video console command. YouTube Data API read-back verifies
-the resulting channel and visibility. The stricter one-use
-`owner_authorize_upload.py` flow remains private-only. Unknown upload outcomes
-require reconciliation and are never retried.
+the resulting channel and visibility. The stricter
+`owner_authorize_upload.py` flow provides an exact-file one-use grant, defaults
+to private and requires local confirmation of project and SHA-256 for public.
+Unknown upload outcomes require reconciliation and are never retried.
 
 See [docs/CHATGPT_STUDIO.md](docs/CHATGPT_STUDIO.md) for project schema,
 workflow details, Secure MCP Tunnel setup, account permissions, asset provenance,

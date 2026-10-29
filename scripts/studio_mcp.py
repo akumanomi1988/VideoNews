@@ -941,12 +941,16 @@ class VideoNewsStudio:
             return result
 
     def issue_owner_authorization(self, job_id: str, *, owner_confirmed: bool,
-                                  target_account_id: str, ttl_seconds: int = 600) -> dict:
-        """Local CLI only: mint a one-use grant tied to the exact private upload."""
+                                  target_account_id: str, privacy_status: str = "private",
+                                  ttl_seconds: int = 600) -> dict:
+        """Mint a one-use exact-video grant after explicit owner confirmation."""
         if not owner_confirmed:
-            raise StudioError("Owner confirmation is required in the local console")
+            raise StudioError("Explicit owner confirmation is required")
         if not re.fullmatch(r"[A-Za-z0-9_-]{5,100}", target_account_id):
             raise ValueError("A YouTube channel ID is required")
+        from scripts.publishing_policy import PRIVACY_STATUSES
+        if privacy_status not in PRIVACY_STATUSES:
+            raise ValueError("privacy_status must be public, private, or unlisted")
         if not 60 <= ttl_seconds <= 900:
             raise ValueError("Authorization lifetime must be 60-900 seconds")
         with _LOCK:
@@ -963,7 +967,7 @@ class VideoNewsStudio:
                 "project_id": job_id,
                 "video_sha256": self._hash(video),
                 "target_account_id": target_account_id,
-                "privacy": "private", "operation": "youtube_upload",
+                "privacy": privacy_status, "operation": "youtube_upload",
                 "expires_at": datetime.now(timezone.utc).timestamp() + ttl_seconds,
             }
             (self._dir(job_id) / "owner-authorization.json").write_text(
@@ -971,7 +975,8 @@ class VideoNewsStudio:
             project["status"] = "owner_approved"
             self._save(project)
             return {"project_id": job_id, "target_account_id": target_account_id,
-                    "privacy": "private", "expires_in_seconds": ttl_seconds}
+                    "privacy": privacy_status, "expires_in_seconds": ttl_seconds,
+                    "video_sha256": authorization["video_sha256"]}
 
     def publish_youtube(self, job_id: str,
                         privacy_status: str | None = None) -> dict:
@@ -988,6 +993,9 @@ class VideoNewsStudio:
                 raise StudioError("Upload outcome is uncertain; reconcile it before any retry")
             authorization_path = self._dir(job_id) / "owner-authorization.json"
             video = Path(project["video"]).resolve()
+            if not video.is_file():
+                raise StudioError("Rendered video is missing")
+            video_hash = self._hash(video)
             from scripts import publishing_policy
             automatic_policy = None
             if authorization_path.is_file():
@@ -997,14 +1005,14 @@ class VideoNewsStudio:
                     raise StudioError("Local owner authorization is missing or invalid") from exc
                 if (project["status"] != "owner_approved"
                         or authorization.get("project_id") != job_id
-                        or authorization.get("privacy") != "private"
-                        or privacy_status not in (None, "private")
+                        or authorization.get("privacy") not in publishing_policy.PRIVACY_STATUSES
+                        or privacy_status not in (None, authorization.get("privacy"))
                         or authorization.get("operation") != "youtube_upload"
                         or authorization.get("expires_at", 0) < datetime.now(timezone.utc).timestamp()
                         or not video.is_file()
                         or self._hash(video) != authorization.get("video_sha256")):
                     raise StudioError("Owner authorization expired or no longer matches this upload")
-                requested_privacy = "private"
+                requested_privacy = authorization["privacy"]
             else:
                 automatic_policy = publishing_policy.load()
                 if not automatic_policy:
@@ -1015,9 +1023,6 @@ class VideoNewsStudio:
                 report = self.review_video(job_id)
                 if not report["ready_for_editorial_review"]:
                     raise StudioError("Resolve Studio quality issues before publishing")
-                if not video.is_file():
-                    raise StudioError("Rendered video is missing")
-                video_hash = self._hash(video)
                 history = publishing_policy.records()
                 if any(r.get("project_id") == job_id for r in history):
                     raise StudioError("This project already has a publishing attempt; reconcile it or create a new project")
@@ -1054,14 +1059,19 @@ class VideoNewsStudio:
             elif account_id != authorization["target_account_id"]:
                 raise StudioError("Authorized YouTube account changed; create a new local approval")
 
+            history = publishing_policy.records()
+            if any(r.get("project_id") == job_id and r.get("outcome") in (
+                    "upload_started", "upload_unknown", "verification_failed", "uploaded")
+                   for r in history):
+                raise StudioError("This project already has a publishing attempt; reconcile before retry")
+
             project["status"] = "uploading"
             project["privacy_status"] = requested_privacy
             if authorization_path.is_file():
                 authorization_path.unlink(missing_ok=True)
             self._save(project)
-            if automatic_policy:
-                publishing_policy.audit(job_id, video_hash, account_id,
-                                        "upload_started", privacy_status=requested_privacy)
+            publishing_policy.audit(job_id, video_hash, account_id,
+                                    "upload_started", privacy_status=requested_privacy)
             video_id = None
             try:
                 metadata = project.get("youtube_metadata", {})
@@ -1085,20 +1095,18 @@ class VideoNewsStudio:
                 if known_id:
                     project["video_id"] = str(known_id)
                 self._save(project)
-                if automatic_policy:
-                    publishing_policy.audit(
-                        job_id, video_hash, account_id,
-                        "verification_failed" if known_id else "upload_unknown",
-                        str(known_id or ""), requested_privacy)
+                publishing_policy.audit(
+                    job_id, video_hash, account_id,
+                    "verification_failed" if known_id else "upload_unknown",
+                    str(known_id or ""), requested_privacy)
                 raise
             project["video_id"] = str(video_id)
             project["privacy_status"] = verification["privacy_status"]
             project["youtube_verified_channel_id"] = verification["channel_id"]
             project["status"] = "published"
             self._save(project)
-            if automatic_policy:
-                publishing_policy.audit(job_id, video_hash, account_id, "uploaded",
-                                        str(video_id), verification["privacy_status"])
+            publishing_policy.audit(job_id, video_hash, account_id, "uploaded",
+                                    str(video_id), verification["privacy_status"])
             return {"job_id": job_id, "video_id": video_id,
                     "url": "https://www.youtube.com/watch?v=" + str(video_id),
                     "privacy": verification["privacy_status"],
