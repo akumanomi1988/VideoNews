@@ -168,3 +168,21 @@ tunnel calls, Edge TTS, FFmpeg MP4 output, OAuth, or YouTube uploads. The MCP
 SDK must be installed separately with `requirements-mcp.txt`. Do not call the
 system complete until a ChatGPT tool call and real short/landscape renders have
 been observed on Windows.
+
+
+## Local ChatGPT Desktop plugin v0.2.0
+
+Run from the Windows repository root:
+
+```powershell
+.\bootstrap.ps1
+.\scripts\setup_desktop_mcp.ps1
+```
+
+Bootstrap installs the MCP SDK. The setup script saves a per-user `VIDEONEWS_REPO_PATH` pointing to this checkout. The smoke test launches the plugin's packaged `chatgpt-plugin/server/launch.py` using the current Python 3.11 venv, completes a real stdio MCP handshake, discovers tools, and invokes `studio_status` and `list_projects` in a disposable workspace. This makes no external API call and creates no YouTube upload.
+
+Completely restart ChatGPT Desktop, install/enable the private plugin, select **Work locally**, and request `studio_status`. The local smoke test is not a substitute for a real tool call made by ChatGPT Desktop.
+
+Only the current local owner-approval flow is supported: `review_video(job_id)` is read-only; `publish_youtube(job_id)` requires the owner to first run `python -m scripts.owner_authorize_upload PROJECT_ID` in Windows. Never call obsolete `approve=True` or `approval_code` arguments.
+
+For ChatGPT web/mobile or cloud work, a separate authenticated Secure MCP Tunnel remains necessary. The account plugin's local stdio manifest does not automatically deploy that tunnel. Voice, real news, video and YouTube OAuth have independent provider prerequisites; `studio_status` does not verify live service access.
