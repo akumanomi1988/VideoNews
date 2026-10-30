@@ -67,7 +67,12 @@ class SRTProcessor:
                 pause = sub["start"] - last_end
                 last_end = sub["end"]
 
-                if pause > self.pause_threshold and self.is_natural_break(temp_group[-1]["text"]):
+                # Edge TTS word-boundary events do not reliably preserve the
+                # punctuation attached to each spoken word. A real prosodic
+                # pause is therefore sufficient evidence to end a caption cue;
+                # requiring punctuation caused captions to join separate
+                # sentences (for example, "despidos Algunos").
+                if pause > self.pause_threshold:
                     grouped.append(temp_group)
                     temp_group = [sub]
                     group_start = sub["start"]

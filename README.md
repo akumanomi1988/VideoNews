@@ -26,7 +26,10 @@ The bootstrap installs the MCP SDK, sets `VIDEONEWS_REPO_PATH` for the Windows u
 
 Local MCP is available to compatible Desktop **Work locally** conversations;
 web/mobile/cloud Chat requires a separate authenticated Secure MCP Tunnel.
-When configured, Pexels provides automatic scene-specific licensed visuals.
+NewSphere Cinematic uses Azure MAI generated illustrations as its primary
+visual source when `VIDEO_ENABLE_PAID_IMAGE_GENERATION=true` and Azure
+credentials are configured. Pexels is secondary and runs only when explicitly
+selected in the approved project brief; it is never an automatic fallback.
 See `docs/CHATGPT_STUDIO.md`.
 
 ## Windows setup
@@ -45,28 +48,33 @@ notepad .env
 ```
 
 Bootstrap preserves an existing `.env` and secrets. Configure `SERPAPI_API_KEY`
-for live discovery. Edge TTS uses a network service. Azure image generation is
-paid and disabled in the ChatGPT Studio unless
-`VIDEO_ENABLE_PAID_IMAGE_GENERATION=true` is set explicitly.
+for live discovery. Edge TTS uses a network service. The example configuration
+enables Azure image generation (`MEDIA_SOURCE=huggingface` is the compatibility
+alias for Azure MAI); valid Azure endpoint and key values are still required.
+Azure image requests may incur charges. Turn generation off by setting
+`VIDEO_ENABLE_PAID_IMAGE_GENERATION=false`.
 
 ## ChatGPT workflow
 
 The MCP provides sourced news retrieval, project/script/storyboard persistence,
-automatic Pexels stock visuals, validated asset import, Spanish narration,
-subtitles, preview and final rendering, read-only quality review, and
-owner-configured YouTube publishing.
+scene-matched Azure MAI illustrations, validated asset import, Spanish
+narration, subtitles, preview and final rendering, read-only quality review,
+and owner-configured YouTube publishing. Licensed Pexels images are available
+only when explicitly selected in the approved brief; image-generation failure
+does not silently switch providers.
 
 Long media operations return job IDs; poll `get_job`. `generate_stock_images`
-uses the configured Pexels key and stores provider, license and photographer
-credits per scene. ChatGPT-generated images remain a manual import option;
+uses the configured Pexels key only after explicit stock selection and stores
+provider, license and photographer credits per scene. ChatGPT-generated images remain a manual import option;
 there is no silent ChatGPT image export API.
 
 One-time owner enrollment is available through
 `.\.venv\Scripts\python.exe -m scripts.owner_publish_policy enroll`; it verifies
 the OAuth channel is NewSphere and stores a user-only privacy policy with a
-daily limit. The default is `public`; the local confirmation explicitly enables
-that mode. `--privacy-status private|unlisted` selects another default, and
-`--allow-privacy-status` can authorize additional per-video choices. After
+daily limit. New enrollment defaults to `private`; public or unlisted uploads
+require explicit owner consent when enrolling those modes. `--privacy-status`
+selects another enrolled default, and `--allow-privacy-status` can authorize
+additional per-video choices. After
 enrollment, an explicit conversational request can call `publish_youtube`
 without another per-video console command. YouTube Data API read-back verifies
 the resulting channel and visibility. The stricter

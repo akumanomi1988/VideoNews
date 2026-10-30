@@ -747,6 +747,16 @@ def test_ai_images_map_one_to_each_scene_and_resume_completed_assets(studio, mon
     assert resumed["generated"] == 0 and resumed["resumed"] is True
     assert len(Generator.calls) == 2
 
+    # Recover a partial/out-of-order project without regenerating valid art.
+    data = studio._read(job_id)
+    data["asset_records"].reverse()
+    studio._save(data)
+    resumed_again = studio.generate_images(job_id)
+    ordered = studio.get_project(job_id)
+    assert resumed_again["generated"] == 0
+    assert [asset["scene_id"] for asset in ordered["asset_records"]] == ["scene-1", "scene-2"]
+    assert len(Generator.calls) == 2
+
 
 def test_ai_image_partial_failure_persists_success_and_never_falls_back(studio, monkeypatch):
     from PIL import Image
@@ -793,6 +803,21 @@ def test_ai_image_generation_rejects_scene_count_mismatch_and_disabled_provider(
     monkeypatch.setenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false")
     with pytest.raises(StudioError, match="disabled"):
         studio.generate_images(job_id)
+
+
+def test_ai_image_generation_loads_runtime_config_before_paid_flag(studio, monkeypatch):
+    job_id = _approved_image_project(studio, "First-call runtime configuration regression")
+    monkeypatch.setenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false")
+    loaded = []
+
+    def load_config():
+        loaded.append(True)
+        return {"azure_images": {"endpoint": "", "api_key": ""}}
+
+    monkeypatch.setattr(studio, "_config", load_config)
+    with pytest.raises(StudioError, match="disabled"):
+        studio.generate_images(job_id)
+    assert loaded == [True]
 
 
 def test_mai_portrait_and_landscape_sizes_stay_within_provider_pixel_limit():

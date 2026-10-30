@@ -435,12 +435,13 @@ class VideoAssembler(VideoAssemblerInterface):
                 is_short = self.aspect_ratio == '9:16'
                 style_params = SubtitleHelper.get_style_parameters(style)
                 font_name = Path(style_params['font_path']).stem
-                # libass scales SRT font sizes from its virtual 288px canvas;
-                # keep captions readable while preserving horizontal safe zones.
-                font_size = 8 if is_short else 9
-                margin_h = 96 if is_short else 150
-                # Shorts controls cover more of the lower frame than landscape UI.
-                margin_v = 210 if is_short else 64
+                # SRT has libass's default 384x288 virtual canvas. A large
+                # MarginV moves captions toward the TOP on that canvas; use a
+                # modest value so vertical captions sit in the lower safe zone.
+                font_size = 11 if is_short else 14
+                margin_h = 36 if is_short else 54
+                # Leave the bottom 15-20% clear of Shorts controls and titles.
+                margin_v = 48 if is_short else 28
                 align_map = {
                     Position.BOTTOM_CENTER: '2',
                     Position.BOTTOM_LEFT: '1',

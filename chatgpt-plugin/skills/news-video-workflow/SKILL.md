@@ -62,7 +62,7 @@ For selected stories, create one `create_project` and save source references plu
   "visual_strategy": "NewSphere Cinematic original AI illustrations plus source-accurate graphics",
   "image_sources": ["Azure MAI generated illustration", "Original local graphics"],
   "destination": "NewSphere",
-  "privacy_status": "public",
+  "privacy_status": "private",
   "approval_status": "proposed",
   "duration_tolerance_seconds": 18
 }

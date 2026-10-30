@@ -39,4 +39,4 @@ The renderer must use the approved format and aspect ratio. After Edge TTS, Stud
 
 Rendering and upload remain separate actions. A review issue blocks publishing. Public uploads require local owner enrollment or a matching one-use owner authorization, and the YouTube Data API readback must confirm channel and effective privacy. An uncertain upload is reconciled, never replayed.
 
-No paid image generation is enabled by this workflow. Stock retrieval only runs when the existing provider is configured. Original graphics and ChatGPT-generated visual prompts are available without adding a provider dependency.
+NewSphere Cinematic uses Azure MAI as its primary visual provider when paid image generation is enabled and Azure credentials are configured. The checked-in example enables this setting; local endpoint and API credentials must still be supplied. Azure calls can incur charges. Pexels is secondary and runs only after an explicit stock selection in the approved brief; generation failures never switch silently to stock. Original graphics and the validated manual image-import flow remain available.

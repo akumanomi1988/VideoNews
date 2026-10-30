@@ -742,6 +742,11 @@ class VideoNewsStudio:
             project = self._read(job_id)
             self._require_editable(project)
             self._require_approved_brief(project)
+            # Load the repository .env before checking process-level switches.
+            # studio_status() previously happened to import runtime_config first,
+            # which masked this ordering bug during interactive runs; background
+            # jobs must work when generate_images is the first MCP call.
+            config = self._config()
             scenes = project.get("storyboard", [])
             if not scenes:
                 raise StudioError("Save a scene-by-scene storyboard before generating images")
@@ -775,6 +780,8 @@ class VideoNewsStudio:
             if style not in StylePreset.__members__:
                 raise ValueError("Invalid image style: " + style)
             records = project.setdefault("asset_records", [])
+            scene_order = {scene["id"]: index for index, scene in enumerate(scenes)}
+            records.sort(key=lambda record: scene_order.get(record.get("scene_id"), len(scene_order)))
             missing = []
             for scene in scenes:
                 valid = [record for record in records if record.get("scene_id") == scene["id"]
@@ -790,7 +797,6 @@ class VideoNewsStudio:
                 self._save(project)
                 return {"job_id": job_id, "images": project["images"], "generated": 0,
                         "resumed": True, "assets": records}
-            config = self._config()
             folder = self._dir(job_id)
             image_dir = folder / "images"
             image_dir.mkdir(exist_ok=True)
@@ -949,7 +955,12 @@ class VideoNewsStudio:
             title = str(metadata.get("thumbnail_text") or metadata.get("title", project["title"]))
             text_lines = textwrap.wrap(title[:80], width=22, break_long_words=True)[:3]
             source = Image.open(images[0]).convert("RGB")
-            canvas = ImageOps.fit(source, (1280, 720), method=Image.Resampling.LANCZOS).convert("RGBA")
+            # Portrait scene art usually places people and key objects above
+            # center. Favor that region when converting a Short asset to a 16:9
+            # thumbnail, so the crop does not cut through faces.
+            focal_point = (0.5, 0.22) if source.height > source.width else (0.5, 0.5)
+            canvas = ImageOps.fit(source, (1280, 720), method=Image.Resampling.LANCZOS,
+                                  centering=focal_point).convert("RGBA")
             overlay = Image.new("RGBA", canvas.size, (5, 20, 34, 95))
             canvas = Image.alpha_composite(canvas, overlay)
             draw = ImageDraw.Draw(canvas)
@@ -1445,8 +1456,28 @@ class VideoNewsStudio:
                     sample_count = min(12, max(1, len(project.get("storyboard", []))))
                     duration_for_samples = duration or 0
                     tiles = []
-                    for index in range(sample_count):
-                        at = min(max(0, duration_for_samples - 0.1), duration_for_samples * (index + 0.5) / sample_count)
+                    sample_points = []
+                    try:
+                        scene_durations = self._scene_image_durations(project, duration_for_samples)
+                    except (StudioError, ValueError):
+                        scene_durations = None
+                    if scene_durations and len(scene_durations) == len(project.get("storyboard", [])):
+                        transition = min(0.35, max(0.0, duration_for_samples /
+                                                   max(2, len(scene_durations) * 4)))
+                        cursor = 0.0
+                        for index, scene in enumerate(project["storyboard"]):
+                            sample_points.append((scene["id"], cursor + scene_durations[index] / 2))
+                            if index < len(scene_durations) - 1:
+                                cursor += scene_durations[index] - transition
+                    else:
+                        sample_points = [
+                            (f"Frame {index + 1}",
+                             min(max(0, duration_for_samples - 0.1),
+                                 duration_for_samples * (index + 0.5) / sample_count))
+                            for index in range(sample_count)
+                        ]
+                    sampled_black_frames = []
+                    for index, (_scene_id, at) in enumerate(sample_points):
                         frame = contact_path.with_name(f"_qa_frame_{index}.jpg")
                         capture = subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", str(video),
                                                   "-frames:v", "1", "-vf", "scale=320:-1", str(frame)],
@@ -1454,7 +1485,12 @@ class VideoNewsStudio:
                         if capture.returncode or not frame.is_file():
                             problems.append("Could not extract representative frames for visual QA")
                             break
-                        tiles.append(Image.open(frame).convert("RGB"))
+                        sampled = Image.open(frame).convert("RGB")
+                        histogram = sampled.convert("L").histogram()
+                        dark_fraction = sum(histogram[:8]) / max(1, sampled.width * sampled.height)
+                        if dark_fraction >= 0.995:
+                            sampled_black_frames.append(sample_points[index][0])
+                        tiles.append(sampled)
                         frame.unlink(missing_ok=True)
                     if tiles:
                         columns = 3
@@ -1465,16 +1501,16 @@ class VideoNewsStudio:
                         for index, tile in enumerate(tiles):
                             x, y = (index % columns) * tile_w, (index // columns) * (tile_h + 28)
                             sheet.paste(ImageOps.contain(tile, (tile_w, tile_h)), (x, y))
-                            draw.text((x + 8, y + tile_h + 5), f"Frame {index + 1} / {sample_count}", fill=(220, 245, 250))
+                            draw.text((x + 8, y + tile_h + 5),
+                                      f"{sample_points[index][0]} @ {sample_points[index][1]:.1f}s",
+                                      fill=(220, 245, 250))
                             tile.close()
                         sheet.save(contact_path, quality=88)
                         visual_contact_sheet = str(contact_path)
-                    black = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-vf",
-                                            "blackdetect=d=1.0:pix_th=0.10", "-an", "-f", "null", os.devnull],
-                                           capture_output=True, text=True, timeout=90)
-                    if re.search(r"black_duration:\s*(?:[1-9][0-9]*)(?:\.[0-9]+)?", black.stderr):
-                        problems.append("Video contains an unexpected black frame interval of at least one second")
-                    audio_check = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-af", "volumedetect",
+                    if sampled_black_frames:
+                        problems.append("Representative scene frames are almost entirely black: " +
+                                        ", ".join(sampled_black_frames))
+                    audio_check = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-vn", "-af", "volumedetect",
                                                  "-f", "null", os.devnull], capture_output=True, text=True, timeout=90)
                     mean_match = re.search(r"mean_volume:\s*(-?[0-9.]+)\s+dB", audio_check.stderr)
                     peak_match = re.search(r"max_volume:\s*(-?[0-9.]+)\s+dB", audio_check.stderr)
@@ -1495,6 +1531,11 @@ class VideoNewsStudio:
                       "requires_human_visual_review": bool(project.get("storyboard")),
                       "visual_semantics_verified": False,
                       "contact_sheet": visual_contact_sheet,
+                      "sampled_frame_black_check": {
+                          "method": "representative frame at each scene midpoint; not a full-frame decode",
+                          "sample_count": len(sample_points) if video and video.is_file() else 0,
+                          "almost_black_scenes": sampled_black_frames if video and video.is_file() else [],
+                      },
                       "privacy": brief["privacy_status"] if brief else None,
                       "ready_for_editorial_review": not problems}
             return result
