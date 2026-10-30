@@ -1329,8 +1329,8 @@ class VideoNewsStudio:
         """Read-only quality inspection. Owner approval is issued by the local console."""
         with _LOCK:
             project = self._read(job_id)
-            self._require_editable(project)
             problems = []
+            full_stream_quality = None
             brief = None
             try:
                 brief = self._require_approved_brief(project)
@@ -1510,14 +1510,9 @@ class VideoNewsStudio:
                     if sampled_black_frames:
                         problems.append("Representative scene frames are almost entirely black: " +
                                         ", ".join(sampled_black_frames))
-                    audio_check = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-vn", "-af", "volumedetect",
-                                                 "-f", "null", os.devnull], capture_output=True, text=True, timeout=90)
-                    mean_match = re.search(r"mean_volume:\s*(-?[0-9.]+)\s+dB", audio_check.stderr)
-                    peak_match = re.search(r"max_volume:\s*(-?[0-9.]+)\s+dB", audio_check.stderr)
-                    if not mean_match or float(mean_match.group(1)) <= -60:
-                        problems.append("Rendered audio is silent or too quiet")
-                    if peak_match and float(peak_match.group(1)) > 0:
-                        problems.append("Rendered audio clips above 0 dBFS")
+                    from scripts.media_quality import inspect_streams
+                    full_stream_quality = inspect_streams(video, duration or 0)
+                    problems.extend(full_stream_quality["issues"])
                     if os.getenv("VIDEO_BACKGROUND_MUSIC_REQUIRED", "false").lower() in ("1", "true", "yes"):
                         music_path = self._config().get("video_result", {}).get("background_music", "")
                         if not music_path or not Path(music_path).is_file():
@@ -1525,6 +1520,7 @@ class VideoNewsStudio:
                 except Exception as exc:
                     problems.append(f"Audiovisual QA could not complete: {type(exc).__name__}")
             result = {"job_id": job_id, "duration_seconds": duration, "issues": problems,
+                      "full_stream_quality": full_stream_quality,
                       "target_duration_seconds": brief["target_duration_seconds"] if brief else None,
                       "aspect_ratio": brief["aspect_ratio"] if brief else None,
                       "requires_human_fact_check": True,

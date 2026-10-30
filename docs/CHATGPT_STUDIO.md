@@ -195,3 +195,14 @@ Completely restart ChatGPT Desktop, install/enable the private plugin, select **
 The `create_thumbnail(job_id)` tool is asynchronous and creates a checked 1280×720 NewSphere thumbnail from the first scene visual and saved Spanish thumbnail text. Poll its job with `get_job` before continuing.
 
 For ChatGPT web/mobile or cloud work, a separate authenticated Secure MCP Tunnel remains necessary. The account plugin's local stdio manifest does not automatically deploy that tunnel. Voice, real news, video and YouTube OAuth have independent provider prerequisites; `studio_status` does not verify live service access.
+
+Final FFmpeg renders default to `VIDEO_RENDER_PRESET=veryfast` and
+`VIDEO_RENDER_CRF=20` (lower CRF means higher quality; supported range 16-28).
+`review_video` can also inspect published projects without changing publication
+state. Its full-stream acceptance pass decodes every frame, detects unexpected
+internal black intervals, and measures integrated loudness and true peak.
+The production gate requires -24 to -10 LUFS and at most -0.5 dBTP. These are
+Studio acceptance targets, not claims about mandatory YouTube upload limits.
+Opening/closing fades are allowed, while prolonged black output is rejected.
+Technical acceptance does not establish factual accuracy, semantic image matching,
+or visual originality; inspect the generated contact sheet and narration.

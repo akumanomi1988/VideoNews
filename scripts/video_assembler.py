@@ -492,8 +492,8 @@ class VideoAssembler(VideoAssemblerInterface):
         cmd.extend([
             '-c:v', 'libx264',
             '-pix_fmt', 'yuv420p',
-            '-preset', 'ultrafast',
-            '-crf', '23',
+            '-preset', os.getenv('VIDEO_RENDER_PRESET', 'veryfast'),
+            '-crf', str(max(16, min(28, int(os.getenv('VIDEO_RENDER_CRF', '20'))))),
             '-c:a', 'aac',
             '-ar', '48000',
             '-ac', '2',

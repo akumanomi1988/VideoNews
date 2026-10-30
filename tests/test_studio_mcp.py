@@ -84,6 +84,17 @@ def test_random_identity_and_directory_traversal(studio):
             studio.get_project(invalid)
 
 
+def test_published_project_can_be_reviewed_without_changing_publication(studio, project, monkeypatch):
+    project.update(status="published", video_id="existing-video", privacy_status="public")
+    studio._save(project)
+    before = (studio._dir(project["id"]) / "project.json").read_bytes()
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
+        returncode=1, stdout="", stderr="Invalid controlled fixture"))
+    report = studio.review_video(project["id"])
+    assert not report["ready_for_editorial_review"]
+    assert (studio._dir(project["id"]) / "project.json").read_bytes() == before
+
+
 def test_draft_is_persisted_atomically_and_no_review_token_leaks(studio, project):
     p = studio.get_project(project["id"])
     assert p["title"] == project["title"]
