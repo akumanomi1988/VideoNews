@@ -136,8 +136,12 @@ class YoutubeMediaUploader:
                 "privacy_status": actual_privacy}
 
     def upload(self, video_path, title, description, tags, thumbnail_path=None, default_language='es', privacy_status='private', contains_synthetic_media=False):
+        stage = "metadata_preflight"
         try:
             self.validate_short_parameters(video_path, title, description, tags, default_language, privacy_status)
+            if thumbnail_path:
+                stage = "thumbnail_preflight"
+                self.validate_thumbnail(thumbnail_path)
 
             import re
             seen = set()
@@ -181,6 +185,7 @@ class YoutubeMediaUploader:
                     mimetype='video/mp4'
                 )
 
+                stage = "build_videos_insert_request"
                 request = self.youtube.videos().insert(
                     part="snippet,status",
                     body={
@@ -190,7 +195,6 @@ class YoutubeMediaUploader:
                             "tags": sanitized,
                             "categoryId": "25",
                             "defaultLanguage": default_language,
-                            "defaultAudioLanguage": default_language,
                         },
                         "status": {
                             "privacyStatus": privacy_status,
@@ -208,6 +212,7 @@ class YoutubeMediaUploader:
                     # Upload outcomes can be ambiguous after a network break. Let
                     # Studio persist upload_unknown and require reconciliation;
                     # never replay a video insert automatically.
+                    stage = "execute_videos_insert_request"
                     response = request.execute()
                     break
                 except HttpError as e:
@@ -231,8 +236,10 @@ class YoutubeMediaUploader:
             return response
         
         except Exception as e:
-            self.handle_error(f"Error subiendo video: {title}", e, True)
-            raise
+            log.exception("YouTube video.insert failed at stage=%s", stage)
+            raise RuntimeError(
+                f"YouTube video.insert failed at {stage}: {type(e).__name__}: {e}"
+            ) from e
 
     def validate_short_parameters(self, video_path, title, description, tags, default_language, privacy_status):
         """Validates parameters for short video uploads."""
@@ -337,8 +344,13 @@ class YoutubeMediaUploader:
                     img.save(thumbnail_path, quality=80, optimize=True)
                     size = os.path.getsize(thumbnail_path)
 
+            self.validate_thumbnail(thumbnail_path)
+
             print(Fore.CYAN + f"Setting thumbnail for video ID: {video_id}")
-            media = MediaFileUpload(thumbnail_path, resumable=True)
+            from PIL import Image
+            with Image.open(thumbnail_path) as image:
+                mime_type = "image/jpeg" if image.format == "JPEG" else "image/png"
+            media = MediaFileUpload(thumbnail_path, mimetype=mime_type, resumable=True)
             request = self.youtube.thumbnails().set(videoId=video_id, media_body=media)
             response = self.execute_request_with_retries(request)
 
@@ -348,6 +360,35 @@ class YoutubeMediaUploader:
         except Exception as e:
             self.handle_error(f"Error estableciendo thumbnail para video {video_id}", e, True)
             raise
+
+    @staticmethod
+    def validate_thumbnail(thumbnail_path, expected_aspect=None):
+        """Validate a custom thumbnail before starting a non-idempotent video insert."""
+        from PIL import Image
+
+        if not os.path.isfile(thumbnail_path):
+            raise FileNotFoundError(f"Archivo de thumbnail no encontrado: {thumbnail_path}")
+        size_bytes = os.path.getsize(thumbnail_path)
+        if size_bytes <= 0 or size_bytes > 50 * 1024 * 1024:
+            raise ValueError("YouTube thumbnails must be non-empty and at most 50 MB")
+        try:
+            with Image.open(thumbnail_path) as image:
+                image_format = image.format
+                width, height = image.size
+                image.verify()
+        except Exception as exc:
+            raise ValueError("Thumbnail is not a valid JPEG or PNG image") from exc
+        if image_format not in ("JPEG", "PNG"):
+            raise ValueError("YouTube thumbnails must use JPEG or PNG format")
+        minimum = 640
+        if width >= height and width < minimum:
+            raise ValueError("Landscape video thumbnails must be at least 640 pixels wide")
+        if height > width and height < minimum:
+            raise ValueError("Portrait video thumbnails must be at least 640 pixels tall")
+        if expected_aspect in ("16:9", "9:16"):
+            target = 16 / 9 if expected_aspect == "16:9" else 9 / 16
+            if abs((width / height) - target) > 0.03:
+                raise ValueError(f"Thumbnail aspect ratio must match {expected_aspect}")
 
     def handle_error(self, context, error, critical=False):
         """Maneja y muestra errores de forma consistente."""

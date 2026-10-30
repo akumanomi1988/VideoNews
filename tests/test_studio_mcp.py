@@ -281,6 +281,12 @@ def _install_fake_youtube(monkeypatch, upload):
         def get_channel_info(self):
             return {"id": "UCtestChannel123", "title": "NewSphere"}
 
+        def validate_short_parameters(self, *args, **kwargs):
+            return None
+
+        def validate_thumbnail(self, *args, **kwargs):
+            return None
+
         def verify_video(self, video_id, expected_channel_id, expected_privacy_status):
             return {"video_id": video_id, "channel_id": expected_channel_id,
                     "privacy_status": expected_privacy_status}
@@ -296,7 +302,8 @@ def _setup_oauth(studio, monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 
 
-def test_no_publish_without_review(studio, project):
+def test_no_publish_without_review(studio, project, monkeypatch, tmp_path):
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
     with pytest.raises(StudioError, match="local console"):
         studio.publish_youtube(project["id"])
 
@@ -448,6 +455,12 @@ def test_public_upload_must_be_verified_and_never_retried_on_mismatch(
 
         def get_channel_info(self):
             return {"id": "UCtestChannel123", "title": "NewSphere"}
+
+        def validate_short_parameters(self, *args, **kwargs):
+            return None
+
+        def validate_thumbnail(self, *args, **kwargs):
+            return None
 
         def upload(self, *args, **kwargs):
             assert kwargs["privacy_status"] == "public"
@@ -678,6 +691,7 @@ def test_thumbnail_failure_does_not_hide_successful_video_insert(tmp_path):
     video = tmp_path / "video.mp4"
     video.write_bytes(b"mock video")
     uploader.validate_short_parameters = lambda *args: None
+    uploader.validate_thumbnail = lambda *args, **kwargs: None
     uploader.youtube = Mock()
     uploader.youtube.videos.return_value.insert.return_value.execute.return_value = {"id": "private-id"}
     uploader.set_thumbnail = Mock(side_effect=RuntimeError("thumbnail API unavailable"))
@@ -688,6 +702,29 @@ def test_thumbnail_failure_does_not_hide_successful_video_insert(tmp_path):
                              thumbnail_path="thumbnail.jpg")
     assert result["id"] == "private-id"
     assert "thumbnail API unavailable" in result["thumbnail_warning"]
+    body = uploader.youtube.videos.return_value.insert.call_args.kwargs["body"]
+    assert body["snippet"]["defaultLanguage"] == "es"
+    assert "defaultAudioLanguage" not in body["snippet"]
+    assert body["status"]["privacyStatus"] == "private"
+
+
+def test_youtube_thumbnail_validation_checks_format_size_and_brief_aspect(tmp_path):
+    from PIL import Image
+    from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+
+    thumbnail = tmp_path / "thumbnail.jpg"
+    Image.new("RGB", (1280, 720), "navy").save(thumbnail, format="JPEG")
+    YoutubeMediaUploader.validate_thumbnail(str(thumbnail), expected_aspect="16:9")
+
+    small = tmp_path / "small.png"
+    Image.new("RGB", (320, 180), "navy").save(small, format="PNG")
+    with pytest.raises(ValueError, match="640 pixels wide"):
+        YoutubeMediaUploader.validate_thumbnail(str(small), expected_aspect="16:9")
+
+    wrong_aspect = tmp_path / "wrong.jpg"
+    Image.new("RGB", (720, 1280), "navy").save(wrong_aspect, format="JPEG")
+    with pytest.raises(ValueError, match="aspect ratio"):
+        YoutubeMediaUploader.validate_thumbnail(str(wrong_aspect), expected_aspect="16:9")
 
 
 @pytest.mark.parametrize("privacy", ["public", "private", "unlisted"])

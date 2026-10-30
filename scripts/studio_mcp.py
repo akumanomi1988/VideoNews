@@ -1394,6 +1394,22 @@ class VideoNewsStudio:
             elif account_id != authorization["target_account_id"]:
                 raise StudioError("Authorized YouTube account changed; create a new local approval")
 
+            # Run all deterministic local checks before recording a non-idempotent
+            # upload attempt. This prevents a bad path, metadata value or thumbnail
+            # from being mislabeled as an uncertain YouTube insert.
+            metadata = project.get("youtube_metadata", {})
+            upload_title = metadata.get("title", project["title"])[:90]
+            upload_description = metadata.get("description", project["summary"])[:4000]
+            upload_tags = metadata.get("tags", [])
+            upload_language = metadata.get("language", "es")
+            thumbnail_path = metadata.get("thumbnail_path") or None
+            uploader.validate_short_parameters(
+                str(video), upload_title, upload_description, upload_tags,
+                upload_language, requested_privacy)
+            if thumbnail_path:
+                uploader.validate_thumbnail(
+                    thumbnail_path, expected_aspect=brief["aspect_ratio"])
+
             history = publishing_policy.records()
             if any(r.get("project_id") == job_id and r.get("outcome") in (
                     "upload_started", "upload_unknown", "verification_failed", "uploaded")
@@ -1409,14 +1425,13 @@ class VideoNewsStudio:
                                     "upload_started", privacy_status=requested_privacy)
             video_id = None
             try:
-                metadata = project.get("youtube_metadata", {})
                 response = uploader.upload(
-                    str(video), title=metadata.get("title", project["title"])[:90],
-                    description=metadata.get("description", project["summary"])[:4000],
-                    tags=metadata.get("tags", []), privacy_status=requested_privacy,
+                    str(video), title=upload_title,
+                    description=upload_description,
+                    tags=upload_tags, privacy_status=requested_privacy,
                     contains_synthetic_media=metadata.get("contains_synthetic_media", False),
-                    default_language=metadata.get("language", "es"),
-                    thumbnail_path=metadata.get("thumbnail_path") or None,
+                    default_language=upload_language,
+                    thumbnail_path=thumbnail_path,
                 )
                 video_id = response.get("id")
                 if not video_id:
