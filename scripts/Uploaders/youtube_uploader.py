@@ -3,6 +3,7 @@ import json
 import ssl
 import time
 import logging
+import webbrowser
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 from googleapiclient.errors import HttpError
@@ -15,6 +16,23 @@ from colorama import init, Fore, Style
 init(autoreset=True)
 
 log = logging.getLogger(__name__)
+
+
+class _WindowsDefaultBrowser:
+    """Open OAuth consent through the Windows URL handler, with a Python fallback."""
+
+    def open(self, url, new=0, autoraise=True):
+        if os.name == "nt":
+            try:
+                os.startfile(url)
+                return True
+            except OSError:
+                log.debug("Windows URL handler could not open the OAuth page", exc_info=True)
+
+        opened = webbrowser.open(url, new=new, autoraise=autoraise)
+        if not opened:
+            raise RuntimeError("Could not open the Google authorization page in a browser")
+        return True
 
 class YoutubeMediaUploader:
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
@@ -61,8 +79,19 @@ class YoutubeMediaUploader:
 
                     flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
                         self.client_secrets_file, self.SCOPES)
-                    print(Fore.CYAN + "Running authorization flow on local server...")
-                    credentials = flow.run_local_server(port=0)
+                    print(Fore.CYAN + "Opening Google authorization in your default browser...")
+                    # The port and PKCE state are generated for this live local-server
+                    # session. Never ask the user to reconstruct or reuse a copied URL.
+                    browser_name = "videonews-windows-default"
+                    webbrowser.register(browser_name, None, _WindowsDefaultBrowser())
+                    credentials = flow.run_local_server(
+                        port=0,
+                        open_browser=True,
+                        browser=browser_name,
+                        authorization_prompt_message=(
+                            "If the browser did not open, check the local browser-launch error."
+                        ),
+                    )
 
                     # Save the credentials for future use
                     with open(self.token_file, 'w') as token:
