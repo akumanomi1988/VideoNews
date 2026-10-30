@@ -19,6 +19,13 @@ def test_policy_persists_explicit_public_consent_channel_and_limit_and_revokes(t
     assert stored["channel_id"] == "UCchannel123"
 
 
+def test_policy_accepts_owner_requested_limit_of_100(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
+    enrolled = policy.enroll("UCchannel123", 100, privacy_status="public", public_consent=True)
+    assert policy.load() == enrolled
+    assert enrolled["max_uploads_per_day"] == 100
+
+
 @pytest.mark.parametrize("privacy", ["private", "unlisted"])
 def test_owner_can_configure_non_public_default(tmp_path, monkeypatch, privacy):
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
@@ -30,7 +37,7 @@ def test_owner_can_configure_non_public_default(tmp_path, monkeypatch, privacy):
 
 @pytest.mark.parametrize("channel_id,limit,privacy", [
     ("invalid", 2, "public"), ("UCchannel123", 0, "public"),
-    ("UCchannel123", 21, "public"), ("UCchannel123", True, "public"),
+    ("UCchannel123", 101, "public"), ("UCchannel123", True, "public"),
     ("UCchannel123", 2, "invalid"),
 ])
 def test_policy_rejects_invalid_enrollment(tmp_path, monkeypatch, channel_id, limit, privacy):
@@ -59,6 +66,7 @@ def test_public_consent_binds_only_newssphere_channel(tmp_path, monkeypatch):
     {"max_uploads_per_day": True},
     {"max_uploads_per_day": "2"},
     {"max_uploads_per_day": 0},
+    {"max_uploads_per_day": 101},
     {"allowed_privacy_statuses": ["public", "bogus"]},
     {"allowed_privacy_statuses": [["public"]]},
     {"allowed_privacy_statuses": ["private"]},

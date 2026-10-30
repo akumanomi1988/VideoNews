@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from scripts import publishing_policy as policy
@@ -22,7 +22,7 @@ def _backup_token(token_file: Path) -> None:
         if not source.is_file():
             continue
         backup_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         destination = backup_dir / f"{source.stem}-{stamp}{source.suffix}.bak"
         shutil.copy2(source, destination)
         if sys.platform == "win32":
@@ -47,15 +47,16 @@ def main(argv: list[str] | None = None) -> int:
     if not sys.stdin.isatty():
         parser.error("owner policy changes require an interactive local console")
     if args.action == "revoke":
-        if input("Type exactly 'REVOKE AUTOMATIC YOUTUBE PUBLISHING': ").strip() != "REVOKE AUTOMATIC YOUTUBE PUBLISHING":
+        confirmation = input("Type exactly 'REVOKE AUTOMATIC YOUTUBE PUBLISHING': ").strip()
+        if confirmation != "REVOKE AUTOMATIC YOUTUBE PUBLISHING":
             print("Revocation cancelled.")
             return 1
         policy.revoke()
         print("Automatic YouTube publishing revoked.")
         return 0
 
-    if not 1 <= args.max_uploads_per_day <= 20:
-        parser.error("--max-uploads-per-day must be 1-20")
+    if not 1 <= args.max_uploads_per_day <= policy.MAX_UPLOADS_PER_DAY:
+        parser.error(f"--max-uploads-per-day must be 1-{policy.MAX_UPLOADS_PER_DAY}")
     config = VideoNewsStudio._config()
     secrets_file = Path(config.get("youtube", {}).get("credentials_file", "")).expanduser().resolve()
     if not secrets_file.is_file():

@@ -62,14 +62,16 @@ YouTube OAuth client secrets under `.secrets`; never commit OAuth tokens.
    ```
 
    The console validates the OAuth channel and requires an exact channel-bound
-   confirmation before writing a user-profile policy with a daily upload cap.
+   confirmation before writing a user-profile policy with a daily upload cap
+   from 1 to 100 uploads per UTC day.
    To revoke, run `python -m scripts.owner_publish_policy revoke` and type its
    exact confirmation. A stricter per-video grant remains available through
    `scripts.owner_authorize_upload.py`. Once enrolled, an explicit ChatGPT
    request to upload can call `publish_youtube(job_id)` without another console
-   command. The publication policy defaults to PRIVATE. An owner may enroll additional
-   allowed privacy modes explicitly; the model cannot create or broaden that
-   policy. Channel, file hash, limit and per-project idempotency
+   command. A new publication policy defaults to PRIVATE; after enrollment,
+   `studio_status` reports the owner's actual default and allowed privacy modes.
+   An owner may enroll additional allowed privacy modes explicitly; the model
+   cannot create or broaden that policy. Channel, file hash, daily limit and per-project idempotency
    are checked and every attempt is audited. YouTube Data API reads back the
    inserted video and verifies its channel and privacy. An uncertain or failed
    verification is locked for reconciliation; the video insert is never retried.
@@ -188,7 +190,7 @@ Bootstrap installs the MCP SDK and runs the Desktop setup, which saves a per-use
 
 Completely restart ChatGPT Desktop, install/enable the private plugin, select **Work locally**, and request `studio_status`. The local smoke test is not a substitute for a real tool call made by ChatGPT Desktop.
 
-`review_video(job_id)` is read-only. The owner can enable automatic publishing once with `python -m scripts.owner_publish_policy enroll` in a local console. The default is PRIVATE. Public or unlisted modes require explicit owner consent during enrollment; `publish_youtube(job_id)` then needs an explicit upload request and a passing quality gate. For stricter review, use the optional one-use `owner_authorize_upload.py` grant. Never call obsolete `approve=True` or `approval_code` arguments.
+`review_video(job_id)` is read-only. The owner can enable automatic publishing once with `python -m scripts.owner_publish_policy enroll` in a local console. New policies default to PRIVATE; the active privacy default is the value returned by `studio_status`. Public or unlisted modes require explicit owner consent during enrollment; `publish_youtube(job_id)` then needs an explicit upload request and a passing quality gate. The owner may configure a daily cap from 1 to 100. For stricter review, use the optional one-use `owner_authorize_upload.py` grant. Never call obsolete `approve=True` or `approval_code` arguments.
 
 The `create_thumbnail(job_id)` tool is asynchronous and creates a checked 1280×720 NewSphere thumbnail from the first scene visual and saved Spanish thumbnail text. Poll its job with `get_job` before continuing.
 

@@ -5,10 +5,11 @@ import csv
 import json
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PRIVACY_STATUSES = ("public", "private", "unlisted")
+MAX_UPLOADS_PER_DAY = 100
 
 
 def _directory() -> Path:
@@ -68,7 +69,7 @@ def load() -> dict | None:
             or type(data.get("public_consent")) is not bool
             or ("public" in allowed and data["public_consent"] is not True)
             or type(data.get("max_uploads_per_day")) is not int
-            or not 1 <= data["max_uploads_per_day"] <= 20):
+            or not 1 <= data["max_uploads_per_day"] <= MAX_UPLOADS_PER_DAY):
         return None
     return data
 
@@ -80,8 +81,9 @@ def enroll(channel_id: str, max_uploads_per_day: int,
            channel_title: str = "NewSphere") -> dict:
     if not isinstance(channel_id, str) or not channel_id.startswith("UC"):
         raise ValueError("Invalid YouTube channel ID")
-    if type(max_uploads_per_day) is not int or not 1 <= max_uploads_per_day <= 20:
-        raise ValueError("max_uploads_per_day must be 1-20")
+    if (type(max_uploads_per_day) is not int
+            or not 1 <= max_uploads_per_day <= MAX_UPLOADS_PER_DAY):
+        raise ValueError(f"max_uploads_per_day must be 1-{MAX_UPLOADS_PER_DAY}")
     if privacy_status not in PRIVACY_STATUSES:
         raise ValueError("privacy_status must be public, private, or unlisted")
     allowed = list(allowed_privacy_statuses or [privacy_status])
@@ -101,7 +103,7 @@ def enroll(channel_id: str, max_uploads_per_day: int,
               "allowed_privacy_statuses": allowed,
               "public_consent": "public" in allowed and public_consent is True,
               "max_uploads_per_day": max_uploads_per_day,
-              "enrolled_at": datetime.now(timezone.utc).isoformat()}
+              "enrolled_at": datetime.now(UTC).isoformat()}
     path = policy_path()
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(policy, indent=2), encoding="utf-8")
@@ -115,7 +117,7 @@ def revoke() -> None:
     if not path.is_file():
         return
     policy = json.loads(path.read_text(encoding="utf-8"))
-    policy.update(enabled=False, revoked_at=datetime.now(timezone.utc).isoformat())
+    policy.update(enabled=False, revoked_at=datetime.now(UTC).isoformat())
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(policy, indent=2), encoding="utf-8")
     _secure_file(temporary)
@@ -127,7 +129,7 @@ def audit(project_id: str, video_sha256: str, channel_id: str,
     folder = _directory()
     folder.mkdir(parents=True, exist_ok=True)
     _secure_directory(folder)
-    record = {"at": datetime.now(timezone.utc).isoformat(), "project_id": project_id,
+    record = {"at": datetime.now(UTC).isoformat(), "project_id": project_id,
               "video_sha256": video_sha256, "channel_id": channel_id,
               "video_id": video_id, "privacy_status": privacy_status,
               "outcome": outcome}

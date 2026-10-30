@@ -68,7 +68,7 @@ For selected stories, create one `create_project` and save source references plu
 }
 ```
 
-The `selected_story.primary_url` must appear in `verified_sources`. Save the same source references to the project. Preserve the alternatives in the brief. `format` and `aspect_ratio` must agree (`short`/`9:16`, `long`/`16:9`). Use a specific target duration and make publication privacy explicit. The local publication policy is private by default. Only the Windows owner can enroll or broaden allowed privacy modes.
+The `selected_story.primary_url` must appear in `verified_sources`. Save the same source references to the project. Preserve the alternatives in the brief. `format` and `aspect_ratio` must agree (`short`/`9:16`, `long`/`16:9`). Use a specific target duration and make publication privacy explicit. For production without a publish request, use `private`. For an explicit `CREATE_AND_PUBLISH` request with no stated visibility, use the owner-enrolled default reported by `studio_status`, and proceed only if that status is allowed. Only the Windows owner can enroll or broaden allowed privacy modes; a project brief cannot create publishing consent.
 
 When selection was delegated but production was not, save `approval_status: "proposed"`, show a concise brief, and stop. When the user approves it, update only `approval_status` to `"approved"`; the Studio then permits production if the chosen source is saved. Get a project by its exact ID before revising it.
 
@@ -84,7 +84,7 @@ When selection was delegated but production was not, save `approval_status: "pro
 ## YouTube publication
 
 - `publish_youtube` is only for an explicit publish request. It respects the active brief's privacy status and requires a locally enrolled owner policy or an exact one-use owner authorization.
-- Local enrollment is channel-bound, private to the Windows owner, daily-limited and revocable. Only the owner can enroll or change it. ChatGPT cannot create, expand or revoke that consent through MCP.
+- Local enrollment is channel-bound, private to the Windows owner, limited to 1-100 uploads per UTC day and revocable. Its default and allowed visibility values come from `studio_status`. Only the owner can enroll or change it. ChatGPT cannot create, expand or revoke that consent through MCP.
 - For explicit `CREATE_AND_PUBLISH`, use the requested status when stated. If omitted, check `studio_status` and use the enrolled policy's default only when that policy explicitly allows it; otherwise report the local enrollment requirement.
 - Studio checks policy, channel, file hash, idempotency, review status and metadata before inserting, then reads the video back and verifies its channel and effective privacy. Return the actual video ID and URL only after verification.
 - If a result is `uploading`, `upload_unknown` or verification failed, stop and reconcile the existing upload. Never retry an uncertain insert.
