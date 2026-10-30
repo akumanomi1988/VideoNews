@@ -7,7 +7,7 @@ def test_defaults_do_not_require_a_settings_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
     config = load_runtime_config()
-    assert config["settings"]["media_source"] == "pexels"
+    assert config["settings"]["media_source"] == "huggingface"
     assert config["serpapi"]["api_key"] == ""
     assert config["youtube"]["credentials_file"]
 

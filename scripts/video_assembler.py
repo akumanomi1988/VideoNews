@@ -102,6 +102,8 @@ class VideoAssembler(VideoAssemblerInterface):
         aspect_ratio: str = "16:9",
         background_music: Optional[str] = None,
         image_durations: Optional[List[float]] = None,
+        scene_motions: Optional[List[str]] = None,
+        scene_transitions: Optional[List[str]] = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.subtitle_file = subtitle_file
@@ -112,6 +114,13 @@ class VideoAssembler(VideoAssemblerInterface):
         self.aspect_ratio = aspect_ratio
         self.background_music = background_music
         self.image_durations = image_durations
+        self.scene_motions = scene_motions or []
+        self.scene_transitions = scene_transitions or []
+        if any(value not in {"slow_push_in", "slow_pull_out", "subtle_pan_left", "subtle_pan_right", "static"}
+               for value in self.scene_motions):
+            raise ValueError("Unsupported scene camera movement")
+        if any(value not in {"crossfade", "dissolve", "fade"} for value in self.scene_transitions):
+            raise ValueError("Unsupported scene transition")
         self._check_dependencies()
 
     @staticmethod
@@ -319,14 +328,19 @@ class VideoAssembler(VideoAssemblerInterface):
 
         audio_duration = self._ffprobe_duration(self.voiceover_file)
         num_images = len(valid_images)
-        total_frames = max(num_images, int(round(audio_duration * fps)))
+        if self.scene_motions and len(self.scene_motions) != num_images:
+            raise ValueError("scene_motions must have one entry per image")
+        if self.scene_transitions and len(self.scene_transitions) != num_images:
+            raise ValueError("scene_transitions must have one entry per image")
+        transition_seconds = min(0.35, max(0.0, audio_duration / max(2, num_images * 4)))
+        overlap_frames = int(round(transition_seconds * fps))
+        target_frames = max(num_images, int(round(audio_duration * fps)))
         if self.image_durations is None:
-            frames_per_img_base = total_frames // num_images
-            extra_frames = total_frames % num_images
-            frame_counts = [frames_per_img_base + (1 if i < extra_frames else 0)
-                            for i in range(num_images)]
+            frame_counts = self._allocate_frame_counts([1.0] * num_images,
+                                                       target_frames + overlap_frames * (num_images - 1))
         else:
-            frame_counts = self._allocate_frame_counts(self.image_durations, total_frames)
+            frame_counts = self._allocate_frame_counts(
+                self.image_durations, target_frames + overlap_frames * (num_images - 1))
             if len(frame_counts) != num_images:
                 raise ValueError("image_durations must have one entry per valid image")
 
@@ -337,23 +351,49 @@ class VideoAssembler(VideoAssemblerInterface):
         for i, img in enumerate(valid_images):
             self.logger.info(f"  Image {i+1}/{num_images}: {os.path.basename(img)}")
             fc = frame_counts[i]
-            if fc > 1:
-                # Restrained movement keeps edge titles and source credits inside frame.
-                zoom_expr = f"1+0.04*on/({fc}-1)"
+            # Deterministic, restrained Ken Burns motion: alternating slow push/pull
+            # with centered framing keeps the composition away from title-safe edges.
+            motion = self.scene_motions[i] if self.scene_motions else (
+                "slow_push_in" if i % 2 == 0 else "slow_pull_out")
+            if fc > 1 and motion == "slow_push_in":
+                zoom_expr = f"1+0.035*on/({fc}-1)"
+                x_expr = "iw/2-(iw/zoom/2)"
+            elif fc > 1 and motion == "slow_pull_out":
+                zoom_expr = f"1.035-0.035*on/({fc}-1)"
+                x_expr = "iw/2-(iw/zoom/2)"
+            elif fc > 1 and motion in ("subtle_pan_left", "subtle_pan_right"):
+                zoom_expr = "1.025"
+                progress = f"on/({fc}-1)" if motion == "subtle_pan_right" else f"1-on/({fc}-1)"
+                x_expr = f"iw/2-(iw/zoom/2)+(iw-iw/zoom)*0.8*({progress})"
             else:
-                zoom_expr = "1"
+                zoom_expr, x_expr = "1", "iw/2-(iw/zoom/2)"
+            y_expr = "ih/2-(ih/zoom/2)"
             filters.append(
                 f"[{i}:v]zoompan=z='{zoom_expr}':"
+                f"x='{x_expr}':y='{y_expr}':"
                 f"d={fc}:fps={fps}:"
                 f"s={target_w}x{target_h},"
                 f"scale=w={target_w}:h={target_h}:force_original_aspect_ratio=1,"
                 f"pad=w={target_w}:h={target_h}:x=(ow-iw)/2:y=(oh-ih)/2:color=black,"
-                f"setpts=PTS-STARTPTS[s{i}]"
+                f"eq=contrast=1.025:saturation=0.98,setpts=PTS-STARTPTS[s{i}]"
             )
             concat_labels.append(f"[s{i}]")
 
         n = len(concat_labels)
-        filters.append(f"{''.join(concat_labels)}concat=n={n}:v=1:a=0[vid]")
+        if n == 1:
+            filters.append(f"{concat_labels[0]}fade=t=in:st=0:d=0.45,fade=t=out:st={max(0.0,audio_duration-0.55):.3f}:d=0.55[vid]")
+        else:
+            current_duration = frame_counts[0] / fps
+            current_label = concat_labels[0]
+            for i in range(1, n):
+                offset = max(0.0, current_duration - transition_seconds)
+                out_label = f"[xf{i}]" if i < n - 1 else "[xfinal]"
+                requested = self.scene_transitions[i] if self.scene_transitions else "crossfade"
+                transition_name = {"crossfade": "fade", "dissolve": "dissolve", "fade": "fadeblack"}[requested]
+                filters.append(f"{current_label}{concat_labels[i]}xfade=transition={transition_name}:duration={transition_seconds:.3f}:offset={offset:.3f}{out_label}")
+                current_duration += frame_counts[i] / fps - transition_seconds
+                current_label = out_label
+            filters.append(f"{current_label}fade=t=in:st=0:d=0.45,fade=t=out:st={max(0.0,audio_duration-0.55):.3f}:d=0.55[vid]")
 
         # Voiceover audio
         a_main = num_images
@@ -368,11 +408,13 @@ class VideoAssembler(VideoAssemblerInterface):
         if self.background_music and os.path.isfile(self.background_music):
             bg_idx = a_total
             a_total += 1
+            filters.append("[voice]asplit=2[voicemix][voicekey]")
             filters.append(
-                f"[{bg_idx}:a]volume=0.2,adelay=0,"
-                f"afade=t=out:st={fade_start}:d=2[bg]"
+                f"[{bg_idx}:a]volume=0.24,afade=t=in:st=0:d=0.8,"
+                f"afade=t=out:st={fade_start}:d=2[bgsource]"
             )
-            filters.append(f"[voice][bg]amix=inputs=2:duration=first[mix]")
+            filters.append("[bgsource][voicekey]sidechaincompress=threshold=0.035:ratio=8:attack=15:release=300[ducked]")
+            filters.append("[voicemix][ducked]amix=inputs=2:duration=first:dropout_transition=2[mix]")
             audio_map = "[mix]"
 
         if self._has_audible_audio(str(self.voiceover_file)):
@@ -394,10 +436,11 @@ class VideoAssembler(VideoAssemblerInterface):
                 style_params = SubtitleHelper.get_style_parameters(style)
                 font_name = Path(style_params['font_path']).stem
                 # libass scales SRT font sizes from its virtual 288px canvas;
-                # keep the style size constant across output resolutions.
-                font_size = 12
-                # Place captions in the visual gap above source credits.
-                margin_v = 80 if is_short else 40
+                # keep captions readable while preserving horizontal safe zones.
+                font_size = 8 if is_short else 9
+                margin_h = 96 if is_short else 150
+                # Shorts controls cover more of the lower frame than landscape UI.
+                margin_v = 210 if is_short else 64
                 align_map = {
                     Position.BOTTOM_CENTER: '2',
                     Position.BOTTOM_LEFT: '1',
@@ -420,8 +463,8 @@ class VideoAssembler(VideoAssemblerInterface):
                     f"FontSize={font_size},"
                     f"PrimaryColour=&H00FFFFFF,"
                     f"OutlineColour=&H00000000,"
-                    f"Outline=2,BorderStyle=1,"
-                    f"MarginV={margin_v},"
+                    f"Outline=2,Shadow=1,BorderStyle=1,WrapStyle=0,"
+                    f"MarginL={margin_h},MarginR={margin_h},MarginV={margin_v},"
                     f"Alignment={alignment}'"
                     f"[outv]"
                 )
@@ -440,7 +483,7 @@ class VideoAssembler(VideoAssemblerInterface):
         cmd.extend(['-i', str(self.voiceover_file)])
 
         if self.background_music and os.path.isfile(self.background_music):
-            cmd.extend(['-i', str(self.background_music)])
+            cmd.extend(['-stream_loop', '-1', '-i', str(self.background_music)])
 
         cmd.extend(['-filter_complex', ';'.join(filters)])
         cmd.extend(['-map', last_video_label, '-map', audio_map])

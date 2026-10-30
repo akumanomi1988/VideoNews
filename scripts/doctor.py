@@ -62,7 +62,7 @@ def audit(mode: str = "studio") -> list[dict]:
         os.getenv("AZURE_IMAGE_ENDPOINT") and os.getenv("AZURE_IMAGE_API_KEY")
     )
     add("media_configuration", media, "optional",
-        "Stock or generated images available; otherwise placeholder image fallback")
+        "Configured AI image provider is primary; Pexels requires explicit selection and no placeholder fallback is used")
 
     tts = os.getenv("TTS_PROVIDER", "edge").lower()
     add("tts_provider", tts in ("edge", "elevenlabs", "bark"), "required",

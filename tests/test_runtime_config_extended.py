@@ -36,7 +36,7 @@ def test_partial_nested_override_keeps_other_default_fields(tmp_path):
     path = _settings(tmp_path, {"settings": {"parallel_workers": 1}})
     loaded = load_runtime_config(path)
     assert loaded["settings"]["parallel_workers"] == 1
-    assert loaded["settings"]["media_source"] == "pexels"
+    assert loaded["settings"]["media_source"] == "huggingface"
 
 def test_invalid_root_rejected(tmp_path):
     path = _settings(tmp_path, [1, 2, 3])

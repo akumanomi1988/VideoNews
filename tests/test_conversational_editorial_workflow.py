@@ -178,6 +178,8 @@ def test_simulated_create_and_publish_runs_only_after_owner_policy_and_qa(tmp_pa
     studio._save(state)
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
     publishing_policy.enroll("UCnewssphere", 1, privacy_status="public", public_consent=True)
+    monkeypatch.setattr(studio, "review_video", lambda _job_id: {
+        "ready_for_editorial_review": True, "issues": [], "visual_semantics_verified": False})
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(returncode=0, stdout="45\n"))
     monkeypatch.setattr(studio, "_probe_media", lambda _path: {
         "duration_seconds": 45, "width": 1080, "height": 1920, "video_codec": "h264",
@@ -188,6 +190,7 @@ def test_simulated_create_and_publish_runs_only_after_owner_policy_and_qa(tmp_pa
 
     class Uploader:
         def __init__(self, **_kwargs): pass
+        def validate_short_parameters(self, *_args): return None
         def get_channel_info(self): return {"id": "UCnewssphere", "title": "NewSphere"}
         def upload(self, _path, **kwargs):
             assert kwargs["privacy_status"] == "public"
@@ -237,9 +240,16 @@ def test_quality_issue_blocks_publication_and_returns_actionable_review(tmp_path
     folder = studio._dir(project["id"])
     video = folder / "video.mp4"; video.write_bytes(b"mp4")
     sub = folder / "captions.srt"; sub.write_text("1\n00:00:00,000 --> 00:00:01,000\nTest\n", encoding="utf-8")
-    img = folder / "image.png"; img.write_bytes(b"image")
+    from PIL import Image
+    img = folder / "image.png"
+    Image.new("RGB", (720, 1280), (4, 12, 20)).save(img)
     data = studio._read(project["id"])
+    import hashlib
     data.update(video=str(video), subtitles=str(sub), images=[str(img)], script="A valid script exceeding thirty characters.",
+                storyboard=[{"id": "scene-1", "narration_text": "A valid scene."}],
+                asset_records=[{"id": "scene-1-image", "scene_id": "scene-1", "path": str(img),
+                                "sha256": hashlib.sha256(img.read_bytes()).hexdigest(),
+                                "provenance": {"provider": "fixture"}}],
                 youtube_metadata={"title": "Quality gate", "description": "Source: Example authority.", "tags": []})
     studio._save(data)
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))

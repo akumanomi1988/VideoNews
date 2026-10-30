@@ -21,7 +21,7 @@ DEFAULTS: dict[str, Any] = {
         "temp_dir": ".temp",
         "parallel_workers": 4,
         "images_per_minute": 20,
-        "media_source": "pexels",
+        "media_source": "huggingface",
     },
     "article_settings": {"language": "es", "model": "nemotron-3-super:cloud"},
     "serpapi": {"api_key": "", "use_cache": True, "cache_ttl_hours": 24},

@@ -139,15 +139,15 @@ def revise_script(job_id: str, script: str) -> dict:
 
 @mcp.tool()
 def generate_images(job_id: str, prompts: list[str] | None = None,
-                    count: int = 5, style: str = "PHOTOREALISTIC") -> dict:
-    """Optional paid image API mode; disabled unless explicitly enabled in local .env."""
+                    count: int | None = None, style: str = "NEWSPHERE_CINEMATIC") -> dict:
+    """Generate and persist one original cinematic AI visual per missing storyboard scene; never falls back to stock."""
     return call("start_job", action="generate_images", project_id=job_id,
                 arguments={"prompts": prompts, "count": count, "style": style})
 
 
 @mcp.tool()
 def generate_stock_images(job_id: str) -> dict:
-    """Fetch licensed, scene-matched Pexels images asynchronously; no paid generation."""
+    """Explicitly fetch licensed Pexels visuals for a project that selected stock as its source."""
     return call("start_job", action="generate_stock_images", project_id=job_id)
 
 

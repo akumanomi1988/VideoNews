@@ -12,8 +12,7 @@ the Studio workflow. The CLI remains an optional automated-provider fallback.
 - A full FFmpeg build with `ffprobe`, `libx264`, and the `subtitles` filter.
 - SerpAPI credentials for live news discovery (optional for saving a project).
 - Edge TTS uses a network service. Rendering and image validation run on CPU.
-- The optional Azure image generator is paid and disabled unless
-  `VIDEO_ENABLE_PAID_IMAGE_GENERATION=true` is explicitly set.
+- NewSphere uses original Azure MAI images as its primary visual source. This provider can incur charges; a successful generation is persisted per scene and resumed without regeneration. No estimated cost is shown unless Azure returns a verifiable amount. The local `.env` explicitly enables it with bounded limits; never commit provider credentials.
 
 From PowerShell:
 
@@ -42,13 +41,15 @@ YouTube OAuth client secrets under `.secrets`; never commit OAuth tokens.
    `save_storyboard`, and `save_youtube_metadata` store ChatGPT-authored work as
    schema version 2 JSON. Each edit is versioned. Script changes invalidate
    dependent media and review state.
-5. Call `generate_stock_images` for scene-specific Pexels photos when the key is
-   configured. This stores the source, Pexels license, photographer, prompt and
-   checksum in the project, and resumes missing scenes without replacing
-   existing assets. These are licensed illustrative stock assets, not authentic
-   news footage. Alternatively, `import_asset` accepts a staged JPEG, PNG or
-   WebP up to 40 MiB with explicit source and synthetic-media provenance.
-   ChatGPT-generated images do not have an automatic export API.
+5. For NewSphere Cinematic, call `generate_images` first. It requires one
+   prompt per storyboard scene, assigns exactly one checksum-verified Azure MAI
+   image to each scene, saves each result immediately, and resumes only missing
+   or invalid scenes. A failed provider call never becomes a stock photo or
+   placeholder. Pexels is available only when the project explicitly selects
+   `generate_stock_images`; it records the license and photographer.
+   `import_asset` accepts a staged JPEG, PNG or WebP up to 40 MiB with explicit
+   source and synthetic-media provenance. ChatGPT-generated images do not have
+   an automatic export API.
 6. `generate_voice`, `generate_subtitles`, `render_preview`, and
    `render_video` return job IDs immediately. Poll `get_job` for progress and
    results. Inspect the preview before final rendering.
@@ -66,9 +67,9 @@ YouTube OAuth client secrets under `.secrets`; never commit OAuth tokens.
    exact confirmation. A stricter per-video grant remains available through
    `scripts.owner_authorize_upload.py`. Once enrolled, an explicit ChatGPT
    request to upload can call `publish_youtube(job_id)` without another console
-   command. The enrolled default is PUBLIC; the owner can select PRIVATE or UNLISTED with
-   `--privacy-status` and explicitly authorize additional modes with repeated
-   `--allow-privacy-status`. Channel, file hash, limit and per-project idempotency
+   command. The publication policy defaults to PRIVATE. An owner may enroll additional
+   allowed privacy modes explicitly; the model cannot create or broaden that
+   policy. Channel, file hash, limit and per-project idempotency
    are checked and every attempt is audited. YouTube Data API reads back the
    inserted video and verifies its channel and privacy. An uncertain or failed
    verification is locked for reconciliation; the video insert is never retried.
@@ -175,7 +176,7 @@ system complete until a ChatGPT tool call and real short/landscape renders have
 been observed on Windows.
 
 
-## Local ChatGPT Desktop plugin v0.3.2
+## Local ChatGPT Desktop plugin v0.3.6
 
 Run from the Windows repository root:
 
@@ -187,7 +188,7 @@ Bootstrap installs the MCP SDK and runs the Desktop setup, which saves a per-use
 
 Completely restart ChatGPT Desktop, install/enable the private plugin, select **Work locally**, and request `studio_status`. The local smoke test is not a substitute for a real tool call made by ChatGPT Desktop.
 
-`review_video(job_id)` is read-only. The owner can enable automatic publishing once with `python -m scripts.owner_publish_policy enroll` in a local console. The default is PUBLIC and the exact local confirmation is explicit consent; `publish_youtube(job_id)` then needs only an explicit upload request. For stricter review, use the optional one-use `owner_authorize_upload.py` grant. Never call obsolete `approve=True` or `approval_code` arguments.
+`review_video(job_id)` is read-only. The owner can enable automatic publishing once with `python -m scripts.owner_publish_policy enroll` in a local console. The default is PRIVATE. Public or unlisted modes require explicit owner consent during enrollment; `publish_youtube(job_id)` then needs an explicit upload request and a passing quality gate. For stricter review, use the optional one-use `owner_authorize_upload.py` grant. Never call obsolete `approve=True` or `approval_code` arguments.
 
 The `create_thumbnail(job_id)` tool is asynchronous and creates a checked 1280×720 NewSphere thumbnail from the first scene visual and saved Spanish thumbnail text. Poll its job with `get_job` before continuing.
 

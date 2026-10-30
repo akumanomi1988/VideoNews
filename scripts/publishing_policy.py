@@ -74,7 +74,7 @@ def load() -> dict | None:
 
 
 def enroll(channel_id: str, max_uploads_per_day: int,
-           privacy_status: str = "public",
+           privacy_status: str = "private",
            allowed_privacy_statuses: list[str] | None = None,
            *, public_consent: bool = False,
            channel_title: str = "NewSphere") -> dict:

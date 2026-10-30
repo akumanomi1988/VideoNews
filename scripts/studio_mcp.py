@@ -190,6 +190,7 @@ class VideoNewsStudio:
             raise ValueError("video_format must be short or long")
         project = {
             "schema_version": 2, "id": uuid.uuid4().hex, "title": title,
+            "visual_profile": "NewSphere Cinematic",
             "format": video_format, "aspect_ratio": _SUPPORTED[video_format],
             "sources": [], "editorial_brief": {}, "script": "", "narration": [],
             "storyboard": [], "youtube_metadata": {}, "asset_records": [],
@@ -421,20 +422,57 @@ class VideoNewsStudio:
             raise ValueError("storyboard must contain 1-60 scenes")
         normalized = []
         scene_ids = set()
+        allowed_fields = {"id", "narration", "visual_prompt", "visual_concept", "style",
+                          "composition", "camera_movement", "transition", "documented_facts",
+                          "semantic_review_required", "on_screen_text", "visual_type",
+                          "duration_seconds", "asset_ids"}
         for index, scene in enumerate(scenes, 1):
             if not isinstance(scene, dict):
                 raise ValueError("each scene must be an object")
+            unknown = set(scene) - allowed_fields
+            if unknown:
+                raise ValueError("unknown storyboard scene fields: " + ", ".join(sorted(unknown)))
             scene_id = str(scene.get("id", f"scene-{index}"))[:100]
             if not scene_id or scene_id in scene_ids:
                 raise ValueError("scene IDs must be non-empty and unique")
             scene_ids.add(scene_id)
-            visual_prompt = str(scene.get("visual_prompt", ""))[:2000]
+            visual_prompt = scene.get("visual_prompt", "")
+            narration = scene.get("narration", "")
+            facts = scene.get("documented_facts", [])
+            asset_ids = scene.get("asset_ids", [])
+            movement = scene.get("camera_movement", "slow_push_in")
+            transition = scene.get("transition", "crossfade")
+            visual_type = scene.get("visual_type", "illustration")
+            if not isinstance(narration, str) or not narration.strip() or len(narration) > 4000:
+                raise ValueError(f"scene {scene_id} needs a narration fragment of 1-4000 characters")
+            if not isinstance(visual_prompt, str) or not 5 <= len(visual_prompt.strip()) <= 1500:
+                raise ValueError(f"scene {scene_id} visual_prompt must contain 5-1500 characters")
+            if not isinstance(facts, list) or len(facts) > 20 or any(not isinstance(item, str) or len(item) > 500 for item in facts):
+                raise ValueError(f"scene {scene_id} documented_facts must be a list of up to 20 short strings")
+            if not isinstance(asset_ids, list) or len(asset_ids) > 20 or any(not isinstance(item, str) for item in asset_ids):
+                raise ValueError(f"scene {scene_id} asset_ids must be a list of asset identifiers")
+            if movement not in {"slow_push_in", "slow_pull_out", "subtle_pan_left", "subtle_pan_right", "static"}:
+                raise ValueError(f"scene {scene_id} has an unsupported camera_movement")
+            if transition not in {"crossfade", "dissolve", "fade"}:
+                raise ValueError(f"scene {scene_id} has an unsupported transition")
+            if visual_type not in {"illustration", "graphic", "diagram", "map", "data_visualization", "documentary_source", "stock_photo"}:
+                raise ValueError(f"scene {scene_id} has an unsupported visual_type")
+            semantic_review_required = scene.get("semantic_review_required", True)
+            if type(semantic_review_required) is not bool:
+                raise ValueError(f"scene {scene_id} semantic_review_required must be boolean")
             normalized.append({
                 "id": scene_id,
-                "narration": str(scene.get("narration", ""))[:4000],
+                "narration": narration.strip(),
                 "visual_prompt": visual_prompt,
+                "visual_concept": str(scene.get("visual_concept", visual_prompt))[:1000],
+                "style": str(scene.get("style", "NewSphere Cinematic"))[:100],
+                "composition": str(scene.get("composition", "Centered focal point with platform-safe margins"))[:500],
+                "camera_movement": movement,
+                "transition": transition,
+                "documented_facts": [value[:500] for value in facts],
+                "semantic_review_required": semantic_review_required,
                 "on_screen_text": str(scene.get("on_screen_text", ""))[:500],
-                "visual_type": str(scene.get("visual_type", "illustration"))[:40],
+                "visual_type": visual_type,
                 "duration_seconds": scene.get("duration_seconds"),
                 "asset_ids": list(scene.get("asset_ids", []))[:20],
             })
@@ -450,6 +488,11 @@ class VideoNewsStudio:
                 if scene["id"] in previous
                 and scene["visual_prompt"] == previous[scene["id"]].get("visual_prompt", "")
                 and scene["visual_type"] == previous[scene["id"]].get("visual_type", "illustration")
+                and scene["narration"] == previous[scene["id"]].get("narration", "")
+                and scene["visual_concept"] == previous[scene["id"]].get("visual_concept", "")
+                and scene["composition"] == previous[scene["id"]].get("composition", "")
+                and scene["style"] == previous[scene["id"]].get("style", "NewSphere Cinematic")
+                and scene["documented_facts"] == previous[scene["id"]].get("documented_facts", [])
             }
             retained_assets = [
                 asset for asset in project.get("asset_records", [])
@@ -689,59 +732,114 @@ class VideoNewsStudio:
         return brief
 
     def generate_images(self, job_id: str, prompts: list[str] | None = None,
-                        count: int = 5, style: str = "PHOTOREALISTIC") -> dict:
-        if not 1 <= count <= 12:
-            raise ValueError("count must be 1-12")
+                        count: int | None = None, style: str = "NEWSPHERE_CINEMATIC") -> dict:
+        """Generate exactly one original AI visual for each missing storyboard scene.
+
+        Completed scene assets are hash-verified and retained across retries. There is
+        deliberately no stock or placeholder fallback in this production path.
+        """
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
             self._require_approved_brief(project)
-            if prompts is None:
-                prompts = [scene["visual_prompt"] for scene in project.get("storyboard", [])
-                           if scene.get("visual_prompt")]
-            if not prompts:
-                raise StudioError("Save a ChatGPT-authored storyboard or import reviewed assets first")
+            scenes = project.get("storyboard", [])
+            if not scenes:
+                raise StudioError("Save a scene-by-scene storyboard before generating images")
             if os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() not in ("1", "true", "yes"):
-                raise StudioError("Paid image generation is disabled; import reviewed assets instead")
-            config = self._config()
+                raise StudioError("Paid image generation is disabled; explicitly import reviewed assets instead")
+            max_scenes = int(os.getenv("VIDEO_IMAGE_MAX_SCENES_PER_JOB", "12"))
+            if not 1 <= max_scenes <= 60 or len(scenes) > max_scenes:
+                raise StudioError(f"Storyboard exceeds VIDEO_IMAGE_MAX_SCENES_PER_JOB ({max_scenes})")
+            if count is not None and count != len(scenes):
+                raise ValueError("count must equal the storyboard scene count; scene mapping is exact")
+            if prompts is not None and (not isinstance(prompts, list) or len(prompts) != len(scenes)):
+                raise ValueError("prompts must contain exactly one prompt per storyboard scene")
+            prompt_by_scene = {scene["id"]: (prompts[index] if prompts is not None else scene.get("visual_prompt", ""))
+                               for index, scene in enumerate(scenes)}
+            if any(not isinstance(prompt, str) or not 5 <= len(prompt.strip()) <= 1500
+                   for prompt in prompt_by_scene.values()):
+                raise StudioError("Every storyboard scene needs a specific 5-1500 character visual_prompt")
+            for scene in scenes:
+                details = [scene.get("visual_concept", ""), scene.get("composition", "")]
+                if scene.get("documented_facts"):
+                    details.append("Source-supported context: " + "; ".join(scene["documented_facts"]))
+                details.append("AI-generated illustrative representation, not documentary evidence; no fake logos, captions, or invented data")
+                base_prompt = prompt_by_scene[scene["id"]].strip()
+                unique_details = [str(item).strip() for item in details if str(item).strip()
+                                  and str(item).strip().casefold() not in base_prompt.casefold()]
+                prompt_by_scene[scene["id"]] = base_prompt + ". " + ". ".join(unique_details)
+            if any(not isinstance(prompt, str) or len(prompt.strip()) > 2000
+                   for prompt in prompt_by_scene.values()):
+                raise StudioError("Enriched scene prompts must be at most 2000 characters")
             from scripts.AI.text_to_image import FluxImageGenerator, StylePreset, AspectRatio
             if style not in StylePreset.__members__:
                 raise ValueError("Invalid image style: " + style)
-            prompt_list = prompts if prompts is not None else self._chatbot(config).generate_image_descriptions(
-                project["script"], count=count)
-            if not isinstance(prompt_list, list) or not prompt_list or len(prompt_list) > 12:
-                raise StudioError("Expected 1-12 image prompts")
-            if any(not isinstance(p, str) or not 5 <= len(p.strip()) <= 1500 for p in prompt_list):
-                raise ValueError("Every image prompt must be 5-1500 characters")
+            records = project.setdefault("asset_records", [])
+            missing = []
+            for scene in scenes:
+                valid = [record for record in records if record.get("scene_id") == scene["id"]
+                         and Path(record.get("path", "")).is_file()
+                         and record.get("sha256") == self._hash(Path(record["path"]))]
+                if valid:
+                    scene["asset_ids"] = [record["id"] for record in valid]
+                else:
+                    missing.append(scene)
+            if not missing:
+                project["images"] = [record["path"] for scene in scenes for record in records
+                                      if record.get("scene_id") == scene["id"]]
+                self._save(project)
+                return {"job_id": job_id, "images": project["images"], "generated": 0,
+                        "resumed": True, "assets": records}
+            config = self._config()
             folder = self._dir(job_id)
-            (folder / "images").mkdir(exist_ok=True)
+            image_dir = folder / "images"
+            image_dir.mkdir(exist_ok=True)
             azure = config["azure_images"]
             generator = FluxImageGenerator(
-                output_dir=str(folder / "images"),
-                azure_endpoint=azure.get("endpoint"), azure_api_key=azure.get("api_key"),
-                azure_model=azure.get("model", "MAI-Image-2e"),
-            )
+                output_dir=str(image_dir), azure_endpoint=azure.get("endpoint"),
+                azure_api_key=azure.get("api_key"), azure_model=azure.get("model", "MAI-Image-2e"))
+            generator.preflight()
             ratio = AspectRatio.SHORTS if project["format"] == "short" else AspectRatio.LANDSCAPE
-            output = []
-            for prompt in prompt_list:
+            generated_count = 0
+            for scene in missing:
+                scene_id = scene["id"]
+                prompt = prompt_by_scene[scene_id]
                 generated = Path(generator.generate_image(prompt, StylePreset[style], ratio)).resolve()
-                if not generated.is_file() or generated.stat().st_size == 0:
-                    raise StudioError("Image generation returned an invalid file")
-                # Copy to stable per-project paths, regardless of generator temp location.
-                target = folder / "images" / (uuid.uuid4().hex + generated.suffix.lower())
+                if not generated.is_file() or not generated.stat().st_size:
+                    raise StudioError(f"Image generation returned no valid file for scene {scene_id}")
+                from PIL import Image
+                try:
+                    with Image.open(generated) as check:
+                        width, height = check.size
+                        check.verify()
+                except Exception as exc:
+                    raise StudioError(f"Generated visual for scene {scene_id} is corrupt") from exc
+                digest = self._hash(generated)
+                if any(record.get("sha256") == digest for record in records):
+                    raise StudioError(f"Provider returned a duplicate image for scene {scene_id}")
+                target = image_dir / (scene_id.replace("/", "_") + "_" + uuid.uuid4().hex[:10] + generated.suffix.lower())
                 if generated != target:
                     shutil.copy2(generated, target)
-                output.append(str(target))
-            project["images"] = output
-            project["asset_records"] = [
-                {"id": Path(path).stem, "path": path, "sha256": self._hash(Path(path)),
-                 "provenance": "generated", "synthetic_media": True, "prompt": prompt}
-                for path, prompt in zip(output, prompt_list)
-            ]
-            project["video"] = ""
-            self._invalidate_review(project)
-            self._save(project)
-            return {"job_id": job_id, "images": output, "prompts": prompt_list}
+                record = {
+                    "id": target.stem, "scene_id": scene_id, "path": str(target),
+                    "sha256": self._hash(target), "provenance": {
+                        "provider": "Azure MAI", "model": azure.get("model", "MAI-Image-2e"),
+                        "prompt": prompt, "visual_profile": project.get("visual_profile", "NewSphere Cinematic")},
+                    "synthetic_media": True, "width": width, "height": height,
+                    "usage": generator.last_generation_info.get("usage"),
+                    "cost_usd": generator.last_generation_info.get("cost_usd"),
+                    "imported_at": datetime.now(timezone.utc).isoformat(),
+                }
+                records.append(record)
+                scene["asset_ids"] = [record["id"]]
+                project["images"] = [item["path"] for scene_item in scenes for item in records
+                                      if item.get("scene_id") == scene_item["id"]]
+                project["video"] = ""
+                self._invalidate_review(project)
+                self._save(project)
+                generated_count += 1
+            return {"job_id": job_id, "images": project["images"], "generated": generated_count,
+                    "resumed": bool(generated_count < len(scenes)), "assets": records}
 
     def generate_stock_images(self, job_id: str) -> dict:
         """Retrieve one licensed, scene-matched Pexels image per missing scene."""
@@ -757,7 +855,10 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
-            self._require_approved_brief(project)
+            brief = self._require_approved_brief(project)
+            if not any("pexels" in item.casefold() or "stock" in item.casefold()
+                       for item in brief.get("image_sources", [])):
+                raise StudioError("Pexels is secondary; select licensed stock explicitly in the approved brief first")
             scenes = project.get("storyboard", [])
             if not scenes:
                 raise StudioError("Save a scene-by-scene storyboard before requesting stock images")
@@ -1094,13 +1195,46 @@ class VideoNewsStudio:
             raise StudioError("Scene assets and project image order do not match")
         return [duration_by_path[path] for path in image_paths]
 
+    @staticmethod
+    def _ordered_scene_assets(project: dict) -> list[Path]:
+        """Return one integrity-checked visual per storyboard scene in stable order."""
+        scenes = project.get("storyboard", [])
+        records = project.get("asset_records", [])
+        if not scenes:
+            raise StudioError("Generate images only after saving the required scene storyboard")
+        ordered = []
+        seen_hashes = set()
+        for scene in scenes:
+            scene_id = scene.get("id")
+            matches = [record for record in records if record.get("scene_id") == scene_id]
+            if len(matches) != 1:
+                raise StudioError(f"Scene {scene_id} must have exactly one associated visual asset")
+            record = matches[0]
+            path = Path(record.get("path", ""))
+            if not path.is_file() or not path.stat().st_size:
+                raise StudioError(f"Visual asset for scene {scene_id} is missing")
+            digest = VideoNewsStudio._hash(path)
+            if digest != record.get("sha256") or digest in seen_hashes:
+                raise StudioError(f"Visual asset for scene {scene_id} failed checksum or duplicate validation")
+            seen_hashes.add(digest)
+            try:
+                from PIL import Image
+                with Image.open(path) as image:
+                    image.verify()
+            except Exception as exc:
+                raise StudioError(f"Visual asset for scene {scene_id} is corrupt") from exc
+            ordered.append(path)
+        if [str(path) for path in ordered] != project.get("images", []):
+            raise StudioError("Project image order does not match storyboard scene order")
+        return ordered
+
     def render_video(self, job_id: str) -> dict:
         """Call existing FFmpeg VideoAssembler; no publishing side effects."""
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
             brief = self._require_approved_brief(project)
-            images = [Path(s) for s in project["images"]]
+            images = self._ordered_scene_assets(project)
             if not images or not all(p.is_file() and p.stat().st_size for p in images):
                 raise StudioError("Generate images first")
             audio = Path(project["voice"]) if project["voice"] else None
@@ -1115,7 +1249,10 @@ class VideoNewsStudio:
             assembler = VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                        output_file=str(output), media_images=[str(p) for p in images],
                                        aspect_ratio=_SUPPORTED[project["format"]],
-                                       image_durations=image_durations)
+                                       image_durations=image_durations,
+                                       scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
+                                       scene_transitions=[scene["transition"] for scene in project["storyboard"]],
+                                       background_music=self._config().get("video_result", {}).get("background_music") or None)
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
@@ -1146,7 +1283,7 @@ class VideoNewsStudio:
                 project = self._read(job_id)
                 self._require_editable(project)
                 self._require_approved_brief(project)
-                images = [Path(s) for s in project["images"]]
+                images = self._ordered_scene_assets(project)
                 audio = Path(project["voice"]) if project["voice"] else None
                 srt = Path(project["subtitles"]) if project["subtitles"] else None
                 if not images or not all(p.is_file() and p.stat().st_size for p in images):
@@ -1161,7 +1298,10 @@ class VideoNewsStudio:
                 VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                output_file=str(output), media_images=[str(p) for p in images],
                                aspect_ratio=_SUPPORTED[project["format"]],
-                               image_durations=image_durations).assemble_video(
+                               image_durations=image_durations,
+                               scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
+                               scene_transitions=[scene["transition"] for scene in project["storyboard"]],
+                               background_music=self._config().get("video_result", {}).get("background_music") or None).assemble_video(
                                    position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
                     raise StudioError("Preview render produced no playable video")
@@ -1194,6 +1334,8 @@ class VideoNewsStudio:
                 problems.append("Missing narration script")
             if not project["images"]:
                 problems.append("Missing illustrations")
+            if not project.get("storyboard"):
+                problems.append("Missing scene storyboard")
             if not project["subtitles"] or not Path(project["subtitles"]).is_file():
                 problems.append("Missing subtitles")
             if not project.get("youtube_metadata", {}).get("title"):
@@ -1213,7 +1355,7 @@ class VideoNewsStudio:
                                                     for character in metadata_text):
                 problems.append("YouTube metadata contains invalid Unicode or control characters")
             duration = None
-            if video and video.is_file() and video.stat().st_size:
+            if video and video.is_file() and video.stat().st_size and project.get("storyboard"):
                 probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
                                         "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
                                         str(video)], capture_output=True, text=True, timeout=20)
@@ -1252,17 +1394,107 @@ class VideoNewsStudio:
                         problems.append("Subtitle file contains no caption entries")
                     elif captions[0]["start"] < 0 or captions[-1]["end"] > duration + 0.5:
                         problems.append("Subtitle timing falls outside the video duration")
+                    if any(len(re.findall(r"\S+", caption["text"])) > 12 for caption in captions):
+                        problems.append("Subtitle caption exceeds the 12-word readability limit")
+                    if any(current["start"] < previous["end"] - 0.05
+                           for previous, current in zip(captions, captions[1:])):
+                        problems.append("Subtitle cues overlap or are out of order")
                 except Exception:
                     problems.append("Subtitle file could not be parsed")
             if project.get("storyboard"):
                 scene_ids = {scene.get("id") for scene in project["storyboard"]}
-                asset_scene_ids = {asset.get("scene_id") for asset in project.get("asset_records", [])}
-                if not scene_ids.issubset(asset_scene_ids):
-                    problems.append("At least one storyboard scene has no associated visual asset")
+                asset_records = project.get("asset_records", [])
+                asset_scene_ids = [asset.get("scene_id") for asset in asset_records]
+                if set(asset_scene_ids) != scene_ids or len(asset_scene_ids) != len(scene_ids):
+                    problems.append("Every storyboard scene must have exactly one associated visual asset")
+                hashes = set()
+                from PIL import Image, ImageStat
+                for scene in project["storyboard"]:
+                    record = next((asset for asset in asset_records if asset.get("scene_id") == scene.get("id")), None)
+                    if not record:
+                        continue
+                    asset_path = Path(record.get("path", ""))
+                    if (not asset_path.is_file() or not asset_path.stat().st_size
+                            or record.get("sha256") != self._hash(asset_path)):
+                        problems.append(f"Scene {scene['id']} image is missing or failed checksum validation")
+                        continue
+                    if record.get("sha256") in hashes:
+                        problems.append(f"Duplicate image assigned to scene {scene['id']}")
+                    hashes.add(record.get("sha256"))
+                    provenance = record.get("provenance")
+                    provider = provenance.get("provider", "") if isinstance(provenance, dict) else str(provenance or "")
+                    if not provider or provider.casefold() == "placeholder" or "placeholder" in asset_path.name.casefold():
+                        problems.append(f"Scene {scene['id']} contains an unverified or placeholder visual")
+                    try:
+                        with Image.open(asset_path) as asset_image:
+                            asset_image.verify()
+                        with Image.open(asset_path) as asset_image:
+                            portrait = asset_image.height > asset_image.width
+                            expected_portrait = project.get("aspect_ratio") == "9:16"
+                            if portrait != expected_portrait:
+                                problems.append(f"Scene {scene['id']} visual orientation does not match project format")
+                            if ImageStat.Stat(asset_image.convert("RGB")).stddev == [0.0, 0.0, 0.0]:
+                                problems.append(f"Scene {scene['id']} visual is a flat-color placeholder")
+                    except Exception:
+                        problems.append(f"Scene {scene['id']} image is corrupt or unreadable")
+            visual_contact_sheet = None
+            if video and video.is_file() and video.stat().st_size:
+                try:
+                    contact_path = self._dir(job_id) / "qa_contact_sheet.jpg"
+                    from PIL import Image, ImageOps, ImageDraw
+                    sample_count = min(12, max(1, len(project.get("storyboard", []))))
+                    duration_for_samples = duration or 0
+                    tiles = []
+                    for index in range(sample_count):
+                        at = min(max(0, duration_for_samples - 0.1), duration_for_samples * (index + 0.5) / sample_count)
+                        frame = contact_path.with_name(f"_qa_frame_{index}.jpg")
+                        capture = subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", str(video),
+                                                  "-frames:v", "1", "-vf", "scale=320:-1", str(frame)],
+                                                 capture_output=True, text=True, timeout=30)
+                        if capture.returncode or not frame.is_file():
+                            problems.append("Could not extract representative frames for visual QA")
+                            break
+                        tiles.append(Image.open(frame).convert("RGB"))
+                        frame.unlink(missing_ok=True)
+                    if tiles:
+                        columns = 3
+                        rows = (len(tiles) + columns - 1) // columns
+                        tile_w, tile_h = 320, max(image.height for image in tiles)
+                        sheet = Image.new("RGB", (columns * tile_w, rows * (tile_h + 28)), (8, 18, 29))
+                        draw = ImageDraw.Draw(sheet)
+                        for index, tile in enumerate(tiles):
+                            x, y = (index % columns) * tile_w, (index // columns) * (tile_h + 28)
+                            sheet.paste(ImageOps.contain(tile, (tile_w, tile_h)), (x, y))
+                            draw.text((x + 8, y + tile_h + 5), f"Frame {index + 1} / {sample_count}", fill=(220, 245, 250))
+                            tile.close()
+                        sheet.save(contact_path, quality=88)
+                        visual_contact_sheet = str(contact_path)
+                    black = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-vf",
+                                            "blackdetect=d=1.0:pix_th=0.10", "-an", "-f", "null", os.devnull],
+                                           capture_output=True, text=True, timeout=90)
+                    if re.search(r"black_duration:\s*(?:[1-9][0-9]*)(?:\.[0-9]+)?", black.stderr):
+                        problems.append("Video contains an unexpected black frame interval of at least one second")
+                    audio_check = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video), "-af", "volumedetect",
+                                                 "-f", "null", os.devnull], capture_output=True, text=True, timeout=90)
+                    mean_match = re.search(r"mean_volume:\s*(-?[0-9.]+)\s+dB", audio_check.stderr)
+                    peak_match = re.search(r"max_volume:\s*(-?[0-9.]+)\s+dB", audio_check.stderr)
+                    if not mean_match or float(mean_match.group(1)) <= -60:
+                        problems.append("Rendered audio is silent or too quiet")
+                    if peak_match and float(peak_match.group(1)) > 0:
+                        problems.append("Rendered audio clips above 0 dBFS")
+                    if os.getenv("VIDEO_BACKGROUND_MUSIC_REQUIRED", "false").lower() in ("1", "true", "yes"):
+                        music_path = self._config().get("video_result", {}).get("background_music", "")
+                        if not music_path or not Path(music_path).is_file():
+                            problems.append("Background music is required but no configured licensed file is available")
+                except Exception as exc:
+                    problems.append(f"Audiovisual QA could not complete: {type(exc).__name__}")
             result = {"job_id": job_id, "duration_seconds": duration, "issues": problems,
                       "target_duration_seconds": brief["target_duration_seconds"] if brief else None,
                       "aspect_ratio": brief["aspect_ratio"] if brief else None,
                       "requires_human_fact_check": True,
+                      "requires_human_visual_review": bool(project.get("storyboard")),
+                      "visual_semantics_verified": False,
+                      "contact_sheet": visual_contact_sheet,
                       "privacy": brief["privacy_status"] if brief else None,
                       "ready_for_editorial_review": not problems}
             return result
@@ -1307,7 +1539,7 @@ class VideoNewsStudio:
 
     def publish_youtube(self, job_id: str,
                         privacy_status: str | None = None) -> dict:
-        """Publish at the owner-enrolled status (PUBLIC by default) after verification."""
+        """Publish at the owner-enrolled status (PRIVATE by default) after verification."""
         with _LOCK:
             project = self._read(job_id)
             if not (self._dir(job_id) / "owner-authorization.json").is_file():
@@ -1491,6 +1723,12 @@ class VideoNewsStudio:
             "paid_image_generation_enabled": bool(
                 paid_images and images.get("endpoint") and images.get("api_key")
             ),
+            "visual_provider_primary": os.getenv("MEDIA_SOURCE", config.get("settings", {}).get("media_source", "huggingface")),
+            "visual_profile_default": "NewSphere Cinematic",
+            "image_generation_limits": {
+                "max_scenes_per_job": int(os.getenv("VIDEO_IMAGE_MAX_SCENES_PER_JOB", "12")),
+                "max_attempts_per_scene": int(os.getenv("VIDEO_IMAGE_MAX_ATTEMPTS_PER_SCENE", "2")),
+            },
             "youtube_client_secrets_present": Path(
                 config.get("youtube", {}).get("credentials_file", "")
             ).is_file(),

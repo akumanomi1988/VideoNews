@@ -59,8 +59,8 @@ For selected stories, create one `create_project` and save source references plu
   "language": "es",
   "narrative_concept": "The story arc",
   "opening_hook": "A sourced opening line",
-  "visual_strategy": "Scene-matched licensed media and original graphics",
-  "image_sources": ["Original local graphics", "Pexels licensed media"],
+  "visual_strategy": "NewSphere Cinematic original AI illustrations plus source-accurate graphics",
+  "image_sources": ["Azure MAI generated illustration", "Original local graphics"],
   "destination": "NewSphere",
   "privacy_status": "public",
   "approval_status": "proposed",
@@ -68,7 +68,7 @@ For selected stories, create one `create_project` and save source references plu
 }
 ```
 
-The `selected_story.primary_url` must appear in `verified_sources`. Save the same source references to the project. Preserve the alternatives in the brief. `format` and `aspect_ratio` must agree (`short`/`9:16`, `long`/`16:9`). Use a specific target duration and make publication privacy explicit. The default local policy may be public, but never use that fact to imply public consent: only the Windows owner can enroll or broaden that policy.
+The `selected_story.primary_url` must appear in `verified_sources`. Save the same source references to the project. Preserve the alternatives in the brief. `format` and `aspect_ratio` must agree (`short`/`9:16`, `long`/`16:9`). Use a specific target duration and make publication privacy explicit. The local publication policy is private by default. Only the Windows owner can enroll or broaden allowed privacy modes.
 
 When selection was delegated but production was not, save `approval_status: "proposed"`, show a concise brief, and stop. When the user approves it, update only `approval_status` to `"approved"`; the Studio then permits production if the chosen source is saved. Get a project by its exact ID before revising it.
 
@@ -76,10 +76,10 @@ When selection was delegated but production was not, save `approval_status: "pro
 
 1. Draft original narration in ChatGPT, grounded in the retrieved sources. Save it with `save_script`. Match scene narration exactly to the script and persist a coherent scene-by-scene `save_storyboard`; every scene needs a unique ID and a concrete visual prompt.
 2. Aim for the approved spoken duration. For Spanish speech, estimate at a natural delivery rate, then verify the actual TTS duration. Studio enforces the target tolerance after synthesis and again after rendering; revise the script if it falls outside the approved range. Do not silently change target duration, format, or orientation.
-3. Prefer `generate_stock_images` for scene-matched licensed Pexels images when configured, or import reviewed images/original graphics through `import_asset`. Preserve provider, license, photographer, source URL and synthetic-media provenance. Pexels stock images are illustrative licensed media, not authentic event footage. Do not use a generic slideshow to fill a missing asset. Paid image generation remains disabled unless the owner configured it.
+3. For NewSphere Cinematic, call `generate_images` as the primary visual step after saving the storyboard. Supply one scene-specific prompt per scene; the tool persists each image with `scene_id`, SHA-256, provider/model, prompt, dimensions and synthetic-media provenance, and skips valid completed assets on resume. Do not send generic article phrases as prompts. Use infographic or diagram prompts for exact facts, maps, numbers or named events; never imply an AI illustration is documentary evidence. If generation fails, stop and report the exact scene/provider failure. Never silently replace it with Pexels or a placeholder. Use `generate_stock_images` only when the user/project explicitly chooses licensed stock; preserve photographer/license/source credits. The configured image provider can incur charges, and no cost should be invented.
 4. Save complete Unicode YouTube metadata with source credits and accurate synthetic-media disclosure. Create a thumbnail after visuals and metadata are ready. The current renderer creates a checked 1280×720 composition.
 5. Create narration with `generate_voice`, word-boundary subtitles with `generate_subtitles`, inspect `render_preview`, then create the final MP4 with `render_video`. These are asynchronous jobs: poll each job with `get_job`. Resume only the failed stage after repair.
-6. Call `review_video` before publishing. It checks the approved brief, format, resolution, codecs, duration, sources, metadata, subtitles and scene asset association. If it reports an issue, explain it and stop publication until repaired. It still marks factual/editorial review as requiring judgment; never describe automated structural checks as proof of factual truth or visual legibility.
+6. Call `review_video` before publishing. It checks the approved brief, format, resolution, codecs, duration, sources, metadata, subtitles and scene asset association. If it reports an issue, explain it and stop publication until repaired. It generates a representative-frame contact sheet and marks semantic visual review as required; it cannot prove image-to-narration relevance or subtitle legibility automatically. Never report those as passed without human inspection.
 
 ## YouTube publication
 

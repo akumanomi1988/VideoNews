@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     enroll = actions.add_parser("enroll")
     enroll.add_argument("--max-uploads-per-day", type=int, default=2)
     enroll.add_argument("--privacy-status", choices=policy.PRIVACY_STATUSES,
-                        default="public")
+                        default="private")
     enroll.add_argument("--allow-privacy-status", action="append",
                         choices=policy.PRIVACY_STATUSES,
                         help="Allow an additional per-video status; may be repeated")

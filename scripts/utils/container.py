@@ -1,5 +1,6 @@
 from typing import Dict, Any, Type, TypeVar, Optional, Callable
 import logging
+import os
 from pathlib import Path
 
 T = TypeVar('T')
@@ -155,8 +156,7 @@ class PipelineContainer(Container):
         # Set up media generation pipeline
         def media_factory(**kwargs):
             from ..services.media_service import FluxMediaService, PexelsMediaService
-            
-            # Create services
+            provider = str(self.config.get("media_source", "huggingface")).strip().lower()
             flux = FluxMediaService(
                 api_key=self.config['flux_api_key'],
                 output_dir=self.config['temp_dir'],
@@ -166,17 +166,16 @@ class PipelineContainer(Container):
                 azure_model=self.config.get('azure_image_model', 'MAI-Image-2e'),
             )
             
-            pexels = PexelsMediaService(
-                api_key=self.config['pexels_api_key'],
-                output_dir=self.config['temp_dir'],
-                cache_dir=str(Path(self.config['temp_dir']) / 'cache' / 'pexels')
-            )
-            
-            # Create composite service with both providers
-            return CompositeMediaService(
-                services=[flux, pexels],
-                cache_dir=str(Path(self.config['temp_dir']) / 'cache' / 'composite')
-            )
+            if provider in ("huggingface", "azure", "ai"):
+                if os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() not in ("1", "true", "yes"):
+                    raise RuntimeError("AI image generation is selected but VIDEO_ENABLE_PAID_IMAGE_GENERATION is disabled")
+                return flux
+            if provider == "pexels":
+                return PexelsMediaService(
+                    api_key=self.config['pexels_api_key'],
+                    output_dir=self.config['temp_dir'],
+                    cache_dir=str(Path(self.config['temp_dir']) / 'cache' / 'pexels'))
+            raise ValueError("MEDIA_SOURCE must be huggingface/azure/ai or explicitly pexels")
         self.bind_factory(MediaGenerator, media_factory)
         
         # Set up video uploader based on configuration

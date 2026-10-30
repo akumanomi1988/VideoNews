@@ -32,13 +32,6 @@ class FluxMediaService(MediaGenerator):
         )
 
     @trace()
-    @retry_with_backoff(
-        retries=5,
-        backoff_in_seconds=2,
-        max_backoff_in_seconds=60,
-        exceptions=(Exception,),
-        should_retry=is_transient_error
-    )
     def generate_media(self, prompt: str, **kwargs) -> str:
         try:
             # Check cache first
@@ -119,10 +112,12 @@ class CompositeMediaService(MediaGenerator):
     """Combines multiple media services with smart failover and caching"""
     
     @trace()
-    def __init__(self, services: List[MediaGenerator], cache_dir: str = None):
+    def __init__(self, services: List[MediaGenerator], cache_dir: str = None,
+                 allow_cross_provider_fallback: bool = False):
         self.logger = logging.getLogger(__name__)
         self.services = services
         self.fallback_index = 0
+        self.allow_cross_provider_fallback = allow_cross_provider_fallback
         self.cache = CacheManager(
             cache_dir or str(Path("temp") / "cache" / "composite")
         )
@@ -140,11 +135,12 @@ class CompositeMediaService(MediaGenerator):
             self.logger.info(f"Using cached media from composite service: {prompt[:100]}...")
             return cached_path
 
-        # Try each service if not in cache
+        # Cross-provider fallback can silently change synthetic visuals into stock.
+        # It is disabled unless a caller explicitly opts into that behavior.
         last_error = None
         errors = []
-
-        for _ in range(len(self.services)):
+        attempts = len(self.services) if self.allow_cross_provider_fallback else min(1, len(self.services))
+        for _ in range(attempts):
             service = self.services[self.fallback_index]
             try:
                 result = service.generate_media(prompt, **kwargs)

@@ -41,7 +41,7 @@ def valid_brief(*, privacy="private", status="approved", video_format="short", d
         "language": "es", "narrative_concept": "Explain the change with evidence and context.",
         "opening_hook": "A concrete verified change has just happened.",
         "visual_strategy": "Scene-matched original graphics and sourced imagery.",
-        "image_sources": ["Original local graphics", "Licensed source-matched media"],
+        "image_sources": ["Original local graphics", "Pexels licensed stock"],
         "destination": "NewSphere", "privacy_status": privacy,
         "approval_status": status, "duration_tolerance_seconds": 15,
     }
@@ -93,6 +93,14 @@ def test_draft_is_persisted_atomically_and_no_review_token_leaks(studio, project
     assert json.loads((studio._dir(project["id"]) / "project.json").read_text())["id"] == project["id"]
 
 
+def test_new_projects_default_to_newssphere_cinematic_without_touching_legacy_projects(studio):
+    new = studio.create_project("NewSphere visual identity check")
+    assert new["visual_profile"] == "NewSphere Cinematic"
+    old = {"id": uuid.uuid4().hex, "title": "Old project", "visual_profile": "legacy preset"}
+    studio._save(old)
+    assert studio._read(old["id"])["visual_profile"] == "legacy preset"
+
+
 def test_script_edit_invalidates_obsolete_assets_and_approvals(studio, project):
     data = studio._read(project["id"])
     data["status"] = "approved"
@@ -109,8 +117,8 @@ def test_script_edit_invalidates_obsolete_assets_and_approvals(studio, project):
 def test_storyboard_edit_keeps_assets_for_unchanged_scenes(studio):
     project = studio.create_project("An example project title")
     initial = [
-        {"id": "scene-1", "visual_prompt": "Map of Spain", "visual_type": "graphic"},
-        {"id": "scene-2", "visual_prompt": "City skyline", "visual_type": "illustration"},
+        {"id": "scene-1", "narration": "The first verified scene.", "visual_prompt": "Map of Spain", "visual_type": "graphic"},
+        {"id": "scene-2", "narration": "The second verified scene.", "visual_prompt": "City skyline", "visual_type": "illustration"},
     ]
     studio.save_storyboard(project["id"], initial)
     image = studio._dir(project["id"]) / "city.png"
@@ -125,8 +133,8 @@ def test_storyboard_edit_keeps_assets_for_unchanged_scenes(studio):
     studio._save(data)
 
     revised = [
-        {"id": "scene-1", "visual_prompt": "Updated map of Spain", "visual_type": "graphic"},
-        {"id": "scene-2", "visual_prompt": "City skyline", "visual_type": "illustration"},
+        {"id": "scene-1", "narration": "The first verified scene.", "visual_prompt": "Updated map of Spain", "visual_type": "graphic"},
+        {"id": "scene-2", "narration": "The second verified scene.", "visual_prompt": "City skyline", "visual_type": "illustration"},
     ]
     saved = studio.save_storyboard(project["id"], revised)
     assert [asset["id"] for asset in saved["asset_records"]] == ["asset-city"]
@@ -137,8 +145,8 @@ def test_storyboard_rejects_duplicate_scene_ids(studio):
     project = studio.create_project("An example project title")
     with pytest.raises(ValueError, match="unique"):
         studio.save_storyboard(project["id"], [
-            {"id": "same", "visual_prompt": "First"},
-            {"id": "same", "visual_prompt": "Second"},
+            {"id": "same", "narration": "First sentence.", "visual_prompt": "First scene"},
+            {"id": "same", "narration": "Second sentence.", "visual_prompt": "Second scene"},
         ])
 
 
@@ -252,6 +260,10 @@ def _authorize(studio, project, monkeypatch, privacy_status="private"):
     studio.save_editorial_brief(project["id"], brief)
     studio.save_youtube_metadata(project["id"], {
         "title": "Verified test video", "description": "Source: Example authority.", "tags": []})
+    # Upload-policy tests isolate authorization and idempotency. Actual media QA
+    # is exercised by the FFmpeg integration suite with real generated fixtures.
+    monkeypatch.setattr(studio, "review_video", lambda _job_id: {
+        "ready_for_editorial_review": True, "issues": [], "requires_human_fact_check": True})
     assert studio.review_video(project["id"])["ready_for_editorial_review"]
     return studio.issue_owner_authorization(
         project["id"], owner_confirmed=True, target_account_id="UCtestChannel123",
@@ -389,7 +401,9 @@ def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
     _set_brief_privacy(studio, project, "public")
     studio.save_youtube_metadata(project["id"], {
         "title": "A verified private Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
-    publishing_policy.enroll("UCtestChannel123", 1, public_consent=True)
+    monkeypatch.setattr(studio, "review_video", lambda _job_id: {
+        "ready_for_editorial_review": True, "issues": [], "requires_human_fact_check": True})
+    publishing_policy.enroll("UCtestChannel123", 1, privacy_status="public", public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(return_value={"id": "YT_AUTO_PUBLIC_1"})
     _install_fake_youtube(monkeypatch, upload)
@@ -419,7 +433,9 @@ def test_auto_publish_unknown_outcome_is_audited_and_never_retried(
     _set_brief_privacy(studio, project, "public")
     studio.save_youtube_metadata(project["id"], {
         "title": "A verified private Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
-    publishing_policy.enroll("UCtestChannel123", 2, public_consent=True)
+    monkeypatch.setattr(studio, "review_video", lambda _job_id: {
+        "ready_for_editorial_review": True, "issues": [], "requires_human_fact_check": True})
+    publishing_policy.enroll("UCtestChannel123", 2, privacy_status="public", public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(side_effect=TimeoutError("Network lost after transfer"))
     _install_fake_youtube(monkeypatch, upload)
@@ -446,7 +462,9 @@ def test_public_upload_must_be_verified_and_never_retried_on_mismatch(
     _set_brief_privacy(studio, project, "public")
     studio.save_youtube_metadata(project["id"], {
         "title": "A verified NewSphere Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
-    publishing_policy.enroll("UCtestChannel123", 2, public_consent=True)
+    monkeypatch.setattr(studio, "review_video", lambda _job_id: {
+        "ready_for_editorial_review": True, "issues": [], "requires_human_fact_check": True})
+    publishing_policy.enroll("UCtestChannel123", 2, privacy_status="public", public_consent=True)
     _setup_oauth(studio, monkeypatch, tmp_path)
 
     class Uploader:
@@ -504,8 +522,8 @@ def test_pexels_assets_are_scene_specific_licensed_and_resumable(studio, monkeyp
     project = studio.create_project("Pexels storyboard asset proof")
     studio.save_editorial_brief(project["id"], valid_brief())
     studio.save_storyboard(project["id"], [
-        {"id": "scene-1", "visual_prompt": "A European data center corridor"},
-        {"id": "scene-2", "visual_prompt": "A scientist reviewing AI research"},
+        {"id": "scene-1", "narration": "A European data center corridor is shown.", "visual_prompt": "A European data center corridor"},
+        {"id": "scene-2", "narration": "A scientist reviews AI research.", "visual_prompt": "A scientist reviewing AI research"},
     ])
     monkeypatch.setattr(studio, "_config", lambda: {"pexels": {"api_key": "test-key"}})
     monkeypatch.setattr("scripts.url_safety.validate_public_url", lambda _url: None)
@@ -549,6 +567,18 @@ def test_pexels_assets_are_scene_specific_licensed_and_resumable(studio, monkeyp
     assert all(asset["synthetic_media"] is False for asset in saved["asset_records"])
     assert len(studio.generate_stock_images(project["id"])["assets"]) == 2
     assert len(calls) == 4
+
+
+def test_pexels_requires_explicit_selection_in_the_approved_brief(studio, monkeypatch):
+    project = studio.create_project("Do not silently use stock")
+    brief = valid_brief(status="approved")
+    brief["image_sources"] = ["Azure MAI", "Original graphics"]
+    studio.save_editorial_brief(project["id"], brief)
+    studio.save_storyboard(project["id"], [{"id": "scene-1", "narration": "A supported scene.",
+        "visual_prompt": "A specific scene matched illustration"}])
+    monkeypatch.setattr(studio, "_config", lambda: {"pexels": {"api_key": "test"}})
+    with pytest.raises(StudioError, match="select licensed stock explicitly"):
+        studio.generate_stock_images(project["id"])
 
 
 def test_news_requires_real_search_credentials(studio, monkeypatch):
@@ -623,7 +653,7 @@ def test_script_revision_versions_and_invalidates_only_dependent_assets(studio, 
 def test_asset_import_is_project_scoped_and_synthetic_disclosure_is_sticky(studio, project):
     from PIL import Image
 
-    studio.save_storyboard(project["id"], [{"id": "scene-1", "visual_prompt": "A newsroom illustration"}])
+    studio.save_storyboard(project["id"], [{"id": "scene-1", "narration": "A newsroom illustration appears.", "visual_prompt": "A newsroom illustration"}])
     inbox = studio.workspace / "_imports"
     inbox.mkdir(exist_ok=True)
     Image.new("RGB", (64, 64), "navy").save(inbox / "reviewed.png")
@@ -647,8 +677,8 @@ def test_asset_import_order_follows_storyboard_not_upload_order(studio, project)
     from PIL import Image
 
     studio.save_storyboard(project["id"], [
-        {"id": "scene-1", "visual_prompt": "First visual"},
-        {"id": "scene-2", "visual_prompt": "Second visual"},
+        {"id": "scene-1", "narration": "The first visual appears.", "visual_prompt": "First visual"},
+        {"id": "scene-2", "narration": "The second visual appears.", "visual_prompt": "Second visual"},
     ])
     inbox = studio.workspace / "_imports"
     inbox.mkdir(exist_ok=True)
@@ -663,6 +693,116 @@ def test_asset_import_order_follows_storyboard_not_upload_order(studio, project)
     assert [scene["asset_ids"][0] for scene in saved["storyboard"]] == [
         asset["id"] for asset in saved["asset_records"]
     ]
+
+
+def _approved_image_project(studio, title="Cinematic image mapping proof"):
+    project = studio.create_project(title)
+    brief = valid_brief(status="approved")
+    studio.save_editorial_brief(project["id"], brief)
+    studio.save_storyboard(project["id"], [
+        {"id": "scene-1", "narration": "First supported scene.",
+         "visual_prompt": "A distinct cinematic newsroom scene one"},
+        {"id": "scene-2", "narration": "Second supported scene.",
+         "visual_prompt": "A distinct cinematic newsroom scene two"},
+    ])
+    return project["id"]
+
+
+def test_ai_images_map_one_to_each_scene_and_resume_completed_assets(studio, monkeypatch):
+    from PIL import Image
+    from scripts.AI import text_to_image
+
+    job_id = _approved_image_project(studio)
+    monkeypatch.setenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "true")
+    monkeypatch.setenv("VIDEO_IMAGE_MAX_SCENES_PER_JOB", "12")
+    monkeypatch.setattr(studio, "_config", lambda: {"azure_images": {
+        "endpoint": "https://example.test/mai/v1/images/generations", "api_key": "unit-test",
+        "model": "MAI-test"}})
+
+    class Generator:
+        calls = []
+        last_generation_info = {"provider": "Azure MAI", "model": "MAI-test", "usage": None}
+
+        def __init__(self, output_dir, **_kwargs):
+            self.output_dir = Path(output_dir)
+
+        def preflight(self):
+            return {"tls_reachable": True}
+
+        def generate_image(self, prompt, style, ratio):
+            self.calls.append((prompt, style, ratio))
+            target = self.output_dir / f"fixture-{len(self.calls)}.png"
+            Image.new("RGB", (32, 32), (len(self.calls) * 30, 20, 60)).save(target)
+            return str(target)
+
+    monkeypatch.setattr(text_to_image, "FluxImageGenerator", Generator)
+    first = studio.generate_images(job_id)
+    assert first["generated"] == 2
+    saved = studio.get_project(job_id)
+    assert [asset["scene_id"] for asset in saved["asset_records"]] == ["scene-1", "scene-2"]
+    assert saved["images"] == [asset["path"] for asset in saved["asset_records"]]
+    assert [scene["asset_ids"][0] for scene in saved["storyboard"]] == [
+        asset["id"] for asset in saved["asset_records"]]
+    resumed = studio.generate_images(job_id)
+    assert resumed["generated"] == 0 and resumed["resumed"] is True
+    assert len(Generator.calls) == 2
+
+
+def test_ai_image_partial_failure_persists_success_and_never_falls_back(studio, monkeypatch):
+    from PIL import Image
+    from scripts.AI import text_to_image
+
+    job_id = _approved_image_project(studio, "Partial AI image recovery proof")
+    monkeypatch.setenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "true")
+    monkeypatch.setattr(studio, "_config", lambda: {"azure_images": {
+        "endpoint": "https://example.test/mai/v1/images/generations", "api_key": "unit-test",
+        "model": "MAI-test"}})
+
+    class Generator:
+        calls = 0
+        last_generation_info = {}
+
+        def __init__(self, output_dir, **_kwargs):
+            self.output_dir = Path(output_dir)
+
+        def preflight(self):
+            pass
+
+        def generate_image(self, prompt, style, ratio):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("provider unavailable")
+            target = self.output_dir / "partial.png"
+            Image.new("RGB", (32, 32), "navy").save(target)
+            return str(target)
+
+    monkeypatch.setattr(text_to_image, "FluxImageGenerator", Generator)
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        studio.generate_images(job_id)
+    saved = studio.get_project(job_id)
+    assert len(saved["asset_records"]) == 1
+    assert saved["asset_records"][0]["scene_id"] == "scene-1"
+    assert len(saved["images"]) == 1
+
+
+def test_ai_image_generation_rejects_scene_count_mismatch_and_disabled_provider(studio, monkeypatch):
+    job_id = _approved_image_project(studio)
+    monkeypatch.setenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "true")
+    with pytest.raises(ValueError, match="storyboard scene count"):
+        studio.generate_images(job_id, count=1)
+    monkeypatch.setenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false")
+    with pytest.raises(StudioError, match="disabled"):
+        studio.generate_images(job_id)
+
+
+def test_mai_portrait_and_landscape_sizes_stay_within_provider_pixel_limit():
+    from scripts.AI.text_to_image import AspectRatio
+    for ratio in (AspectRatio.SHORTS, AspectRatio.LANDSCAPE):
+        width, height = ratio.value
+        assert width >= 768 and height >= 768
+        assert width * height <= 1_048_576
+    assert abs(AspectRatio.SHORTS.value[0] / AspectRatio.SHORTS.value[1] - 9/16) < 0.001
+    assert abs(AspectRatio.LANDSCAPE.value[0] / AspectRatio.LANDSCAPE.value[1] - 16/9) < 0.001
 
 
 def test_thumbnail_uses_project_visuals_and_validated_spanish_metadata(studio, project):

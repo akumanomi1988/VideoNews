@@ -275,6 +275,9 @@ class NewsVideoProcessor:
         """
         images = []
         phrase_list = [phrases] if isinstance(phrases, str) else phrases
+        maximum = int(os.getenv("VIDEO_IMAGE_MAX_SCENES_PER_JOB", "12"))
+        if len(phrase_list) > maximum or max_items > maximum:
+            raise ValueError(f"Image generation exceeds VIDEO_IMAGE_MAX_SCENES_PER_JOB ({maximum})")
         with ThreadPoolExecutor(max_workers=min(self.parallel_workers, max(len(phrase_list), 1))) as executor:
             future_map = {}
             for phrase in phrase_list:
@@ -300,7 +303,9 @@ class NewsVideoProcessor:
         """Generate a single image with retry logic and rate limiting."""
         if self._img_rate_limiter:
             self._img_rate_limiter.acquire()
-        for attempt in range(3):
+        # FluxImageGenerator already enforces the configured per-scene retry cap.
+        # Do not multiply that cap with an outer retry loop.
+        for attempt in range(1):
             try:
                 return self.image_generator.generate_image(
                     custom_prompt=phrase,
@@ -325,61 +330,31 @@ class NewsVideoProcessor:
         image_source = self.config[CONFIG_SETTINGS].get('media_source', 'huggingface')
         phrase_list = [phrases] if isinstance(phrases, str) else phrases
         for phrase in phrase_list:
-            generated = False
-            if image_source == 'huggingface':
+            if image_source in ('huggingface', 'azure', 'ai'):
+                if os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() not in ("1", "true", "yes"):
+                    raise RuntimeError("AI image generation is selected but VIDEO_ENABLE_PAID_IMAGE_GENERATION is disabled")
                 result = self.generate_related_media(phrase, style, max_items, orientation)
                 if result:
                     media_files.extend(result)
-                    generated = True
                     self.logger.debug("Generated %d images from HuggingFace for phrase '%s'", len(result), phrase[:50])
                 else:
-                    self.logger.warning("HuggingFace returned no images for phrase '%s', trying Pexels fallback", phrase[:50])
-            if not generated:
+                    raise RuntimeError(f"AI image provider returned no visual for scene prompt: {phrase[:80]}")
+            elif image_source == 'pexels':
                 pexels_file = None
                 try:
                     pexels_file = self.media_fetcher.fetch_and_save_media(phrase, media_type="photo")
                 except Exception as e:
-                    self.logger.warning("Pexels fallback failed for phrase '%s': %s", phrase[:50], e)
+                    self.logger.warning("Explicit Pexels image retrieval failed for phrase '%s': %s", phrase[:50], e)
                 if pexels_file:
                     media_files.append(pexels_file)
                     self.logger.debug("Fetched media from Pexels for phrase '%s'", phrase[:50])
                 else:
-                    placeholder = self._generate_placeholder_image(self.temp_dir, phrase, orientation)
-                    if placeholder:
-                        media_files.append(placeholder)
-                        self.logger.warning("Using placeholder image for phrase '%s'", phrase[:50])
+                    raise RuntimeError(f"Explicit Pexels source returned no visual: {phrase[:80]}")
+            else:
+                raise ValueError(f"Unsupported MEDIA_SOURCE: {image_source}")
             if len(media_files) >= max_items:
                 break
         return media_files[:max_items]
-
-    @trace()
-    @staticmethod
-    def _generate_placeholder_image(output_dir: str, text: str = "News", orientation: AspectRatio = AspectRatio.PORTRAIT) -> Optional[str]:
-        try:
-            from PIL import Image, ImageDraw, ImageFont
-            import uuid
-            w, h = (1080, 1920) if orientation == AspectRatio.PORTRAIT else (1920, 1080)
-            img = Image.new("RGB", (w, h), (30, 30, 50))
-            draw = ImageDraw.Draw(img)
-            _text = text[:50] if text else "News"
-            font = None
-            for fp in [
-                r"C:\Windows\Fonts\Arial.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            ]:
-                if os.path.exists(fp):
-                    font = ImageFont.truetype(fp, 48)
-                    break
-            bbox = draw.textbbox((0, 0), _text, font=font) if font else (0, 0, 200, 30)
-            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            draw.text(((w - tw) / 2, (h - th) / 2), _text, fill=(200, 200, 255), font=font)
-            out = os.path.join(output_dir, f"placeholder_{uuid.uuid4().hex[:8]}.png")
-            os.makedirs(output_dir, exist_ok=True)
-            img.save(out)
-            return out
-        except Exception as e:
-            logging.getLogger(__name__).warning("Failed to generate placeholder image: %s", e)
-            return None
 
     @staticmethod
     def get_random_style() -> StylePreset:
@@ -468,7 +443,7 @@ class NewsVideoProcessor:
                 if style_name:
                     random_style = StylePreset[style_name]
                 else:
-                    random_style = self.get_random_style()
+                    random_style = StylePreset.NEWSPHERE_CINEMATIC
                 media_images = self.fetch_related_media(phrases, random_style, len(phrases))
 
                 self._write_state("media_ready", image_count=len(media_images))
@@ -561,10 +536,6 @@ class NewsVideoProcessor:
                 # Generate ONE cover image and overlay both texts
                 self.image_generator.model = "black-forest-labs/FLUX.1-dev"
                 _thumbs = self.fetch_related_media(phrases=cover_image, style=StylePreset.NONE, max_items=1, orientation=AspectRatio.LANDSCAPE)
-                if not _thumbs:
-                    _placeholder = self._generate_placeholder_image(self.temp_dir, title, AspectRatio.LANDSCAPE)
-                    if _placeholder:
-                        _thumbs = [_placeholder]
                 if _thumbs:
                     self.cover_path = _thumbs[0]
                     ImageHelper.enhance_thumbnail(self.cover_path, 'NEWSPHERE', Position.TOP_LEFT, Style.THUMBNAIL_CARTOON)
@@ -597,7 +568,7 @@ class NewsVideoProcessor:
                 if style_name:
                     random_style = StylePreset[style_name]
                 else:
-                    random_style = self.get_random_style()
+                    random_style = StylePreset.NEWSPHERE_CINEMATIC
                 media_images = self.fetch_related_media(phrases, random_style, len(phrases), orientation=AspectRatio.LANDSCAPE)
 
                 self._write_state("media_ready", image_count=len(media_images))

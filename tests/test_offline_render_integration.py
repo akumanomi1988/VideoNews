@@ -38,6 +38,7 @@ class _Aspect(Enum):
 
 class _Preset(Enum):
     NONE = "none"
+    NEWSPHERE_CINEMATIC = "newsphere_cinematic"
     REALISM = "realism"
     YOUTUBE_THUMBNAIL = "youtube_thumbnail"
     FAUX = "faux"

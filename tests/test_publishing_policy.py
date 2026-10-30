@@ -6,9 +6,9 @@ import pytest
 from scripts import publishing_policy as policy
 
 
-def test_policy_persists_public_consent_channel_and_limit_and_revokes(tmp_path, monkeypatch):
+def test_policy_persists_explicit_public_consent_channel_and_limit_and_revokes(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
-    enrolled = policy.enroll("UCchannel123", 3, public_consent=True)
+    enrolled = policy.enroll("UCchannel123", 3, privacy_status="public", public_consent=True)
     assert enrolled["privacy_status"] == "public"
     assert enrolled["allowed_privacy_statuses"] == ["public"]
     assert policy.load() == enrolled
@@ -39,10 +39,13 @@ def test_policy_rejects_invalid_enrollment(tmp_path, monkeypatch, channel_id, li
         policy.enroll(channel_id, limit, privacy_status=privacy, public_consent=True)
 
 
-def test_public_enrollment_requires_explicit_owner_consent(tmp_path, monkeypatch):
+def test_default_enrollment_is_private_and_public_requires_explicit_owner_consent(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
+    enrolled = policy.enroll("UCchannel123", 2)
+    assert enrolled["privacy_status"] == "private"
+    assert enrolled["allowed_privacy_statuses"] == ["private"]
     with pytest.raises(ValueError, match="Explicit owner consent"):
-        policy.enroll("UCchannel123", 2)
+        policy.enroll("UCchannel123", 2, privacy_status="public")
 
 
 def test_public_consent_binds_only_newssphere_channel(tmp_path, monkeypatch):
@@ -64,7 +67,7 @@ def test_public_consent_binds_only_newssphere_channel(tmp_path, monkeypatch):
 def test_policy_fails_closed_when_persisted_policy_is_tampered(
         tmp_path, monkeypatch, tamper):
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
-    policy.enroll("UCchannel123", 2, public_consent=True)
+    policy.enroll("UCchannel123", 2, privacy_status="public", public_consent=True)
     data = json.loads(policy.policy_path().read_text(encoding="utf-8"))
     data.update(tamper)
     policy.policy_path().write_text(json.dumps(data), encoding="utf-8")
