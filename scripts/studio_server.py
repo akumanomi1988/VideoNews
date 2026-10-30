@@ -96,7 +96,7 @@ def create_script(title: str, source_text: str, source_url: str = "",
 
 
 @mcp.tool()
-def create_project(title: str, video_format: Literal["short", "long"] = "short") -> dict:
+def create_project(title: str, video_format: Literal["short", "long"] = "long") -> dict:
     """Create a blank structured project for ChatGPT-authored editorial materials."""
     return call("create_project", title=title, video_format=video_format)
 

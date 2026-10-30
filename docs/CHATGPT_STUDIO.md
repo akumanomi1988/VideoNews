@@ -218,6 +218,14 @@ square pixels with an explicit display aspect ratio.
 
 ### Editorial image direction
 
+New NewSphere projects default to landscape 16:9. Their production preferences
+recommend 390 seconds within a 300-480 second range; `studio_status` exposes the
+same defaults. The strict editorial brief remains authoritative and must contain
+the exact approved target. Explicit Shorts remain supported, and existing projects
+are not migrated. Script word counts are estimates: actual voice and final-video
+duration checks still enforce the approved timing. Do not pad runtime or increase
+paid image limits automatically to meet this preference.
+
 The workflow skill's `references/visual-direction.md` defines sequence planning,
 shot variety, action-first prompts, continuity and source boundaries, with concrete
 examples. ChatGPT authors these decisions; Studio does not call a second LLM.

@@ -107,6 +107,11 @@ def test_draft_is_persisted_atomically_and_no_review_token_leaks(studio, project
 def test_new_projects_default_to_newssphere_cinematic_without_touching_legacy_projects(studio):
     new = studio.create_project("NewSphere visual identity check")
     assert new["visual_profile"] == "NewSphere Cinematic"
+    assert new["format"] == "long" and new["aspect_ratio"] == "16:9"
+    assert new["production_preferences"]["target_duration_seconds"] == 390
+    short = studio.create_project("Explicit short preference override", video_format="short")
+    assert short["format"] == "short" and short["aspect_ratio"] == "9:16"
+    assert short["production_preferences"]["target_duration_seconds"] == 60
     old = {"id": uuid.uuid4().hex, "title": "Old project", "visual_profile": "legacy preset"}
     studio._save(old)
     assert studio._read(old["id"])["visual_profile"] == "legacy preset"

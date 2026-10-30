@@ -182,7 +182,7 @@ class VideoNewsStudio:
         del versions[:-50]
         project["schema_version"] = 2
 
-    def create_project(self, title: str, video_format: str = "short") -> dict:
+    def create_project(self, title: str, video_format: str = "long") -> dict:
         title = title.strip() if isinstance(title, str) else ""
         if not 5 <= len(title) <= 240:
             raise ValueError("title must contain 5-240 characters")
@@ -191,6 +191,8 @@ class VideoNewsStudio:
         project = {
             "schema_version": 2, "id": uuid.uuid4().hex, "title": title,
             "visual_profile": "NewSphere Cinematic",
+            "production_preferences": {"target_duration_seconds": 390 if video_format == "long" else 60,
+                                       "duration_range_seconds": [300, 480] if video_format == "long" else [45, 75]},
             "format": video_format, "aspect_ratio": _SUPPORTED[video_format],
             "sources": [], "editorial_brief": {}, "script": "", "narration": [],
             "storyboard": [], "youtube_metadata": {}, "asset_records": [],
@@ -1778,6 +1780,8 @@ class VideoNewsStudio:
             ),
             "visual_provider_primary": os.getenv("MEDIA_SOURCE", config.get("settings", {}).get("media_source", "huggingface")),
             "visual_profile_default": "NewSphere Cinematic",
+            "production_defaults": {"format": "long", "aspect_ratio": "16:9",
+                                    "target_duration_seconds": 390, "duration_range_seconds": [300, 480]},
             "image_generation_limits": {
                 "max_scenes_per_job": int(os.getenv("VIDEO_IMAGE_MAX_SCENES_PER_JOB", "12")),
                 "max_attempts_per_scene": int(os.getenv("VIDEO_IMAGE_MAX_ATTEMPTS_PER_SCENE", "2")),

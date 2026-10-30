@@ -52,7 +52,7 @@ For selected stories, create one `create_project` and save source references plu
   ],
   "format": "long",
   "aspect_ratio": "16:9",
-  "target_duration_seconds": 180,
+  "target_duration_seconds": 390,
   "editorial_angle": "The angle",
   "tone": "Dynamic, clear and factual",
   "target_audience": "Spanish-speaking NewSphere viewers",
@@ -64,7 +64,7 @@ For selected stories, create one `create_project` and save source references plu
   "destination": "NewSphere",
   "privacy_status": "private",
   "approval_status": "proposed",
-  "duration_tolerance_seconds": 18
+  "duration_tolerance_seconds": 30
 }
 ```
 
@@ -73,6 +73,23 @@ The `selected_story.primary_url` must appear in `verified_sources`. Save the sam
 When selection was delegated but production was not, save `approval_status: "proposed"`, show a concise brief, and stop. When the user approves it, update only `approval_status` to `"approved"`; the Studio then permits production if the chosen source is saved. Get a project by its exact ID before revising it.
 
 ## Produce from the approved brief
+
+For new NewSphere productions without an explicit format or duration, use landscape
+16:9 and a target of 390 seconds (6.5 minutes), within the owner's preferred 5-8
+minute range. Explicit Shorts or different durations override this preference.
+Pass `video_format: "long"` explicitly to `create_project` when applying this
+default, including in host sessions that still advertise an older tool default.
+Historical approved projects keep their existing briefs. Persist the chosen exact
+target in the brief; do not mistake a creation hint for an approved brief.
+For a 390-second Spanish narration, start around 900-1000 words as a drafting
+estimate, then verify actual TTS duration. Aim for 300-480 seconds overall and
+honor the tighter approved target tolerance. Add sourced context, explanation,
+contrasting evidence and practical implications, not filler, invented details,
+slower speech, silence or repeated conclusions. If the source material cannot
+support the duration, propose a related sourced angle instead of padding.
+Plan meaningful visual beats around every 8-15 seconds, with varied compositions
+and original explanatory graphics. Check the configured image cap before paid
+production; do not silently increase it or hold a few generic images for minutes.
 
 Before authoring scene prompts, read [visual direction](references/visual-direction.md).
 Plan a visual progression with specific actions and varied shot families; use a
