@@ -74,6 +74,11 @@ When selection was delegated but production was not, save `approval_status: "pro
 
 ## Produce from the approved brief
 
+Before authoring scene prompts, read [visual direction](references/visual-direction.md).
+Plan a visual progression with specific actions and varied shot families; use a
+shared photographic treatment without repeating dark offices, monitors or blue
+holograms. Review the sequence for redundancy before paid image generation.
+
 1. Draft original narration in ChatGPT, grounded in the retrieved sources. Save it with `save_script`. Match scene narration exactly to the script and persist a coherent scene-by-scene `save_storyboard`; every scene needs a unique ID and a concrete visual prompt.
 2. Aim for the approved spoken duration. For Spanish speech, estimate at a natural delivery rate, then verify the actual TTS duration. Studio enforces the target tolerance after synthesis and again after rendering; revise the script if it falls outside the approved range. Do not silently change target duration, format, or orientation.
 3. For NewSphere Cinematic, call `generate_images` as the primary visual step after saving the storyboard. Supply one scene-specific prompt per scene; the tool persists each image with `scene_id`, SHA-256, provider/model, prompt, dimensions and synthetic-media provenance, and skips valid completed assets on resume. Do not send generic article phrases as prompts. Use infographic or diagram prompts for exact facts, maps, numbers or named events; never imply an AI illustration is documentary evidence. If generation fails, stop and report the exact scene/provider failure. Never silently replace it with Pexels or a placeholder. Use `generate_stock_images` only when the user/project explicitly chooses licensed stock; preserve photographer/license/source credits. The configured image provider can incur charges, and no cost should be invented.

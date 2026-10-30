@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "videonews-ai-studio",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Private Windows MCP studio for NewSphere Cinematic original AI visuals, conversational editorial workflows, narrated production, quality review, and owner-authorized YouTube publishing.",
   "author": {
     "name": "AkumaDev"

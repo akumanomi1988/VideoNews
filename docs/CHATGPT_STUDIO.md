@@ -215,3 +215,16 @@ requested ratio (allowing supported provider dimensions such as 1360x768).
 Rendering rejects visuals with the opposite orientation. FFmpeg fits/crops to
 the target canvas before camera motion, preserves subject proportions, and writes
 square pixels with an explicit display aspect ratio.
+
+### Editorial image direction
+
+The workflow skill's `references/visual-direction.md` defines sequence planning,
+shot variety, action-first prompts, continuity and source boundaries, with concrete
+examples. ChatGPT authors these decisions; Studio does not call a second LLM.
+The optional legacy automated-provider path uses the same editorial objectives
+from `scripts/AI/visual_direction.py` when generating image descriptions.
+The cinematic preset preserves scene-specific locations and light instead of
+imposing dark offices and blue monitors. Thumbnail presets also preserve the
+caller-authored topic; they no longer substitute an unrelated fixed subject.
+These instructions require actual contact-sheet review after generation: passing
+prompt-contract tests is not evidence of improved visual quality.

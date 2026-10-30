@@ -24,11 +24,14 @@ class AspectRatio(Enum):
 class StylePreset(Enum):
     NONE = "NO TEXT."
     NEWSPHERE_CINEMATIC = (
-        "NewSphere Cinematic editorial visual identity: cinematic newsroom art direction, "
-        "deep navy and midnight blue shadows, restrained cyan highlights and small warm amber "
-        "accents, dramatic but natural key lighting, refined contrast, realistic materials, "
-        "purposeful negative space, broadcast-quality composition, coherent 35mm film language, "
-        "no text, no logos, no watermarks, no random decorative elements."
+        "NewSphere Cinematic: editorial film-still craft, believable materials and anatomy, "
+        "purposeful visual hierarchy, layered depth and a coherent photographic treatment. "
+        "Honor the scene's specific action, location, viewpoint and lighting. Use navy, cyan "
+        "and warm amber as restrained connecting accents, not an obligatory dark-blue wash. "
+        "Preserve daylight, environmental color and the subject's natural textures when specified. "
+        "Do not add offices, monitors, holograms, robots or decorative technology unless the scene "
+        "explicitly calls for them. Reserve unobtrusive caption-safe space within the environment, "
+        "not a blank band. No generated text, logos, watermarks or documentary implications."
     )
     VINTAGE = "NO TEXT. Sepia tones with retro cars and vintage architecture, enhanced with a grainy effect, shot with a 35mm film camera for an authentic nostalgic feel."
     MINIMALIST = "NO TEXT. Clean and uncluttered design featuring geometric forms and soft pastel tones, illuminated by high-key lighting in a studio shot that emphasizes simplicity."
@@ -40,7 +43,13 @@ class StylePreset(Enum):
     SURREALIST = "NO TEXT. Dreamlike elements with warped shapes and juxtaposed objects, illuminated by ethereal light and captured with a macro lens to enhance surreal qualities."
     ABSTRACT = "NO TEXT. Non-representational imagery featuring vibrant splashes of color and sharp contrasts, captured in close-up macro shots to create visual intrigue."
     REALISM = "NO TEXT. Faithful depiction of scenes with natural colors, medium shot, and balanced light that emphasize fine details for an authentic look."
-    YOUTUBE_THUMBNAIL = "Image without text. High-contrast, vibrant colors with a clean and focused composition. Sharp HD quality, ensuring crystal-clear details. A strikingly seductive woman with an expressive, engaging gaze, her slightly parted lips hinting at playful intrigue. Her captivating eyes lock onto the viewer, radiating confidence and allure. The shot is a half-height close-up, perfectly framing her elegant features. The background is softly blurred and neutral, ensuring no distractions while emphasizing her charm. Balanced lighting enhances her beauty, creating depth and warmth. The overall aesthetic is eye-catching, sophisticated, and irresistibly captivating."
+    YOUTUBE_THUMBNAIL = (
+        "Editorial YouTube thumbnail with one topic-specific focal idea, a clear silhouette, "
+        "purposeful visual contrast and readable composition at small size. Follow the supplied "
+        "subject and truth boundaries; do not add unrelated people, seductive poses or clickbait "
+        "objects. Reserve natural negative space for deterministic title composition. "
+        "No generated lettering, logos, watermarks or false documentary claims."
+    )
     DISNEY = "NO TEXT. Whimsical, colorful characters with large expressive eyes and soft, rounded features. Magical backgrounds, fairy-tale atmosphere, and a warm, inviting color palette inspired by classic Disney animation."
     PIXAR = "NO TEXT. 3D animated style with vibrant colors, exaggerated expressions, and cinematic lighting. Playful and heartwarming, with a focus on storytelling and emotional depth, reminiscent of Pixar movies."
     KIDS_BOOK = "NO TEXT. Simple, playful illustrations with bold outlines and bright, cheerful colors. Friendly characters and imaginative scenes, as seen in classic children's picture books."
@@ -93,9 +102,7 @@ class FluxImageGenerator:
 
     def generate_image(self, custom_prompt, style_preset: StylePreset, aspect_ratio: AspectRatio,
                        max_attempts: int | None = None):
-        if style_preset == StylePreset.YOUTUBE_THUMBNAIL:
-            final_prompt = style_preset.value
-        elif style_preset == StylePreset.NONE:
+        if style_preset == StylePreset.NONE:
             final_prompt = custom_prompt
         else:
             final_prompt = f"{custom_prompt}. with this style -> {style_preset.value}"
