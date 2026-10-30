@@ -21,6 +21,9 @@ def inspect_streams(video, duration):
     sound = next((item for item in streams if item.get("codec_type") == "audio"), {})
     fps = float(Fraction(picture.get("avg_frame_rate", "0/1")))
     av_drift = abs(float(picture.get("duration", duration)) - float(sound.get("duration", 0)))
+    pixel_aspect = picture.get("sample_aspect_ratio")
+    if pixel_aspect and pixel_aspect != "1:1":
+        issues.append("Video pixels must have a square sample aspect ratio (1:1)")
     if picture.get("pix_fmt") != "yuv420p":
         issues.append("Video pixel format must be yuv420p")
     if not 24 <= fps <= 60:
@@ -47,6 +50,8 @@ def inspect_streams(video, duration):
         issues.append("Audio true peak must stay at or below -0.5 dBTP")
     return {"method": "complete FFmpeg frame/audio decode", "decode_ok": result.returncode == 0,
             "width": picture.get("width"), "height": picture.get("height"), "fps": fps,
+            "sample_aspect_ratio": pixel_aspect,
+            "display_aspect_ratio": picture.get("display_aspect_ratio"),
             "pixel_format": picture.get("pix_fmt"), "av_duration_drift_seconds": av_drift,
             "integrated_lufs": integrated, "true_peak_dbtp": peak,
             "black_intervals": intervals, "issues": issues}

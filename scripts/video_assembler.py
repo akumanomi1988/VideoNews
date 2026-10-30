@@ -364,18 +364,19 @@ class VideoAssembler(VideoAssemblerInterface):
             elif fc > 1 and motion in ("subtle_pan_left", "subtle_pan_right"):
                 zoom_expr = "1.025"
                 progress = f"on/({fc}-1)" if motion == "subtle_pan_right" else f"1-on/({fc}-1)"
-                x_expr = f"iw/2-(iw/zoom/2)+(iw-iw/zoom)*0.8*({progress})"
+                x_expr = f"(iw-iw/zoom)*({progress})"
             else:
                 zoom_expr, x_expr = "1", "iw/2-(iw/zoom/2)"
             y_expr = "ih/2-(ih/zoom/2)"
             filters.append(
-                f"[{i}:v]zoompan=z='{zoom_expr}':"
+                f"[{i}:v]scale=w={target_w}:h={target_h}:force_original_aspect_ratio=increase,"
+                f"crop={target_w}:{target_h},setsar=1,zoompan=z='{zoom_expr}':"
                 f"x='{x_expr}':y='{y_expr}':"
                 f"d={fc}:fps={fps}:"
                 f"s={target_w}x{target_h},"
                 f"scale=w={target_w}:h={target_h}:force_original_aspect_ratio=1,"
                 f"pad=w={target_w}:h={target_h}:x=(ow-iw)/2:y=(oh-ih)/2:color=black,"
-                f"eq=contrast=1.025:saturation=0.98,setpts=PTS-STARTPTS[s{i}]"
+                f"setsar=1,eq=contrast=1.025:saturation=0.98,setpts=PTS-STARTPTS[s{i}]"
             )
             concat_labels.append(f"[s{i}]")
 

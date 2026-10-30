@@ -206,3 +206,12 @@ Studio acceptance targets, not claims about mandatory YouTube upload limits.
 Opening/closing fades are allowed, while prolonged black output is rejected.
 Technical acceptance does not establish factual accuracy, semantic image matching,
 or visual originality; inspect the generated contact sheet and narration.
+
+Changing a brief between 9:16 and 16:9 invalidates its scene images and their
+asset associations as well as the rendered video and thumbnail. Rewrite scene
+prompts for the new composition before requesting images. Generation rejects
+contradictory aspect-ratio prompts and provider results more than 3% from the
+requested ratio (allowing supported provider dimensions such as 1360x768).
+Rendering rejects visuals with the opposite orientation. FFmpeg fits/crops to
+the target canvas before camera motion, preserves subject proportions, and writes
+square pixels with an explicit display aspect ratio.

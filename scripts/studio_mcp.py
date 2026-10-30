@@ -359,9 +359,11 @@ class VideoNewsStudio:
                 scene["narration"] = ""
             project["voice"] = project["word_boundaries"] = ""
             project["subtitles"] = project["video"] = ""
-        if changed & {"visual_strategy", "image_sources"}:
+        if changed & {"visual_strategy", "image_sources", "format", "aspect_ratio"}:
             project["images"] = []
             project["asset_records"] = []
+            for scene in project.get("storyboard", []):
+                scene["asset_ids"] = []
             project["video"] = ""
         if changed & {"format", "aspect_ratio", "visual_strategy", "target_duration_seconds"}:
             project["video"] = ""
@@ -765,6 +767,9 @@ class VideoNewsStudio:
                    for prompt in prompt_by_scene.values()):
                 raise StudioError("Every storyboard scene needs a specific 5-1500 character visual_prompt")
             for scene in scenes:
+                conflicting_ratio = "16:9" if project["aspect_ratio"] == "9:16" else "9:16"
+                if conflicting_ratio in prompt_by_scene[scene["id"]]:
+                    raise StudioError(f"Scene {scene['id']} visual prompt conflicts with the approved aspect ratio")
                 details = [scene.get("visual_concept", ""), scene.get("composition", "")]
                 if scene.get("documented_facts"):
                     details.append("Source-supported context: " + "; ".join(scene["documented_facts"]))
@@ -821,6 +826,9 @@ class VideoNewsStudio:
                 except Exception as exc:
                     raise StudioError(f"Generated visual for scene {scene_id} is corrupt") from exc
                 digest = self._hash(generated)
+                expected_ratio = 9 / 16 if project["aspect_ratio"] == "9:16" else 16 / 9
+                if abs((width / height) / expected_ratio - 1) > 0.03:
+                    raise StudioError(f"Generated visual for scene {scene_id} does not match the approved aspect ratio")
                 if any(record.get("sha256") == digest for record in records):
                     raise StudioError(f"Provider returned a duplicate image for scene {scene_id}")
                 target = image_dir / (scene_id.replace("/", "_") + "_" + uuid.uuid4().hex[:10] + generated.suffix.lower())
@@ -1232,6 +1240,14 @@ class VideoNewsStudio:
                 from PIL import Image
                 with Image.open(path) as image:
                     image.verify()
+                with Image.open(path) as image:
+                    portrait = image.height > image.width
+                    if portrait != (project.get("aspect_ratio") == "9:16"):
+                        raise StudioError(
+                            f"Scene {scene_id} visual orientation conflicts with the approved video format; "
+                            "supply a matching visual before rendering")
+            except StudioError:
+                raise
             except Exception as exc:
                 raise StudioError(f"Visual asset for scene {scene_id} is corrupt") from exc
             ordered.append(path)

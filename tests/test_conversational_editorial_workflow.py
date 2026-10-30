@@ -140,6 +140,22 @@ def test_dynamic_horizontal_revision_keeps_the_same_active_project(tmp_path):
     assert saved["editorial_brief"]["approval_status"] == "proposed"
 
 
+def test_aspect_change_invalidates_portrait_assets_even_without_strategy_change(tmp_path):
+    studio = VideoNewsStudio(tmp_path / "studio")
+    project = studio.create_project("Orientation revision")
+    initial = brief(status="approved")
+    save(studio, project["id"], initial)
+    state = studio._read(project["id"])
+    state.update(images=["portrait.png"], asset_records=[{"id": "portrait", "scene_id": "scene-1"}],
+                 storyboard=[{"id": "scene-1", "asset_ids": ["portrait"]}], video="portrait.mp4")
+    studio._save(state)
+    revised = dict(initial, format="long", aspect_ratio="16:9")
+    result = save(studio, project["id"], revised)
+    assert result["images"] == result["asset_records"] == []
+    assert result["storyboard"][0]["asset_ids"] == []
+    assert result["video"] == ""
+
+
 def test_create_requires_user_approval_and_does_not_publish(tmp_path):
     studio = VideoNewsStudio(tmp_path / "studio")
     project = studio.create_project("Approved production briefing")

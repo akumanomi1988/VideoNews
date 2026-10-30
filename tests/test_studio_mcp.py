@@ -727,7 +727,8 @@ def _approved_image_project(studio, title="Cinematic image mapping proof"):
     return project["id"]
 
 
-def test_ai_images_map_one_to_each_scene_and_resume_completed_assets(studio, monkeypatch):
+@pytest.mark.parametrize("wrong_ratio", [False, True])
+def test_ai_images_map_one_to_each_scene_and_resume_completed_assets(studio, monkeypatch, wrong_ratio):
     from PIL import Image
     from scripts.AI import text_to_image
 
@@ -751,10 +752,16 @@ def test_ai_images_map_one_to_each_scene_and_resume_completed_assets(studio, mon
         def generate_image(self, prompt, style, ratio):
             self.calls.append((prompt, style, ratio))
             target = self.output_dir / f"fixture-{len(self.calls)}.png"
-            Image.new("RGB", (32, 32), (len(self.calls) * 30, 20, 60)).save(target)
+            Image.new("RGB", (32, 32) if wrong_ratio else (36, 64),
+                      (len(self.calls) * 30, 20, 60)).save(target)
             return str(target)
 
     monkeypatch.setattr(text_to_image, "FluxImageGenerator", Generator)
+    if wrong_ratio:
+        with pytest.raises(StudioError, match="approved aspect ratio"):
+            studio.generate_images(job_id)
+        assert studio.get_project(job_id)["asset_records"] == []
+        return
     first = studio.generate_images(job_id)
     assert first["generated"] == 2
     saved = studio.get_project(job_id)
@@ -802,7 +809,7 @@ def test_ai_image_partial_failure_persists_success_and_never_falls_back(studio, 
             if self.calls == 2:
                 raise RuntimeError("provider unavailable")
             target = self.output_dir / "partial.png"
-            Image.new("RGB", (32, 32), "navy").save(target)
+            Image.new("RGB", (36, 64), "navy").save(target)
             return str(target)
 
     monkeypatch.setattr(text_to_image, "FluxImageGenerator", Generator)
