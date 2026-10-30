@@ -1681,7 +1681,7 @@ class VideoNewsStudio:
                 upload_language, requested_privacy)
             if thumbnail_path:
                 uploader.validate_thumbnail(
-                    thumbnail_path, expected_aspect=brief["aspect_ratio"])
+                    thumbnail_path, expected_aspect="16:9")
 
             history = publishing_policy.records()
             if any(r.get("project_id") == job_id and r.get("outcome") in (

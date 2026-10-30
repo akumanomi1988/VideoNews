@@ -247,7 +247,7 @@ def test_review_without_video_disallows_approval(studio, project):
         studio.review_video(project["id"], approve=True)
 
 
-def _authorize(studio, project, monkeypatch, privacy_status="private"):
+def _authorize(studio, project, monkeypatch, privacy_status="private", create_thumbnail=False):
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
         returncode=0, stdout="20.5\n"))
     monkeypatch.setattr(studio, "_probe_media", lambda _path: {
@@ -260,6 +260,10 @@ def _authorize(studio, project, monkeypatch, privacy_status="private"):
     studio.save_editorial_brief(project["id"], brief)
     studio.save_youtube_metadata(project["id"], {
         "title": "Verified test video", "description": "Source: Example authority.", "tags": []})
+    if create_thumbnail:
+        from PIL import Image
+        Image.new("RGB", (768, 1360), "navy").save(project["images"][0], format="PNG")
+        studio.create_thumbnail(project["id"])
     # Upload-policy tests isolate authorization and idempotency. Actual media QA
     # is exercised by the FFmpeg integration suite with real generated fixtures.
     monkeypatch.setattr(studio, "review_video", lambda _job_id: {
@@ -278,7 +282,7 @@ def _set_brief_privacy(studio, project, privacy_status):
     studio.save_editorial_brief(project["id"], brief)
 
 
-def _install_fake_youtube(monkeypatch, upload):
+def _install_fake_youtube(monkeypatch, upload, thumbnail_validation=None):
     class Uploader:
         def __init__(self, client_secrets_file, token_file=None):
             assert Path(client_secrets_file).is_absolute()
@@ -297,6 +301,8 @@ def _install_fake_youtube(monkeypatch, upload):
             return None
 
         def validate_thumbnail(self, *args, **kwargs):
+            if thumbnail_validation is not None:
+                thumbnail_validation.append((args, kwargs))
             return None
 
         def verify_video(self, video_id, expected_channel_id, expected_privacy_status):
@@ -355,20 +361,22 @@ def test_owner_granted_private_upload_and_idempotence(studio, project, monkeypat
 def test_exact_owner_grant_can_publish_public_once_to_newssphere(
         studio, project, monkeypatch, tmp_path):
     from scripts import publishing_policy
-
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
     studio.save_youtube_metadata(project["id"], {
         "title": "An explicitly approved public test Short",
         "description": "Source-backed report.", "tags": []})
-    grant = _authorize(studio, project, monkeypatch, privacy_status="public")
+    grant = _authorize(studio, project, monkeypatch, privacy_status="public",
+                       create_thumbnail=True)
     assert grant["privacy"] == "public"
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(return_value={"id": "YT_PUBLIC_ONE_USE_1"})
-    _install_fake_youtube(monkeypatch, upload)
+    thumbnail_validation = []
+    _install_fake_youtube(monkeypatch, upload, thumbnail_validation)
 
     result = studio.publish_youtube(project["id"], privacy_status="public")
     assert result["privacy"] == "public"
     assert upload.call_args.kwargs["privacy_status"] == "public"
+    assert thumbnail_validation[0][1]["expected_aspect"] == "16:9"
     assert publishing_policy.records()[-1]["outcome"] == "uploaded"
     assert publishing_policy.records()[-1]["privacy_status"] == "public"
     assert studio.publish_youtube(project["id"])['already_published'] is True
