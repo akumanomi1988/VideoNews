@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 import tempfile
 import os
+import re
 
 
 def voice_filter(highpass=False, equalize=False, compress=False):
@@ -29,6 +30,11 @@ def probe_audio(source):
 def prepare_loop(source, output, crossfade=.5):
     """Build a circular crossfade unit; the join retains waveform continuity."""
     rate,duration=probe_audio(source)
+    analysis=subprocess.run(['ffmpeg','-nostdin','-hide_banner','-i',str(source),'-af','volumedetect','-f','null','-'],
+        capture_output=True,text=True,stdin=subprocess.DEVNULL,check=True,timeout=120)
+    peak=re.search(r'max_volume:\s*(-?[\d.]+) dB',analysis.stderr)
+    if not peak or float(peak.group(1)) < -70:
+        raise ValueError('Selected music is silent or unmeasurable')
     if not math.isfinite(crossfade) or not .05<=crossfade<=min(2,duration/3):
         raise ValueError('Music must be long enough for the configured crossfade')
     graph=(f'[0:a]asplit=3[a][b][c];[a]atrim=start={crossfade}:end={duration-crossfade},asetpts=PTS-STARTPTS[mid];'

@@ -117,6 +117,16 @@ structured items and optional narration-relative animation cues; poll its job.
 For animated graphics, generate aligned voice first and supply zero-based
 `cue_word_indices` for the scene's normalized words. Studio derives real timings;
 do not guess cue seconds. Regenerate a graphic if its narration timing is stale.
+Prefer `cue_phrases`, one exact spoken phrase per item, with one-based
+`cue_occurrences` when a phrase repeats. Missing, overlapping or ambiguous phrases
+fail instead of using approximate timing. Choose the differentiated layout and
+explicit source/target/label relations for flow and scientific diagrams. Supported
+motion: reveal, bars, highlight, timeline, path, move, before_after. Production maps
+require an owner-staged source-bound dataset registered with `import_geometry`;
+never invent coordinates. Use `configure_audio` for per-project EQ, compression,
+music level/ducking and AAC bitrate. Normal rendering performs measured PCM
+mastering once and skips redundant renderer normalization. Mandatory music credits
+are inserted automatically; missing authorized tracks mean no music with a reason.
 Use `select_music` to persist a licensed local track selection or explicit no-track
 reason. Do not fabricate music rights or geographic geometry. Kokoro's main
 narration is now its lossless WAV; auxiliary MP3 is optional. See repository

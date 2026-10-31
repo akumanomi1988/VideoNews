@@ -184,7 +184,8 @@ class VideoNewsStudio:
             raise ValueError("video_format must be short or long")
         project = {
             "schema_version": 2, "id": uuid.uuid4().hex, "title": title,
-            "visual_profile": "NewSphere Cinematic",
+            "visual_profile": "NewSphere Cinematic", "audio_settings": {},
+            "music_selection": {"track": None, "reason": "No authorized music selected"},
             "production_preferences": {"target_duration_seconds": 240 if video_format == "long" else 60,
                                        "minimum_duration_seconds": 180 if video_format == "long" else 10,
                                        "duration_range_seconds": [180, 300] if video_format == "long" else [45, 75]},
@@ -546,6 +547,9 @@ class VideoNewsStudio:
             self._require_editable(project)
             if any(item.get("synthetic_media") for item in project.get("asset_records", [])):
                 clean["contains_synthetic_media"] = True
+            credit=(project.get('music_selection',{}).get('track') or {}).get('attribution','')
+            from scripts.music_credit import apply_credit
+            clean['description']=apply_credit(clean['description'],credit)
             project["youtube_metadata"] = clean
             project["title"] = title
             project["summary"] = description
@@ -1302,7 +1306,7 @@ class VideoNewsStudio:
             images = self._ordered_scene_assets(project)
             if not images or not all(p.is_file() and p.stat().st_size for p in images):
                 raise StudioError("Generate images first")
-            audio = Path(project["voice"]) if project["voice"] else None
+            audio, music, mastered, bitrate = self._production_audio(project) if project.get("voice") else (None,None,False,None)
             srt = Path(project["subtitles"]) if project["subtitles"] else None
             if not audio or not audio.is_file() or not srt or not srt.is_file() or not srt.stat().st_size:
                 raise StudioError("Generate narration and subtitles first")
@@ -1319,7 +1323,7 @@ class VideoNewsStudio:
                                        scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                        synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                        scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                                       background_music=self._music_path(project))
+                                       background_music=music, audio_mastered=mastered, audio_bitrate=bitrate)
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
@@ -1351,7 +1355,7 @@ class VideoNewsStudio:
                 self._require_editable(project)
                 self._require_approved_brief(project)
                 images = self._ordered_scene_assets(project)
-                audio = Path(project["voice"]) if project["voice"] else None
+                audio, music, mastered, bitrate = self._production_audio(project) if project.get("voice") else (None,None,False,None)
                 srt = Path(project["subtitles"]) if project["subtitles"] else None
                 if not images or not all(p.is_file() and p.stat().st_size for p in images):
                     raise StudioError("Import reviewed images first")
@@ -1370,7 +1374,7 @@ class VideoNewsStudio:
                                scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                        scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                               background_music=self._music_path(project)).assemble_video(
+                               background_music=music, audio_mastered=mastered, audio_bitrate=bitrate).assemble_video(
                                    position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
                     raise StudioError("Preview render produced no playable video")
@@ -1747,7 +1751,7 @@ class VideoNewsStudio:
             # from being mislabeled as an uncertain YouTube insert.
             metadata = project.get("youtube_metadata", {})
             upload_title = metadata.get("title", project["title"])[:90]
-            upload_description = metadata.get("description", project["summary"])[:4000]
+            upload_description = metadata.get("description", project["summary"])
             upload_tags = metadata.get("tags", [])
             upload_language = metadata.get("language", "es")
             thumbnail_path = metadata.get("thumbnail_path") or None
@@ -1871,6 +1875,14 @@ class VideoNewsStudio:
                 raise ValueError('Unknown storyboard scene')
             if specification.get('aspect_ratio', '16:9') != project['aspect_ratio']:
                 raise ValueError('Graphic orientation must match the approved project')
+            if specification.get('kind')=='geographic_map':
+                record=project.get('geometry_records',{}).get(specification.get('geometry_id'))
+                if not record or self._hash(Path(record['path']))!=record['sha256']:
+                    raise StudioError('Map requires an integrity-checked imported geometry_id')
+                geometry=json.loads(Path(record['path']).read_text(encoding='utf-8'))
+                if specification.get('geometry') and specification['geometry']!=geometry:
+                    raise StudioError('Inline map geometry differs from the imported dataset')
+                specification=dict(specification,geometry=geometry,geometry_source=record['source_url'])
             timing_sha = None
             if specification.get('animation', 'none') != 'none':
                 from scripts.graphic_timing import bind_timing
@@ -1882,7 +1894,9 @@ class VideoNewsStudio:
             result = GraphicsEngine(s['url'] for s in project['sources']).render(
                 specification, self._dir(job_id) / 'graphics')
             existing = [a for a in project.get('asset_records', []) if a.get('scene_id') == scene_id]
-            if len(existing)==1 and existing[0].get('sha256')==result['sha256'] and existing[0].get('animation_sha256')==result.get('animation_sha256'):
+            if (len(existing)==1 and existing[0].get('sha256')==result['sha256'] and
+                Path(existing[0].get('path','')).is_file() and self._hash(Path(existing[0]['path']))==result['sha256'] and
+                existing[0].get('animation_sha256')==result.get('animation_sha256')):
                 if timing_sha and existing[0].get('animation_timing_sha256')!=timing_sha:
                     existing[0]['animation_timing_sha256']=timing_sha
                     project['video']=''
@@ -1918,6 +1932,10 @@ class VideoNewsStudio:
             self._require_editable(project)
             selection = MusicLibrary(os.getenv('VIDEO_MUSIC_LIBRARY', 'assets/music')).select(mood, category)
             project['music_selection'] = selection
+            credit=(selection.get('track') or {}).get('attribution','')
+            from scripts.music_credit import apply_credit
+            metadata=project.setdefault('youtube_metadata',{})
+            metadata['description']=apply_credit(metadata.get('description',''),credit)
             project['video'] = ''
             self._invalidate_review(project)
             self._save(project)
@@ -1929,10 +1947,50 @@ class VideoNewsStudio:
         from scripts.music_library import MusicLibrary
         path=MusicLibrary(os.getenv('VIDEO_MUSIC_LIBRARY','assets/music')).verify_selection(project['music_selection'])
         if not path:return None
-        from scripts.audio_engine import prepare_loop
+        from scripts.audio_engine import prepare_loop,probe_audio
+        declared=project['music_selection']['track']['duration']
+        if abs(probe_audio(path)[1]-declared)>max(.1,declared*.01):
+            raise StudioError('Music duration differs from its licensed catalog record')
         target=self._dir(project['id'])/'music_loop.wav'
         prepare_loop(path,target)
         return str(target)
+
+    def configure_audio(self, job_id: str, settings: dict) -> dict:
+        from scripts.production_audio import AudioSettings
+        validated=AudioSettings.model_validate(settings).model_dump()
+        with _LOCK:
+            project=self._read(job_id);self._require_editable(project)
+            project['audio_settings']=validated;project['video']=''
+            self._invalidate_review(project);self._save(project)
+        return validated
+
+    def import_geometry(self, job_id: str, staged_filename: str, source_url: str) -> dict:
+        if Path(staged_filename).name!=staged_filename or not staged_filename.endswith('.geojson'):
+            raise ValueError('Stage a plain .geojson filename in the import inbox')
+        with _LOCK:
+            project=self._read(job_id);self._require_editable(project)
+            if source_url not in {s['url'] for s in project['sources']}:
+                raise ValueError('Register the geographic dataset source first')
+            path=(self.workspace/'_imports'/staged_filename).resolve()
+            if path.parent!=(self.workspace/'_imports').resolve() or path.stat().st_size>5*1024*1024:
+                raise ValueError('Geometry must be a staged file up to 5 MB')
+            data=json.loads(path.read_text(encoding='utf-8'))
+            from scripts.graphics_engine import GraphicsEngine
+            GraphicsEngine([source_url]).validate({'kind':'geographic_map','title':'Geometry validation',
+                'items':[{'label':'Dataset','source_url':source_url}], 'geometry':data,'geometry_source':source_url})
+            digest=self._hash(path);folder=self._dir(job_id)/'geometry';folder.mkdir(exist_ok=True)
+            target=folder/(digest+'.geojson');shutil.copy2(path,target)
+            record={'id':digest,'path':str(target),'sha256':digest,'source_url':source_url}
+            project.setdefault('geometry_records',{})[digest]=record;self._save(project)
+            return record
+
+    def _production_audio(self, project):
+        music=self._music_path(project)
+        if 'audio_settings' not in project:return Path(project['voice']),music,False,None
+        from scripts.production_audio import master, AudioSettings
+        settings=AudioSettings.model_validate(project['audio_settings'])
+        audio=master(project['voice'],music,settings.model_dump(),self._dir(project['id']))
+        return audio,None,True,f'{settings.bitrate_kbps}k'
 
     def list_projects(self, limit: int = 20) -> list[dict]:
         if not 1 <= limit <= 100:

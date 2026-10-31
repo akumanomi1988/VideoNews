@@ -14,6 +14,8 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 
 from scripts.studio_mcp import VideoNewsStudio
+from scripts.production_audio import AudioSettings
+from scripts.graphics_engine import GraphicSpec
 
 mcp = FastMCP("VideoNews AI Studio")
 _stdio_lock = threading.RLock()
@@ -224,16 +226,28 @@ def get_project(job_id: str) -> dict:
 
 
 @mcp.tool()
-def generate_graphic(job_id: str, scene_id: str, specification: dict) -> dict:
+def generate_graphic(job_id: str, scene_id: str, specification: GraphicSpec) -> dict:
     """Render a source-bound local graphic and optional timed animation; import its still into the scene."""
     return call("start_job", action="generate_graphic", project_id=job_id,
-                arguments={"scene_id": scene_id, "specification": specification})
+                arguments={"scene_id": scene_id, "specification": specification.model_dump()})
 
 
 @mcp.tool()
 def select_music(job_id: str, mood: str = "ambient", category: str = "Neutral Ambient") -> dict:
     """Persist a licensed local music selection or an explicit no-track reason."""
     return call("select_music", job_id=job_id, mood=mood, category=category)
+
+
+@mcp.tool()
+def import_geometry(job_id: str, staged_filename: str, source_url: str) -> dict:
+    """Register an owner-staged source-bound GeoJSON polygon, preserving its checksum."""
+    return call('import_geometry',job_id=job_id,staged_filename=staged_filename,source_url=source_url)
+
+
+@mcp.tool()
+def configure_audio(job_id: str, settings: AudioSettings) -> dict:
+    """Persist strict per-project EQ/compression, music level, ducking and AAC bitrate settings."""
+    return call('configure_audio',job_id=job_id,settings=settings.model_dump())
 
 
 @mcp.tool()

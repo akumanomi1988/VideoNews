@@ -32,12 +32,16 @@ class GraphicSpec(BaseModel):
     aspect_ratio: Literal['16:9','9:16'] = '16:9'
     items: list[Datum] = Field(min_length=1,max_length=6)
     unit: str = Field(default='',max_length=25)
-    animation: Literal['none','reveal','bars','highlight'] = 'none'
+    animation: Literal['none','reveal','bars','highlight','timeline','path','move','before_after'] = 'none'
     cue_seconds: list[float] = Field(default_factory=list)
     cue_word_indices: list[int] = Field(default_factory=list)
     duration: float = Field(default=8.,ge=1,le=120)
     geometry: dict | None = None
     geometry_source: str = ''
+    geometry_id: str = ''
+    relations: list[dict] = Field(default_factory=list,max_length=12)
+    cue_phrases: list[str] = Field(default_factory=list)
+    cue_occurrences: list[int] = Field(default_factory=list)
 
 
 class GraphicsEngine:
@@ -50,8 +54,21 @@ class GraphicsEngine:
             raise ValueError('Durations and cues must be finite')
         if spec.animation == 'bars' and spec.kind != 'statistical_chart':
             raise ValueError('Bar animation requires a statistical chart')
+        if spec.animation=='before_after' and (spec.kind!='comparison' or len(spec.items)!=2):
+            raise ValueError('Before/after requires a comparison with exactly two states')
+        if spec.animation=='timeline' and spec.kind!='timeline':
+            raise ValueError('Timeline progression requires a timeline layout')
+        if spec.animation=='path' and spec.kind not in ('timeline','process_diagram','flow_diagram','scientific_schematic'):
+            raise ValueError('Path drawing requires a connected diagram or timeline')
         if any(x.source_url not in self.sources for x in spec.items):
             raise ValueError('Every datum must reference a registered project source')
+        for relation in spec.relations:
+            if (set(relation)!={'source','target','label'} or
+                any(type(relation[k])!=int or not 0<=relation[k]<len(spec.items) for k in ('source','target')) or
+                relation['source']==relation['target'] or not isinstance(relation['label'],str) or len(relation['label'])>30):
+                raise ValueError('Relations require valid distinct item indices and a short label')
+        if spec.kind in ('scientific_schematic','flow_diagram') and len(spec.items)>1 and not spec.relations:
+            raise ValueError('Scientific and flow diagrams require explicit source-supported relationships')
         if spec.kind == 'geographic_map':
             if spec.geometry_source not in self.sources or not spec.geometry or spec.geometry.get('type')!='Polygon':
                 raise ValueError('Maps require source-bound GeoJSON Polygon geometry')
@@ -87,31 +104,22 @@ class GraphicsEngine:
             scale=min((w*.35)/(max(xs)-min(xs)),(h*.4)/(max(ys)-min(ys)))
             polygon=[(int(w*.57+(x-min(xs))*scale),int(h*.7-(y-min(ys))*scale)) for x,y in points]
             d.polygon(polygon,fill='#144957',outline='#22d4df',width=4)
-        maximum=max([x.value or 0 for x in spec.items]+[1])
-        for i,item in enumerate(spec.items):
+        from scripts.graphic_layouts import boxes, item, connections
+        positions=boxes(spec,w,h)
+        for i,box in enumerate(positions):
             cue=spec.cue_seconds[i] if spec.cue_seconds else 0
-            if time is not None and time<cue: continue
-            y=y0+i*step
-            available = w*.42 if spec.kind=='geographic_map' else w-2*margin-(250 if spec.kind=='statistical_chart' else 50)
-            if d.textbbox((0,0),item.label,font=font(size))[2]>available:
-                raise ValueError('Label exceeds safe width; shorten it')
-            color='#ffbd65' if spec.animation=='highlight' and time is not None and cue<=time<cue+1 else '#22d4df'
-            d.ellipse((margin,y+8,margin+16,y+24),fill=color)
-            d.text((margin+35,y),item.label,font=font(size),fill='white')
-            if spec.kind=='statistical_chart':
-                progress=min(1,max(0,(time-cue)/.7)) if time is not None else 1
-                length=int((w-2*margin)*.65*(item.value/maximum)*progress)
-                d.rectangle((margin+35,y+size+5,margin+35+max(1,length),y+size+17),fill=color)
-                d.text((w-margin-180,y),f'{item.value:g} {spec.unit}',font=font(28),fill='white')
-            elif spec.kind in ('process_diagram','flow_diagram','timeline') and i<len(spec.items)-1:
-                d.line((margin+8,y+28,margin+8,y+step),fill=color,width=3)
-        d.text((margin,int(h*.81)),'Fuentes registradas en el proyecto · Gráfico explicativo',font=font(23),fill='#9bb9c6')
+            if time is None or time>=cue:item(d,spec,i,box,font)
+        # Draw relationship labels last so node fills cannot cover their text.
+        if time is None:connections(d,spec,positions,font)
+        caption='Proyección equirectangular · Geometría de fuente registrada' if spec.kind=='geographic_map' else 'Fuentes registradas en el proyecto · Gráfico explicativo'
+        d.text((margin,int(h*.81)),caption,font=font(23),fill='#9bb9c6')
         im.save(output)
         return output
 
     def render(self,data,folder):
         spec=self.validate(data);folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
-        digest=hashlib.sha256(spec.model_dump_json().encode()).hexdigest()[:16]
+        version='layout-v3-motion-v2-stat-scale-v2:' if spec.kind=='statistical_chart' else 'layout-v3-motion-v2:'
+        digest=hashlib.sha256((version+spec.model_dump_json()).encode()).hexdigest()[:16]
         receipt=folder/(digest+'.json')
         if receipt.is_file():
             try:
@@ -124,16 +132,18 @@ class GraphicsEngine:
                 Path(cached['png']).is_file() and hashlib.sha256(Path(cached['png']).read_bytes()).hexdigest()==cached['sha256'] and
                 (not cached.get('animation') or Path(cached['animation']).is_file() and
                  hashlib.sha256(Path(cached['animation']).read_bytes()).hexdigest()==cached.get('animation_sha256'))):
+                if cached.get('static_layout_revision')!=4:
+                    self.draw(spec,cached['png'])
+                    cached['sha256']=hashlib.sha256(Path(cached['png']).read_bytes()).hexdigest()
+                    cached['static_layout_revision']=4
+                    from scripts.atomic_storage import write_json
+                    write_json(receipt,cached)
                 return cached
         png=folder/(digest+'.png');self.draw(spec,png)
-        result={'png':str(png),'sha256':hashlib.sha256(png.read_bytes()).hexdigest(),'spec':spec.model_dump(),'provider':'NewSphere GraphicsEngine'}
+        result={'png':str(png),'sha256':hashlib.sha256(png.read_bytes()).hexdigest(),'spec':spec.model_dump(),'provider':'NewSphere GraphicsEngine','static_layout_revision':4}
         if spec.animation!='none':
-            video=folder/(digest+'.mp4')
-            with tempfile.TemporaryDirectory(dir=folder) as tmp:
-                for frame in range(round(spec.duration*24)):
-                    self.draw(spec,Path(tmp)/f'{frame:05}.png',frame/24)
-                subprocess.run(['ffmpeg','-nostdin','-y','-v','error','-framerate','24','-i',str(Path(tmp)/'%05d.png'),
-                    '-c:v','libx264','-pix_fmt','yuv420p','-preset','veryfast',str(video)],stdin=subprocess.DEVNULL,check=True,timeout=600)
+            from scripts.graphic_motion import render
+            video=render(self,spec,folder,digest,_font)
             result['animation']=str(video)
             result['animation_sha256']=hashlib.sha256(video.read_bytes()).hexdigest()
         with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=folder,suffix='.json.tmp',delete=False) as stream:

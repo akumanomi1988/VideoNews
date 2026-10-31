@@ -106,6 +106,8 @@ class VideoAssembler(VideoAssemblerInterface):
         scene_transitions: Optional[List[str]] = None,
         synthetic_scene_flags: Optional[List[bool]] = None,
         scene_video_files: Optional[List[str]] = None,
+        audio_mastered: bool = False,
+        audio_bitrate: Optional[str] = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.subtitle_file = subtitle_file
@@ -120,6 +122,8 @@ class VideoAssembler(VideoAssemblerInterface):
         self.scene_transitions = scene_transitions or []
         self.synthetic_scene_flags = synthetic_scene_flags or []
         self.scene_video_files = scene_video_files or []
+        self.audio_mastered = audio_mastered
+        self.audio_bitrate = audio_bitrate or os.getenv('VIDEO_AUDIO_BITRATE','320k')
         if any(value not in {"slow_push_in", "slow_pull_out", "subtle_pan_left", "subtle_pan_right", "static"}
                for value in self.scene_motions):
             raise ValueError("Unsupported scene camera movement")
@@ -418,7 +422,8 @@ class VideoAssembler(VideoAssemblerInterface):
         a_main = num_images
         fade_start = max(0.0, audio_duration - 2.0)
         filters.append(
-            f"[{a_main}:a]alimiter=limit=0.95:level=false,afade=t=out:st={fade_start}:d=2[voice]"
+            f"[{a_main}:a]anull[voice]" if self.audio_mastered else
+            f"[{a_main}:a]alimiter=limit=0.95:level=false:latency=true,afade=t=out:st={fade_start}:d=2[voice]"
         )
         audio_map = "[voice]"
         a_total = a_main + 1
@@ -436,7 +441,9 @@ class VideoAssembler(VideoAssemblerInterface):
             filters.append("[voicemix][ducked]amix=inputs=2:duration=first:dropout_transition=2[mix]")
             audio_map = "[mix]"
 
-        if self._has_audible_audio(str(self.voiceover_file)):
+        if self.audio_mastered:
+            pass  # Measured normalization already occurred once in production_audio.
+        elif self._has_audible_audio(str(self.voiceover_file)):
             filters.append(f"{audio_map}loudnorm=I=-16:TP=-1.5:LRA=11[outa]")
             audio_map = "[outa]"
         else:
@@ -546,7 +553,7 @@ class VideoAssembler(VideoAssemblerInterface):
             '-crf', str(max(16, min(28, int(os.getenv('VIDEO_RENDER_CRF', '20'))))),
             '-c:a', 'aac',
             '-ac', '2',
-            '-b:a', os.getenv('VIDEO_AUDIO_BITRATE', '320k'),
+            '-b:a', self.audio_bitrate,
             '-shortest',
             '-movflags', '+faststart',
             str(self.output_file)

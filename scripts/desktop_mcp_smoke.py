@@ -57,6 +57,11 @@ async def verify() -> None:
             async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=30)) as session:
                 await session.initialize()
                 names = {tool.name for tool in (await session.list_tools()).tools}
+                schemas={t.name:t.inputSchema for t in (await session.list_tools()).tools}
+                if 'configure_audio' not in names or 'bitrate_kbps' not in json.dumps(schemas['configure_audio']):
+                    raise RuntimeError('Strict per-project audio contract missing')
+                if 'cue_phrases' not in json.dumps(schemas['generate_graphic']):
+                    raise RuntimeError('Phrase-anchored graphic contract missing')
                 missing = REQUIRED_TOOLS - names
                 if missing:
                     raise RuntimeError("Missing MCP tools: " + ", ".join(sorted(missing)))
@@ -83,7 +88,29 @@ async def verify() -> None:
                     "provenance": {"source": "Original offline smoke-test graphic", "synthetic_media": False}})
                 if imported.isError:
                     raise RuntimeError("Cold MCP image dependency/import check failed")
+                configured=await session.call_tool('configure_audio',{'job_id':created['id'],
+                    'settings':{'equalize':True,'bitrate_kbps':320}})
+                if configured.isError:raise RuntimeError('Per-project audio tool failed')
+                await session.call_tool('save_sources',{'job_id':created['id'],'sources':[{
+                    'title':'Controlled offline fixture','url':'https://example.org/fixture',
+                    'publisher':'Test fixture','published_at':'','summary':'Not a real news claim'}]})
+                await session.call_tool('save_storyboard',{'job_id':created['id'],'scenes':[{
+                    'id':'smoke','narration':'Controlled test narration.','visual_prompt':'Original offline test graphic'}]})
+                generated=await session.call_tool('generate_graphic',{'job_id':created['id'],'scene_id':'smoke',
+                    'specification':{'kind':'fact_card','title':'Offline graphic','aspect_ratio':'9:16',
+                        'items':[{'label':'Controlled test graphic','source_url':'https://example.org/fixture'}]}})
+                if generated.isError:raise RuntimeError('Native graphic MCP call failed')
+                task=_result_data(generated)
+                async with asyncio.timeout(30):
+                    while True:
+                        await asyncio.sleep(.1)
+                        response=await session.call_tool('get_job',{'job_id':task['job_id']})
+                        job=response.structuredContent or json.loads(response.content[0].text)
+                        if 'status' not in job:job=job['result']
+                        if job['status'] in ('succeeded','failed'):break
+                if job['status']!='succeeded':raise RuntimeError(str(job))
                 print(f"PASS: packaged launcher, MCP handshake, {len(names)} tools, status, list_projects and cold image import")
+                print('PASS: strict configure_audio and asynchronous source-bound generate_graphic over MCP')
                 print("ChatGPT Desktop app connection remains a separate acceptance test.")
     # Let Windows Proactor transports finish closing before asyncio shuts down.
     await asyncio.sleep(.5)
