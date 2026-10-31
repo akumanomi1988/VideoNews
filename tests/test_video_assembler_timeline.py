@@ -51,3 +51,37 @@ def test_scene_frame_counts_cover_output_exactly():
     assert len(counts) == 3
     assert sum(counts) == 101
     assert all(count > 0 for count in counts)
+
+
+def test_real_scene_transition_starts_at_its_narration_boundary(tmp_path, monkeypatch):
+    import json
+    import shutil
+    import subprocess
+
+    import pytest
+    from PIL import Image
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg is required")
+    monkeypatch.setenv("VIDEO_RENDER_RESOLUTION", "360p")
+    images = []
+    for name, color in (("first", "red"), ("second", "blue")):
+        path = tmp_path / f"{name}.png"
+        Image.new("RGB", (640, 360), color).save(path)
+        images.append(str(path))
+    audio = tmp_path / "voice.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=4", str(audio)], check=True)
+    output = tmp_path / "timed.mp4"
+    VideoAssembler(voiceover_file=str(audio), output_file=str(output), media_images=images,
+                   aspect_ratio="16:9", image_durations=[0.7, 3.3],
+                   scene_motions=["static", "static"], scene_transitions=["crossfade", "crossfade"]).assemble_video()
+    frame = tmp_path / "before-transition.png"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "0.6", "-i", str(output),
+                    "-frames:v", "1", str(frame)], check=True)
+    with Image.open(frame) as image:
+        red, green, blue = image.convert("RGB").getpixel((320, 180))
+    assert red > 220 and blue < 30, "Next scene appeared before its narration boundary"
+    probe = json.loads(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(output)]))
+    assert abs(float(probe["format"]["duration"]) - 4) < 0.05

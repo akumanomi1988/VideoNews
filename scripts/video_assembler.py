@@ -334,13 +334,19 @@ class VideoAssembler(VideoAssemblerInterface):
             raise ValueError("scene_transitions must have one entry per image")
         transition_seconds = min(0.35, max(0.0, audio_duration / max(2, num_images * 4)))
         overlap_frames = int(round(transition_seconds * fps))
+        # Quantize fades to the same frame clock as scene lengths. Otherwise
+        # fractional overlap errors accumulate and shorten the final narration.
+        transition_seconds = overlap_frames / fps
         target_frames = max(num_images, int(round(audio_duration * fps)))
         if self.image_durations is None:
             frame_counts = self._allocate_frame_counts([1.0] * num_images,
                                                        target_frames + overlap_frames * (num_images - 1))
         else:
-            frame_counts = self._allocate_frame_counts(
-                self.image_durations, target_frames + overlap_frames * (num_images - 1))
+            # Preserve spoken boundaries; add overlap locally rather than
+            # redistributing it proportionally across all narration segments.
+            base_counts = self._allocate_frame_counts(self.image_durations, target_frames)
+            frame_counts = [count + (overlap_frames if i < num_images - 1 else 0)
+                            for i, count in enumerate(base_counts)]
             if len(frame_counts) != num_images:
                 raise ValueError("image_durations must have one entry per valid image")
 

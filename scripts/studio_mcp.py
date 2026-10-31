@@ -1480,13 +1480,11 @@ class VideoNewsStudio:
                     except (StudioError, ValueError):
                         scene_durations = None
                     if scene_durations and len(scene_durations) == len(project.get("storyboard", [])):
-                        transition = min(0.35, max(0.0, duration_for_samples /
-                                                   max(2, len(scene_durations) * 4)))
                         cursor = 0.0
                         for index, scene in enumerate(project["storyboard"]):
                             sample_points.append((scene["id"], cursor + scene_durations[index] / 2))
                             if index < len(scene_durations) - 1:
-                                cursor += scene_durations[index] - transition
+                                cursor += scene_durations[index]
                     else:
                         sample_points = [
                             (f"Frame {index + 1}",
