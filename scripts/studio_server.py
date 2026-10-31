@@ -172,10 +172,11 @@ def list_assets(job_id: str) -> list[dict]:
 
 
 @mcp.tool()
-def generate_voice(job_id: str, voice: str = "es-ES-ElviraNeural") -> dict:
-    """Narrate with existing Edge TTS, producing audio and word-level SRT timing."""
+def generate_voice(job_id: str, voice: str | None = None, provider: str | None = None,
+                   speed: float | None = None) -> dict:
+    """Narrate using Kokoro CPU with acoustic alignment, or explicitly selected Edge."""
     return call("start_job", action="generate_voice", project_id=job_id,
-                arguments={"voice": voice})
+                arguments={"voice": voice, "provider": provider, "speed": speed})
 
 
 @mcp.tool()
@@ -235,4 +236,10 @@ def list_projects(limit: int = 20) -> list[dict]:
 
 
 if __name__ == "__main__":
+    # Windows NumPy/Pillow DLL initialization can block when first imported
+    # inside a tool while stdio reader threads are already active. Initialize
+    # the existing renderer dependencies before starting those readers.
+    # This does not load optional Kokoro/ONNX dependencies into Studio.
+    import numpy
+    from PIL import Image
     mcp.run(transport="stdio")

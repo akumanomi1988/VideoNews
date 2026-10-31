@@ -48,7 +48,10 @@ notepad .env
 ```
 
 Bootstrap preserves an existing `.env` and secrets. Configure `SERPAPI_API_KEY`
-for live discovery. Edge TTS uses a network service. The example configuration
+for live discovery. New narrations use Kokoro ONNX on CPU in an isolated runtime,
+with acoustic forced alignment of the known Spanish transcript. Run
+`scripts/setup_local_voice.ps1` once; see [local voice setup](docs/LOCAL_VOICE.md).
+Edge TTS remains an explicitly selected network alternative. The example configuration
 enables Azure image generation (`MEDIA_SOURCE=huggingface` is the compatibility
 alias for Azure MAI); valid Azure endpoint and key values are still required.
 Azure image requests may incur charges. Turn generation off by setting

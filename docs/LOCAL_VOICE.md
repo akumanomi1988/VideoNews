@@ -1,4 +1,4 @@
-# CPU voice audition on the NewSphere Windows PC
+# CPU production narration on the NewSphere Windows PC
 
 The observed machine has an Intel Core i7-2600 (4 cores / 8 threads), 16 GB RAM
 and a GTX 660 Ti with 2 GB VRAM. Kokoro ONNX was tested with the explicit
@@ -38,14 +38,49 @@ are em_alex, ef_dora and em_santa. The runtime lives in the ignored `output/`
 directory and uses `requirements.voice.lock.txt`; Studio's NumPy/MoviePy environment
 is not upgraded or modified. Setup does not register a service or paid provider.
 
-## Production boundary
+## Production provider and alignment
 
-This is a working local voice audition, not a silently activated replacement for
-Studio narration. This Kokoro path returns audio without verified word boundaries.
-The existing scene/subtitle workflow needs actual word alignment; character-count
-timings must not be substituted. Until an alignment integration is implemented and
-validated, production keeps its existing TTS path. A preferred voice can be chosen
-by listening to the samples before that integration is completed.
+New Studio narrations default to Kokoro `em_alex`, speed 1.0, CPU. Set
+`TTS_PROVIDER=edge` to explicitly choose the existing network provider. Supported
+Kokoro voices are `em_alex`, `ef_dora`, and `em_santa`; the MCP call accepts
+`generate_voice(job_id, provider="kokoro", voice="em_alex", speed=1.0)`.
+An existing call with an explicit `es-ES-...Neural` voice still selects Edge.
+There is no automatic fallback when local speech or alignment fails.
+
+The isolated worker loads Kokoro and multilingual Whisper base once per job.
+CTranslate2 runs Whisper in CPU int8 mode. Its `align` operation consumes the
+actual generated waveform and **known transcript tokens**, then derives word
+intervals from cross-attention using dynamic time warping. It does not substitute
+an ASR transcript, or distribute words/characters across the duration. Setup
+downloads the alignment model once; production requires local files and does not
+download a missing model in the middle of a job.
+
+Natural sentence chunks are bounded to a 29-second encoder window. Real PCM
+lengths plus explicit 120 ms gaps determine chunk offsets. Zero-duration words,
+transcript mismatches, overlaps, low-confidence regions and silent output fail
+the job. `alignment_failure.json` and `alignment_failed.wav` identify a failed
+region. Confidence is an acoustic screening heuristic, not proof of semantic
+correctness or subjective voice quality. Review names and pronunciation.
+
+Hash-checked `voice_chunks/` preserve completed synthesis/alignment on retry.
+The project retains `voice_metadata`; `voice_report.json` includes exact regions,
+word intervals, model hash and timings. Outputs are PCM16/24 kHz `narration.wav`,
+high-quality `narration.mp3`, and pipeline-compatible `word_boundaries.srt`.
+`generate_subtitles` and scene synchronization use the same existing path as Edge.
+Render loudness normalization remains in the existing FFmpeg pipeline.
+
+Write numbers and abbreviations as they should be spoken in the authored script.
+Do not insert unsupported emotional markup or change approved wording silently.
+The separate `local_voice_lab.py` remains an audition-only utility.
+
+Montreal Forced Aligner requires a separate acoustic/dictionary toolchain;
+WhisperX adds PyTorch and additional alignment models. Neither was installed.
+The chosen CTranslate2 path reuses a moderate multilingual CPU model, works on
+the observed i7-2600 without AVX2/GPU, and directly aligns known Spanish text.
+
+Run the optional real test after setup (FFmpeg must be on PATH):
+`$env:VIDEONEWS_LIVE_KOKORO='1'; .venv\Scripts\python.exe -m pytest tests/test_kokoro_production.py -q`.
+Ordinary regression tests do not install or download optional voice dependencies.
 
 Piper is another CPU/Windows option, but is not automatically a quality improvement
 over Edge. Its engine and individual voice-model licenses are separate and each
@@ -58,6 +93,8 @@ been installed merely to provide more options.
 - Model card, Apache-2.0 weights and production use:
   https://huggingface.co/hexgrad/Kokoro-82M
 - Spanish voices: https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md
+- CPU runtime/alignment: https://github.com/SYSTRAN/faster-whisper
+- CTranslate2 alignment: https://opennmt.net/CTranslate2/python/ctranslate2.models.Whisper.html
 - Piper voices and per-model licensing: https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/VOICES.md
 
 No paid image generation, new paid speech API, upload, or voice cloning was used

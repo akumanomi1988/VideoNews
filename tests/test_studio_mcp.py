@@ -95,6 +95,61 @@ def test_published_project_can_be_reviewed_without_changing_publication(studio, 
     assert (studio._dir(project["id"]) / "project.json").read_bytes() == before
 
 
+def test_original_import_source_is_accepted_without_remote_provider(studio, project, monkeypatch):
+    from PIL import Image, ImageDraw
+    path = studio._dir(project["id"]) / "original.png"
+    image = Image.new("RGB", (108, 192), "navy")
+    ImageDraw.Draw(image).rectangle((20, 30, 80, 100), fill="cyan")
+    image.save(path)
+    project["storyboard"] = [{"id": "original", "narration": project["script"]}]
+    project["asset_records"] = [{"scene_id": "original", "path": str(path),
+        "sha256": studio._hash(path), "provenance": {"source": "Original channel-owned diagram"}}]
+    project["images"] = [str(path)]
+    studio._save(project)
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(returncode=1, stdout="", stderr="fixture"))
+    report = studio.review_video(project["id"])
+    assert not any("unverified or placeholder visual" in issue for issue in report["issues"])
+    project["asset_records"][0]["provenance"] = {}
+    studio._save(project)
+    assert any("unverified or placeholder visual" in issue for issue in studio.review_video(project["id"])["issues"])
+
+
+def test_framed_thumbnail_uses_selected_integrity_checked_scene(studio, project):
+    from PIL import Image
+    first = studio._dir(project["id"]) / "red.png"
+    selected = studio._dir(project["id"]) / "green.png"
+    Image.new("RGB", (1280, 720), "red").save(first)
+    Image.new("RGB", (1280, 720), "green").save(selected)
+    project["images"] = [str(first), str(selected)]
+    project["asset_records"] = [{"scene_id": "green", "path": str(selected), "sha256": studio._hash(selected)}]
+    project["youtube_metadata"] = {"thumbnail_text": "A CLEAR SUBJECT", "thumbnail_scene_id": "green", "thumbnail_layout": "framed"}
+    studio._save(project)
+    output = studio.create_thumbnail(project["id"])
+    with Image.open(output["thumbnail"]) as result:
+        r, g, b = result.getpixel((640, 200))
+        assert g > r and g > b
+    selected.write_bytes(b"changed after review")
+    with pytest.raises(StudioError, match="checksum"):
+        studio.create_thumbnail(project["id"])
+
+
+def test_long_voice_job_retains_assets_saved_by_another_worker(studio, project, monkeypatch):
+    from scripts import tts_service
+    def worker(text, folder, config, provider, voice, speed):
+        current = studio._read(project["id"])
+        current["asset_records"] = [{"id": "persisted-during-synthesis"}]
+        studio._save(current)
+        (folder / "narration.mp3").write_bytes(b"controlled audio")
+        (folder / "word_boundaries.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nThis\n")
+        return {"provider": "kokoro", "voice": "em_alex"}
+    monkeypatch.setattr(tts_service, "synthesize", worker)
+    monkeypatch.setattr(studio, "_probe_duration", lambda path: 20)
+    studio.generate_voice(project["id"], provider="kokoro", voice="em_alex")
+    saved = studio.get_project(project["id"])
+    assert saved["asset_records"] == [{"id": "persisted-during-synthesis"}]
+    assert saved["voice_metadata"]["provider"] == "kokoro"
+
+
 def test_draft_is_persisted_atomically_and_no_review_token_leaks(studio, project):
     p = studio.get_project(project["id"])
     assert p["title"] == project["title"]

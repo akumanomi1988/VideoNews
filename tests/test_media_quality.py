@@ -8,7 +8,7 @@ from scripts.media_quality import inspect_streams
 
 
 @pytest.mark.parametrize("size", ["180x320", "320x180"])
-def test_real_decode_accepts_both_orientations_and_rejects_silence(tmp_path, size):
+def test_real_decode_accepts_both_orientations_and_rejects_silence(tmp_path, size, monkeypatch):
     if not shutil.which("ffmpeg"):
         pytest.skip("FFmpeg is required")
     for silent in (False, True):
@@ -18,7 +18,16 @@ def test_real_decode_accepts_both_orientations_and_rejects_silence(tmp_path, siz
                         f"testsrc2=size={size}:rate=24", "-f", "lavfi", "-i", audio,
                         "-t", "2", "-af", "volume=1.5", "-c:v", "libx264", "-c:a", "aac",
                         str(video)], check=True, capture_output=True)
-        report = inspect_streams(video, 2)
+        original_run = subprocess.run
+        def protocol_isolated_run(command, **kwargs):
+            # Child media tools must never inherit/consume the MCP JSON-RPC pipe.
+            assert kwargs.get("stdin") == subprocess.DEVNULL
+            if command[0] == "ffmpeg":
+                assert "-nostdin" in command
+            return original_run(command, **kwargs)
+        with monkeypatch.context() as patch:
+            patch.setattr(subprocess, "run", protocol_isolated_run)
+            report = inspect_streams(video, 2)
         assert report["decode_ok"]
         assert bool(report["issues"]) == silent
 

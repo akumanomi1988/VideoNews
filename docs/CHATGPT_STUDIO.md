@@ -267,3 +267,10 @@ skill and [local CPU voice auditions](LOCAL_VOICE.md) for the measured Windows
 Kokoro evaluation. Audition audio is available; production word alignment for that
 optional engine is not yet verified. The current production voice is not changed
 silently by installing the isolated audition environment.
+# Kokoro production narration
+
+New narrations default to isolated CPU Kokoro ONNX, `em_alex` at speed 1.0.
+`generate_voice` accepts optional `provider`, `voice`, and `speed`; explicit historic
+Edge voice calls remain compatible. The known transcript is acoustically aligned
+with CTranslate2 Whisper base int8. Missing models or uncertain alignment fail
+without a fallback. See [local voice setup and evidence](LOCAL_VOICE.md).

@@ -533,11 +533,15 @@ class VideoNewsStudio:
                 raise ValueError(f"{key} must contain exactly {count} options when supplied")
             if any(not isinstance(value, str) or not value.strip() or len(value) > limit for value in values):
                 raise ValueError(f"{key} contains an invalid option")
+        if metadata.get("thumbnail_layout", "overlay") not in ("overlay", "framed"):
+            raise ValueError("thumbnail_layout must be overlay or framed")
         clean = {"title": title, "description": description,
                  "tags": [str(tag)[:60] for tag in tags[:30]],
                  "hashtags": [str(tag)[:80] for tag in metadata.get("hashtags", [])[:15]],
                  "thumbnail_concept": str(metadata.get("thumbnail_concept", ""))[:1000],
                  "thumbnail_text": str(metadata.get("thumbnail_text", title))[:100],
+                 "thumbnail_scene_id": str(metadata.get("thumbnail_scene_id", ""))[:100],
+                 "thumbnail_layout": str(metadata.get("thumbnail_layout", "overlay")),
                  "thumbnail_path": "",
                  "language": str(metadata.get("language", "es"))[:10],
                  "category_id": str(metadata.get("category_id", "25"))[:4],
@@ -975,15 +979,30 @@ class VideoNewsStudio:
             if not images or not Path(images[0]).is_file():
                 raise StudioError("Create or import at least one scene visual before the thumbnail")
             metadata = project.get("youtube_metadata", {})
+            scene_id = metadata.get("thumbnail_scene_id")
+            if scene_id:
+                match = next((a for a in project.get("asset_records", []) if a.get("scene_id") == scene_id), None)
+                if not match:
+                    raise StudioError("Thumbnail scene must reference an existing project asset")
+                source_path = Path(match["path"])
+                if self._hash(source_path) != match.get("sha256"):
+                    raise StudioError("Thumbnail source failed checksum validation")
+            else:
+                source_path = images[0]
             title = str(metadata.get("thumbnail_text") or metadata.get("title", project["title"]))
             text_lines = textwrap.wrap(title[:80], width=22, break_long_words=True)[:3]
-            source = Image.open(images[0]).convert("RGB")
+            source = Image.open(source_path).convert("RGB")
             # Portrait scene art usually places people and key objects above
             # center. Favor that region when converting a Short asset to a 16:9
             # thumbnail, so the crop does not cut through faces.
             focal_point = (0.5, 0.22) if source.height > source.width else (0.5, 0.5)
             canvas = ImageOps.fit(source, (1280, 720), method=Image.Resampling.LANCZOS,
                                   centering=focal_point).convert("RGBA")
+            if metadata.get("thumbnail_layout") == "framed":
+                # Keep the complete informative subject above the text card.
+                canvas = Image.new("RGBA", (1280, 720), (5, 20, 34, 255))
+                subject = ImageOps.contain(source, (1240, 480), method=Image.Resampling.LANCZOS)
+                canvas.paste(subject, ((1280 - subject.width) // 2, (492 - subject.height) // 2))
             overlay = Image.new("RGBA", canvas.size, (5, 20, 34, 95))
             canvas = Image.alpha_composite(canvas, overlay)
             draw = ImageDraw.Draw(canvas)
@@ -1075,23 +1094,26 @@ class VideoNewsStudio:
             self._save(project)
             return {"job_id": job_id, "asset": record}
 
-    def generate_voice(self, job_id: str, voice: str = "es-ES-ElviraNeural") -> dict:
-        """Use the existing Edge TTS engine and its word-level timing events."""
-        if not re.fullmatch(r"[a-z]{2}-[A-Z]{2}-[A-Za-z0-9]+Neural", voice):
-            raise ValueError("Invalid Edge TTS voice name")
+    def generate_voice(self, job_id: str, voice: str | None = None,
+                       provider: str | None = None, speed: float | None = None) -> dict:
+        """Synthesize with an explicit provider and real acoustic word timing."""
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
             brief = self._require_approved_brief(project)
-            from scripts.AI.text_to_speech import TTSEdge
+            from scripts.tts_service import synthesize
             folder = self._dir(job_id)
             audio = folder / "narration.mp3"
             boundaries = folder / "word_boundaries.srt"
-            engine = TTSEdge(output_dir=str(folder))
-            engine.text_to_speech_file(
-                project["script"], language=voice[:2], voice=voice,
-                output_path=str(audio), srt_path=str(boundaries),
-            )
+            report = synthesize(project["script"], folder, self._config(), provider, voice, speed)
+            # Synthesis runs for minutes in an isolated process. Preserve unrelated
+            # assets persisted by other worker processes while it was running.
+            current = self._read(job_id)
+            self._require_editable(current)
+            if current.get("script") != project.get("script"):
+                raise StudioError("Script changed during synthesis; rerun voice for the active revision")
+            project = current
+            brief = self._require_approved_brief(project)
             if (not audio.is_file() or audio.stat().st_size == 0
                     or not boundaries.is_file() or not boundaries.stat().st_size):
                 raise StudioError("TTS did not produce audio with word-boundary subtitles")
@@ -1104,6 +1126,7 @@ class VideoNewsStudio:
                     f"target {brief['target_duration_seconds']}s ± {tolerance}s; revise the script"
                 )
             project["voice"] = str(audio)
+            project["voice_metadata"] = report
             project["actual_narration_duration_seconds"] = actual_duration
             project["word_boundaries"] = str(boundaries)
             project["subtitles"] = ""
@@ -1122,7 +1145,7 @@ class VideoNewsStudio:
             boundary_path = Path(project["word_boundaries"]) if project.get("word_boundaries") else None
             if (not boundary_path or not boundary_path.is_file()
                     or not boundary_path.read_text(encoding="utf-8").strip()):
-                raise StudioError("Generate Edge TTS narration with word boundaries first")
+                raise StudioError("Generate narration with verified word boundaries first")
             from scripts.MediaManagers.SRT_Processor import SRTProcessor
             path = self._dir(job_id) / "subtitles.srt"
             shutil.copy2(boundary_path, path)
@@ -1473,7 +1496,9 @@ class VideoNewsStudio:
                         problems.append(f"Duplicate image assigned to scene {scene['id']}")
                     hashes.add(record.get("sha256"))
                     provenance = record.get("provenance")
-                    provider = provenance.get("provider", "") if isinstance(provenance, dict) else str(provenance or "")
+                    # Owner-staged original graphics use the public import contract
+                    # (source + synthetic_media), not a remote provider name.
+                    provider = (provenance.get("provider") or provenance.get("source", "")) if isinstance(provenance, dict) else str(provenance or "")
                     if not provider or provider.casefold() == "placeholder" or "placeholder" in asset_path.name.casefold():
                         problems.append(f"Scene {scene['id']} contains an unverified or placeholder visual")
                     try:
@@ -1518,7 +1543,7 @@ class VideoNewsStudio:
                     for index, (_scene_id, at) in enumerate(sample_points):
                         frame = contact_path.with_name(f"_qa_frame_{index}.jpg")
                         capture = subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", str(video),
-                                                  "-frames:v", "1", "-vf", "scale=320:-1", str(frame)],
+                                                  "-frames:v", "1", "-vf", "scale=320:-1", "-nostdin", str(frame)],
                                                  capture_output=True, text=True, timeout=30)
                         if capture.returncode or not frame.is_file():
                             problems.append("Could not extract representative frames for visual QA")
@@ -1786,6 +1811,7 @@ class VideoNewsStudio:
         paid_images = os.getenv("VIDEO_ENABLE_PAID_IMAGE_GENERATION", "false").lower() in ("true", "1", "yes")
         from scripts.publishing_policy import load as load_publish_policy
         publishing = load_publish_policy()
+        from scripts.tts_service import kokoro_status
         return {
             "server": "VideoNews AI Studio",
             "transport": "stdio",
@@ -1794,6 +1820,8 @@ class VideoNewsStudio:
             "ffprobe_available": shutil.which("ffprobe") is not None,
             "news_search_configured": bool(config.get("serpapi", {}).get("api_key")),
             "edge_tts_version": edge_version,
+            "tts_provider": config["tts"]["provider"],
+            "kokoro": kokoro_status(config),
             "image_import_inbox_ready": (self.workspace / "_imports").is_dir(),
             "paid_image_generation_enabled": bool(
                 paid_images and images.get("endpoint") and images.get("api_key")

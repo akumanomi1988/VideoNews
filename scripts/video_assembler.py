@@ -517,7 +517,7 @@ class VideoAssembler(VideoAssemblerInterface):
         self.logger.info(f"Subtitles: {'ON' if has_subtitles else 'OFF'} (map label: {last_video_label})")
 
         # --- Build command ---
-        cmd = ['ffmpeg', '-y']
+        cmd = ['ffmpeg', '-nostdin', '-y']
 
         for img in valid_images:
             cmd.extend(['-i', img])
@@ -557,7 +557,7 @@ class VideoAssembler(VideoAssemblerInterface):
                 df.write(f"Command: {' '.join(cmd)}\n\n")
                 df.write(f"Filter complex:\n{';'.join(filters)}\n\n")
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
             with open(debug_log, 'a', encoding='utf-8') as df:
                 df.write(f"\nExit code: {result.returncode}\n")
                 df.write(f"\nStderr:\n{result.stderr}\n")

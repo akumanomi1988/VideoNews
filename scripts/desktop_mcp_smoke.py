@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
@@ -53,7 +54,7 @@ async def verify() -> None:
             cwd=str(REPO / "chatgpt-plugin"), env=env,
         )
         async with stdio_client(params) as (reader, writer):
-            async with ClientSession(reader, writer) as session:
+            async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=30)) as session:
                 await session.initialize()
                 names = {tool.name for tool in (await session.list_tools()).tools}
                 missing = REQUIRED_TOOLS - names
@@ -68,8 +69,24 @@ async def verify() -> None:
                     raise RuntimeError("Invalid Studio transport status")
                 if _result_data(projects) != []:
                     raise RuntimeError("Temporary test workspace was not empty")
-                print(f"PASS: packaged launcher, MCP handshake, {len(names)} tools, status and list_projects")
+                # Status/list alone never load the Windows image DLLs that a
+                # production call needs. Exercise the first cold image import.
+                from PIL import Image, ImageDraw
+                inbox = Path(tmp) / "studio" / "_imports"
+                image = Image.new("RGB", (64, 36), "navy")
+                ImageDraw.Draw(image).rectangle((8, 8, 40, 28), fill="cyan")
+                image.save(inbox / "original.png")
+                created = _result_data(await session.call_tool("create_project", {
+                    "title": "Offline MCP native image dependency acceptance", "video_format": "short"}))
+                imported = await session.call_tool("import_asset", {
+                    "job_id": created["id"], "staged_filename": "original.png", "scene_id": "smoke",
+                    "provenance": {"source": "Original offline smoke-test graphic", "synthetic_media": False}})
+                if imported.isError:
+                    raise RuntimeError("Cold MCP image dependency/import check failed")
+                print(f"PASS: packaged launcher, MCP handshake, {len(names)} tools, status, list_projects and cold image import")
                 print("ChatGPT Desktop app connection remains a separate acceptance test.")
+    # Let Windows Proactor transports finish closing before asyncio shuts down.
+    await asyncio.sleep(.5)
 
 
 if __name__ == "__main__":

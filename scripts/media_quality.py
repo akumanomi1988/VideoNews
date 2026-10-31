@@ -9,13 +9,13 @@ from fractions import Fraction
 def inspect_streams(video, duration):
     """Decode every frame and measure true peak, loudness and black intervals."""
     result = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostats", "-xerror", "-i", str(video),
+        ["ffmpeg", "-nostdin", "-hide_banner", "-nostats", "-xerror", "-i", str(video),
          "-vf", "blackdetect=d=0.12:pix_th=0.02:pic_th=0.99",
          "-af", "ebur128=peak=true", "-f", "null", os.devnull],
-        capture_output=True, text=True, timeout=min(900, max(120, duration * 3)))
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=min(900, max(120, duration * 3)))
     issues = []
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(video)],
-                           capture_output=True, text=True, timeout=30)
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     streams = json.loads(probe.stdout).get("streams", []) if probe.returncode == 0 else []
     picture = next((item for item in streams if item.get("codec_type") == "video"), {})
     sound = next((item for item in streams if item.get("codec_type") == "audio"), {})
