@@ -9,6 +9,17 @@ Write a one-line visual beat for each narration segment: what new idea becomes
 visible, why that image explains this sentence, and how it differs from the previous
 scene. A person looking at an AI screen cannot illustrate every idea about AI.
 
+Increase meaningful information density. Identify the precise narrated concept,
+then choose a main action and roughly three to five relevant supporting details:
+a tool or object, a setting clue, an interaction, a visible process or comparison.
+Explain how they relate in space. Build foreground action, midground process and
+background context around one clear focal point. Do not add objects merely to
+fill the frame; an attractive image that could accompany an unrelated story fails.
+An empty room, bag, blank phone or anonymous monitor is not a default substitute
+for explaining a mechanism. Reserve such symbolic shots for an actual narrative role.
+If sources do not establish a technical device's appearance, use a clear original
+functional diagram rather than fabricating precise-looking hardware.
+
 For a seven-scene sequence, aim for at least four shot families: establishing wide,
 human-scale action, macro detail, overhead evidence arrangement, process cutaway,
 or an explicitly conceptual tableau. This is an editorial planning heuristic, not
@@ -30,6 +41,8 @@ Write prompts in English, with this order:
    object or spatial relationship that makes it relevant to the narration.
 2. **Place and depth:** foreground, focal plane and background; use details that
    explain the scene rather than decorating it.
+   Say what each supporting object reveals about the narrated point. Describe
+   purposeful activity and material texture, not a list of cinematic adjectives.
 3. **Camera and composition:** shot size, viewpoint and lens character when useful;
    specify landscape 16:9 or portrait 9:16 from the approved brief, focal position,
    room for restrained camera movement and an unobtrusive subtitle-safe area.

@@ -259,3 +259,11 @@ editorial, narrative, video, audio and publication gates. Automated media checks
 do not certify subjective narrative quality, source truth or pronunciation.
 Report those separately with actual review evidence. Owner consent and channel,
 privacy and idempotency checks remain mandatory for any upload.
+
+The writing references now require a fact/example/consequence progression and
+visually meaningful supporting detail, rather than repeated editorial cautions
+and generic symbolic shots. See `references/script-direction.md` in the workflow
+skill and [local CPU voice auditions](LOCAL_VOICE.md) for the measured Windows
+Kokoro evaluation. Audition audio is available; production word alignment for that
+optional engine is not yet verified. The current production voice is not changed
+silently by installing the isolated audition environment.

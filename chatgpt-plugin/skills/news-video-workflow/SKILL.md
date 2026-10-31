@@ -76,6 +76,9 @@ When selection was delegated but production was not, save `approval_status: "pro
 
 Read [the production standard](references/production-standard.md) for the required
 editorial/narrative workflow, packaging options, A-E gates and delivery report.
+Use [script direction](references/script-direction.md) to build a fact-rich spoken
+explanation. Avoid filling sections with repeated caveats or discussion of our
+editorial process. Every paragraph and visual beat must advance the actual story.
 Use a small lower-left circular IA marker; do not bake large banners into scene art.
 
 For new NewSphere productions without an explicit format or duration, use landscape
