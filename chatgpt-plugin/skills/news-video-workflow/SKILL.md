@@ -114,6 +114,9 @@ holograms. Review the sequence for redundancy before paid image generation.
 
 For local explanatory assets, use `generate_graphic` with registered source URLs,
 structured items and optional narration-relative animation cues; poll its job.
+For animated graphics, generate aligned voice first and supply zero-based
+`cue_word_indices` for the scene's normalized words. Studio derives real timings;
+do not guess cue seconds. Regenerate a graphic if its narration timing is stale.
 Use `select_music` to persist a licensed local track selection or explicit no-track
 reason. Do not fabricate music rights or geographic geometry. Kokoro's main
 narration is now its lossless WAV; auxiliary MP3 is optional. See repository

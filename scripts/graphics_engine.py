@@ -3,16 +3,24 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import math
+import os
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
+from functools import lru_cache
+
+
+@lru_cache(maxsize=24)
+def _font(size):
+    return ImageFont.truetype('C:/Windows/Fonts/arial.ttf', size)
 
 
 class Datum(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     label: str = Field(min_length=1, max_length=70)
-    value: float | None = None
+    value: float | None = Field(default=None, allow_inf_nan=False)
     source_url: str
 
 
@@ -26,6 +34,7 @@ class GraphicSpec(BaseModel):
     unit: str = Field(default='',max_length=25)
     animation: Literal['none','reveal','bars','highlight'] = 'none'
     cue_seconds: list[float] = Field(default_factory=list)
+    cue_word_indices: list[int] = Field(default_factory=list)
     duration: float = Field(default=8.,ge=1,le=120)
     geometry: dict | None = None
     geometry_source: str = ''
@@ -37,6 +46,10 @@ class GraphicsEngine:
 
     def validate(self, data):
         spec = GraphicSpec.model_validate(data)
+        if not math.isfinite(spec.duration) or any(not math.isfinite(t) for t in spec.cue_seconds):
+            raise ValueError('Durations and cues must be finite')
+        if spec.animation == 'bars' and spec.kind != 'statistical_chart':
+            raise ValueError('Bar animation requires a statistical chart')
         if any(x.source_url not in self.sources for x in spec.items):
             raise ValueError('Every datum must reference a registered project source')
         if spec.kind == 'geographic_map':
@@ -47,6 +60,8 @@ class GraphicsEngine:
                 raise ValueError('Provide one closed exterior polygon; holes and multipolygons are unsupported')
             if any(len(p)!=2 or not all(type(v) in (float,int) for v in p) or not -180<=p[0]<=180 or not -90<=p[1]<=90 for p in rings[0]):
                 raise ValueError('Invalid longitude/latitude geometry')
+            if max(p[0] for p in rings[0])-min(p[0] for p in rings[0])>180:
+                raise ValueError('Antimeridian-crossing geometry requires a different projection')
         if spec.kind == 'statistical_chart' and (not spec.unit or any(x.value is None or x.value < 0 for x in spec.items)):
             raise ValueError('Charts require a unit and nonnegative sourced values')
         if spec.animation != 'none' and (len(spec.cue_seconds)!=len(spec.items) or
@@ -58,7 +73,7 @@ class GraphicsEngine:
         spec = self.validate(spec) if isinstance(spec,dict) else spec
         w,h = (1920,1080) if spec.aspect_ratio=='16:9' else (1080,1920)
         im=Image.new('RGB',(w,h),(7,20,34)); d=ImageDraw.Draw(im)
-        font=lambda size: ImageFont.truetype('C:/Windows/Fonts/arial.ttf',size)
+        font=_font
         margin=int(w*.075); title_font=font(55 if w>h else 45)
         if d.textbbox((0,0),spec.title,font=title_font)[2] > w-2*margin:
             raise ValueError('Title exceeds safe width; shorten it')
@@ -77,7 +92,8 @@ class GraphicsEngine:
             cue=spec.cue_seconds[i] if spec.cue_seconds else 0
             if time is not None and time<cue: continue
             y=y0+i*step
-            if d.textbbox((0,0),item.label,font=font(size))[2]>w-2*margin-50:
+            available = w*.42 if spec.kind=='geographic_map' else w-2*margin-(250 if spec.kind=='statistical_chart' else 50)
+            if d.textbbox((0,0),item.label,font=font(size))[2]>available:
                 raise ValueError('Label exceeds safe width; shorten it')
             color='#ffbd65' if spec.animation=='highlight' and time is not None and cue<=time<cue+1 else '#22d4df'
             d.ellipse((margin,y+8,margin+16,y+24),fill=color)
@@ -96,6 +112,19 @@ class GraphicsEngine:
     def render(self,data,folder):
         spec=self.validate(data);folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
         digest=hashlib.sha256(spec.model_dump_json().encode()).hexdigest()[:16]
+        receipt=folder/(digest+'.json')
+        if receipt.is_file():
+            try:
+                cached=json.loads(receipt.read_text(encoding='utf-8'))
+            except (ValueError,OSError):
+                cached={}
+            if not isinstance(cached,dict) or not all(isinstance(cached.get(k),str) for k in ('png','sha256')):
+                cached={}
+            if (cached.get('spec') == spec.model_dump() and
+                Path(cached['png']).is_file() and hashlib.sha256(Path(cached['png']).read_bytes()).hexdigest()==cached['sha256'] and
+                (not cached.get('animation') or Path(cached['animation']).is_file() and
+                 hashlib.sha256(Path(cached['animation']).read_bytes()).hexdigest()==cached.get('animation_sha256'))):
+                return cached
         png=folder/(digest+'.png');self.draw(spec,png)
         result={'png':str(png),'sha256':hashlib.sha256(png.read_bytes()).hexdigest(),'spec':spec.model_dump(),'provider':'NewSphere GraphicsEngine'}
         if spec.animation!='none':
@@ -104,7 +133,11 @@ class GraphicsEngine:
                 for frame in range(round(spec.duration*24)):
                     self.draw(spec,Path(tmp)/f'{frame:05}.png',frame/24)
                 subprocess.run(['ffmpeg','-nostdin','-y','-v','error','-framerate','24','-i',str(Path(tmp)/'%05d.png'),
-                    '-c:v','libx264','-pix_fmt','yuv420p','-preset','veryfast',str(video)],stdin=subprocess.DEVNULL,check=True)
+                    '-c:v','libx264','-pix_fmt','yuv420p','-preset','veryfast',str(video)],stdin=subprocess.DEVNULL,check=True,timeout=600)
             result['animation']=str(video)
-        (folder/(digest+'.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+            result['animation_sha256']=hashlib.sha256(video.read_bytes()).hexdigest()
+        with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=folder,suffix='.json.tmp',delete=False) as stream:
+            json.dump(result,stream,ensure_ascii=False,indent=2)
+            temporary=stream.name
+        os.replace(temporary,receipt)
         return result

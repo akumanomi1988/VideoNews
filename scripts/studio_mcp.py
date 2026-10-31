@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from scripts.atomic_storage import write_json, process_alive
 
 _LOCK = threading.RLock()
 _JOB_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="videonews-studio")
@@ -50,9 +51,11 @@ class VideoNewsStudio:
                 try:
                     record = json.loads(path.read_text(encoding="utf-8"))
                     if record.get("status") in ("queued", "running"):
+                        if process_alive(record.get('worker_pid')):
+                            continue
                         record["status"] = "interrupted"
                         record["error"] = "Studio process exited before the job completed; review artifacts before retrying."
-                        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+                        write_json(path,record)
                 except (OSError, json.JSONDecodeError):
                     continue
 
@@ -70,16 +73,7 @@ class VideoNewsStudio:
     def _save(self, project: dict[str, Any]) -> None:
         folder = self._dir(project["id"])
         folder.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix=".project-", suffix=".json", dir=folder)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as output:
-                json.dump(project, output, ensure_ascii=False, indent=2)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(name, folder / "project.json")
-        finally:
-            if os.path.exists(name):
-                os.unlink(name)
+        write_json(folder / 'project.json', project)
 
     def _jobs_dir(self) -> Path:
         folder = self.workspace / "jobs"
@@ -107,20 +101,20 @@ class VideoNewsStudio:
                     return existing
         job_id = uuid.uuid4().hex
         record = {"job_id": job_id, "project_id": project_id, "action": action,
-                  "status": "queued", "created_at": datetime.now(timezone.utc).isoformat(),
+                  "status": "queued", "created_at": datetime.now(timezone.utc).isoformat(), "worker_pid": os.getpid(),
                   "result": None, "error": None}
         path = folder / (job_id + ".json")
         with _LOCK:
-            path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+            write_json(path,record)
             if idempotency_key:
-                idem.write_text(json.dumps({"job_id": job_id}), encoding="utf-8")
+                write_json(idem,{"job_id":job_id})
         _JOB_EXECUTOR.submit(self._run_job, path, record, dict(arguments or {}))
         return {"job_id": job_id, "project_id": project_id, "status": "queued"}
 
     def _run_job(self, path: Path, record: dict[str, Any], arguments: dict[str, Any]) -> None:
         record["status"] = "running"
         record["started_at"] = datetime.now(timezone.utc).isoformat()
-        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(path,record)
         try:
             # Provider libraries print progress; keep it off the stdio MCP protocol channel.
             with contextlib.redirect_stdout(sys.stderr):
@@ -131,7 +125,7 @@ class VideoNewsStudio:
             record["status"] = "failed"
             record["error"] = f"{type(exc).__name__}: {exc}"[:1000]
         record["finished_at"] = datetime.now(timezone.utc).isoformat()
-        path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json(path,record)
 
     def get_job(self, job_id: str) -> dict:
         if not _ID.fullmatch(job_id):
@@ -1273,7 +1267,9 @@ class VideoNewsStudio:
             if not path.is_file() or not path.stat().st_size:
                 raise StudioError(f"Visual asset for scene {scene_id} is missing")
             digest = VideoNewsStudio._hash(path)
-            if record.get('animation') and VideoNewsStudio._hash(Path(record['animation'])) != record.get('animation_sha256'):
+            if record.get('animation') and record.get('animation_timing_sha256') != VideoNewsStudio._hash(Path(project['word_boundaries'])):
+                raise StudioError('Animation narration timing changed; regenerate only the affected graphic')
+            if record.get('animation') and (not Path(record['animation']).is_file() or VideoNewsStudio._hash(Path(record['animation'])) != record.get('animation_sha256')):
                 raise StudioError('Animated scene failed checksum validation')
             if digest != record.get("sha256") or digest in seen_hashes:
                 raise StudioError(f"Visual asset for scene {scene_id} failed checksum or duplicate validation")
@@ -1323,7 +1319,7 @@ class VideoNewsStudio:
                                        scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                        synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                        scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                                       background_music=((project["music_selection"].get("track") or {}).get("path") if "music_selection" in project else self._config().get("video_result", {}).get("background_music")) or None)
+                                       background_music=self._music_path(project))
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
@@ -1374,7 +1370,7 @@ class VideoNewsStudio:
                                scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                        scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                               background_music=((project["music_selection"].get("track") or {}).get("path") if "music_selection" in project else self._config().get("video_result", {}).get("background_music")) or None).assemble_video(
+                               background_music=self._music_path(project)).assemble_video(
                                    position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
                     raise StudioError("Preview render produced no playable video")
@@ -1392,6 +1388,20 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             problems = []
+            if any(a.get('animation') for a in project.get('asset_records',[])):
+                try:
+                    self._ordered_scene_assets(project)
+                except (StudioError,OSError,KeyError) as exc:
+                    problems.append(f'Animated scene integrity: {exc}')
+            if project.get('music_selection',{}).get('track'):
+                from scripts.music_library import MusicLibrary
+                try:
+                    MusicLibrary(os.getenv('VIDEO_MUSIC_LIBRARY','assets/music')).verify_selection(project['music_selection'])
+                    credit=project['music_selection']['track'].get('attribution','')
+                    if credit and credit not in project.get('youtube_metadata',{}).get('description',''):
+                        problems.append('Required music attribution is missing from the description')
+                except (ValueError,OSError,KeyError) as exc:
+                    problems.append(f'Music authorization: {exc}')
             full_stream_quality = None
             brief = None
             try:
@@ -1859,8 +1869,33 @@ class VideoNewsStudio:
             self._require_editable(project)
             if scene_id not in {s['id'] for s in project.get('storyboard', [])}:
                 raise ValueError('Unknown storyboard scene')
+            if specification.get('aspect_ratio', '16:9') != project['aspect_ratio']:
+                raise ValueError('Graphic orientation must match the approved project')
+            timing_sha = None
+            if specification.get('animation', 'none') != 'none':
+                from scripts.graphic_timing import bind_timing
+                if not project.get('voice') or not project.get('word_boundaries'):
+                    raise StudioError('Generate aligned voice before animated graphics')
+                specification = bind_timing(project, scene_id, specification,
+                    self._probe_duration(Path(project['voice'])))
+                timing_sha = self._hash(Path(project['word_boundaries']))
             result = GraphicsEngine(s['url'] for s in project['sources']).render(
                 specification, self._dir(job_id) / 'graphics')
+            existing = [a for a in project.get('asset_records', []) if a.get('scene_id') == scene_id]
+            if len(existing)==1 and existing[0].get('sha256')==result['sha256'] and existing[0].get('animation_sha256')==result.get('animation_sha256'):
+                if timing_sha and existing[0].get('animation_timing_sha256')!=timing_sha:
+                    existing[0]['animation_timing_sha256']=timing_sha
+                    project['video']=''
+                    self._invalidate_review(project)
+                    self._save(project)
+                return dict(result, asset=existing[0], reused=True)
+            project['asset_records']=[a for a in project.get('asset_records',[]) if a.get('scene_id')!=scene_id]
+            project['images']=[a['path'] for a in project['asset_records']]
+            for scene in project['storyboard']:
+                if scene['id']==scene_id:scene['asset_ids']=[]
+            project['video']=''
+            self._invalidate_review(project)
+            self._save(project)
             name = Path(result['png']).name
             shutil.copy2(result['png'], self.workspace / '_imports' / name)
             imported = self.import_asset(job_id, name, scene_id, {
@@ -1872,6 +1907,7 @@ class VideoNewsStudio:
                 asset = next(a for a in current['asset_records'] if a['id']==imported['asset']['id'])
                 asset['animation'] = result['animation']
                 asset['animation_sha256'] = self._hash(Path(result['animation']))
+                asset['animation_timing_sha256'] = timing_sha
                 self._save(current)
             return dict(result, asset=imported['asset'])
 
@@ -1886,6 +1922,17 @@ class VideoNewsStudio:
             self._invalidate_review(project)
             self._save(project)
             return selection
+
+    def _music_path(self, project):
+        if 'music_selection' not in project:
+            return self._config().get('video_result',{}).get('background_music') or None
+        from scripts.music_library import MusicLibrary
+        path=MusicLibrary(os.getenv('VIDEO_MUSIC_LIBRARY','assets/music')).verify_selection(project['music_selection'])
+        if not path:return None
+        from scripts.audio_engine import prepare_loop
+        target=self._dir(project['id'])/'music_loop.wav'
+        prepare_loop(path,target)
+        return str(target)
 
     def list_projects(self, limit: int = 20) -> list[dict]:
         if not 1 <= limit <= 100:
