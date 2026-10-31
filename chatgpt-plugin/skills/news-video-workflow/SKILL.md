@@ -112,6 +112,13 @@ holograms. Review the sequence for redundancy before paid image generation.
 
 ## YouTube publication
 
+For local explanatory assets, use `generate_graphic` with registered source URLs,
+structured items and optional narration-relative animation cues; poll its job.
+Use `select_music` to persist a licensed local track selection or explicit no-track
+reason. Do not fabricate music rights or geographic geometry. Kokoro's main
+narration is now its lossless WAV; auxiliary MP3 is optional. See repository
+`docs/AUDIO_GRAPHICS_UPGRADE.md` for current limitations before claiming acceptance.
+
 - `publish_youtube` is only for an explicit publish request. It respects the active brief's privacy status and requires a locally enrolled owner policy or an exact one-use owner authorization.
 - Local enrollment is channel-bound, private to the Windows owner, limited to 1-100 uploads per UTC day and revocable. Its default and allowed visibility values come from `studio_status`. Only the owner can enroll or change it. ChatGPT cannot create, expand or revoke that consent through MCP.
 - For explicit `CREATE_AND_PUBLISH`, use the requested status when stated. If omitted, check `studio_status` and use the enrolled policy's default only when that policy explicitly allows it; otherwise report the local enrollment requirement.

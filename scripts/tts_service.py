@@ -56,7 +56,8 @@ def synthesize(text, folder, config, provider=None, voice=None, speed=None):
                               stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", timeout=3600)
     if result.returncode:
         raise RuntimeError("Kokoro synthesis/alignment failed: " + result.stderr[-1800:])
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(folder / "narration.wav"),
+    if config.get("tts", {}).get("export_mp3", False):
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(folder / "narration.wav"),
                     "-codec:a", "libmp3lame", "-q:a", "2", str(folder / "narration.mp3")],
-                    stdin=subprocess.DEVNULL, check=True, capture_output=True, timeout=120)
+                       stdin=subprocess.DEVNULL, check=True, capture_output=True, timeout=120)
     return json.loads((folder / "voice_report.json").read_text(encoding="utf-8"))

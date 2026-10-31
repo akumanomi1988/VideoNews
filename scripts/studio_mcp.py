@@ -88,7 +88,7 @@ class VideoNewsStudio:
 
     def start_job(self, action: str, project_id: str, arguments: dict[str, Any] | None = None,
                   idempotency_key: str = "") -> dict:
-        actions = {"generate_images", "generate_stock_images", "create_thumbnail", "generate_voice",
+        actions = {"generate_graphic", "generate_images", "generate_stock_images", "create_thumbnail", "generate_voice",
                    "generate_subtitles", "render_preview", "render_video"}
         if action not in actions:
             raise ValueError("Unsupported asynchronous studio action")
@@ -1106,6 +1106,8 @@ class VideoNewsStudio:
             audio = folder / "narration.mp3"
             boundaries = folder / "word_boundaries.srt"
             report = synthesize(project["script"], folder, self._config(), provider, voice, speed)
+            if report.get("provider") == "kokoro":
+                audio = folder / "narration.wav"
             # Synthesis runs for minutes in an isolated process. Preserve unrelated
             # assets persisted by other worker processes while it was running.
             current = self._read(job_id)
@@ -1271,6 +1273,8 @@ class VideoNewsStudio:
             if not path.is_file() or not path.stat().st_size:
                 raise StudioError(f"Visual asset for scene {scene_id} is missing")
             digest = VideoNewsStudio._hash(path)
+            if record.get('animation') and VideoNewsStudio._hash(Path(record['animation'])) != record.get('animation_sha256'):
+                raise StudioError('Animated scene failed checksum validation')
             if digest != record.get("sha256") or digest in seen_hashes:
                 raise StudioError(f"Visual asset for scene {scene_id} failed checksum or duplicate validation")
             seen_hashes.add(digest)
@@ -1318,7 +1322,8 @@ class VideoNewsStudio:
                                        scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
                                        scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                        synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
-                                       background_music=self._config().get("video_result", {}).get("background_music") or None)
+                                       scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
+                                       background_music=((project["music_selection"].get("track") or {}).get("path") if "music_selection" in project else self._config().get("video_result", {}).get("background_music")) or None)
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
@@ -1368,7 +1373,8 @@ class VideoNewsStudio:
                                scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
                                scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
-                               background_music=self._config().get("video_result", {}).get("background_music") or None).assemble_video(
+                                       scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
+                               background_music=((project["music_selection"].get("track") or {}).get("path") if "music_selection" in project else self._config().get("video_result", {}).get("background_music")) or None).assemble_video(
                                    position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
                     raise StudioError("Preview render produced no playable video")
@@ -1845,6 +1851,41 @@ class VideoNewsStudio:
             "publishing_allowed_privacy": (publishing["allowed_privacy_statuses"]
                                            if publishing else []),
         }
+
+    def generate_graphic(self, job_id: str, scene_id: str, specification: dict) -> dict:
+        from scripts.graphics_engine import GraphicsEngine
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            if scene_id not in {s['id'] for s in project.get('storyboard', [])}:
+                raise ValueError('Unknown storyboard scene')
+            result = GraphicsEngine(s['url'] for s in project['sources']).render(
+                specification, self._dir(job_id) / 'graphics')
+            name = Path(result['png']).name
+            shutil.copy2(result['png'], self.workspace / '_imports' / name)
+            imported = self.import_asset(job_id, name, scene_id, {
+                'source': 'Original source-bound local graphic', 'provider': 'NewSphere GraphicsEngine',
+                'license': 'Original channel composition', 'synthetic_media': False,
+                'specification': json.dumps(result['spec'], ensure_ascii=False)})
+            if result.get('animation'):
+                current = self._read(job_id)
+                asset = next(a for a in current['asset_records'] if a['id']==imported['asset']['id'])
+                asset['animation'] = result['animation']
+                asset['animation_sha256'] = self._hash(Path(result['animation']))
+                self._save(current)
+            return dict(result, asset=imported['asset'])
+
+    def select_music(self, job_id: str, mood: str = 'ambient', category: str = 'Neutral Ambient') -> dict:
+        from scripts.music_library import MusicLibrary
+        with _LOCK:
+            project = self._read(job_id)
+            self._require_editable(project)
+            selection = MusicLibrary(os.getenv('VIDEO_MUSIC_LIBRARY', 'assets/music')).select(mood, category)
+            project['music_selection'] = selection
+            project['video'] = ''
+            self._invalidate_review(project)
+            self._save(project)
+            return selection
 
     def list_projects(self, limit: int = 20) -> list[dict]:
         if not 1 <= limit <= 100:

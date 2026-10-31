@@ -224,6 +224,19 @@ def get_project(job_id: str) -> dict:
 
 
 @mcp.tool()
+def generate_graphic(job_id: str, scene_id: str, specification: dict) -> dict:
+    """Render a source-bound local graphic and optional timed animation; import its still into the scene."""
+    return call("start_job", action="generate_graphic", project_id=job_id,
+                arguments={"scene_id": scene_id, "specification": specification})
+
+
+@mcp.tool()
+def select_music(job_id: str, mood: str = "ambient", category: str = "Neutral Ambient") -> dict:
+    """Persist a licensed local music selection or an explicit no-track reason."""
+    return call("select_music", job_id=job_id, mood=mood, category=category)
+
+
+@mcp.tool()
 def studio_status() -> dict:
     """Read-only Windows readiness report without exposing tokens or keys."""
     return call("studio_status")

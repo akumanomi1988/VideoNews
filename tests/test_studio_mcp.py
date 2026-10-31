@@ -140,6 +140,7 @@ def test_long_voice_job_retains_assets_saved_by_another_worker(studio, project, 
         current["asset_records"] = [{"id": "persisted-during-synthesis"}]
         studio._save(current)
         (folder / "narration.mp3").write_bytes(b"controlled audio")
+        (folder / "narration.wav").write_bytes(b"controlled PCM")
         (folder / "word_boundaries.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nThis\n")
         return {"provider": "kokoro", "voice": "em_alex"}
     monkeypatch.setattr(tts_service, "synthesize", worker)

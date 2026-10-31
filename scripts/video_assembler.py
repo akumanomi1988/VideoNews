@@ -105,6 +105,7 @@ class VideoAssembler(VideoAssemblerInterface):
         scene_motions: Optional[List[str]] = None,
         scene_transitions: Optional[List[str]] = None,
         synthetic_scene_flags: Optional[List[bool]] = None,
+        scene_video_files: Optional[List[str]] = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.subtitle_file = subtitle_file
@@ -118,6 +119,7 @@ class VideoAssembler(VideoAssemblerInterface):
         self.scene_motions = scene_motions or []
         self.scene_transitions = scene_transitions or []
         self.synthetic_scene_flags = synthetic_scene_flags or []
+        self.scene_video_files = scene_video_files or []
         if any(value not in {"slow_push_in", "slow_pull_out", "subtle_pan_left", "subtle_pan_right", "static"}
                for value in self.scene_motions):
             raise ValueError("Unsupported scene camera movement")
@@ -361,6 +363,12 @@ class VideoAssembler(VideoAssemblerInterface):
         for i, img in enumerate(valid_images):
             self.logger.info(f"  Image {i+1}/{num_images}: {os.path.basename(img)}")
             fc = frame_counts[i]
+            if self.scene_video_files and self.scene_video_files[i]:
+                filters.append(f"[{i}:v]fps={fps},scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                               f"crop={target_w}:{target_h},setsar=1,tpad=stop_mode=clone:stop_duration=1,"
+                               f"trim=duration={fc/fps:.6f},setpts=PTS-STARTPTS[s{i}]")
+                concat_labels.append(f"[s{i}]")
+                continue
             # Deterministic, restrained Ken Burns motion: alternating slow push/pull
             # with centered framing keeps the composition away from title-safe edges.
             motion = self.scene_motions[i] if self.scene_motions else (
@@ -410,7 +418,7 @@ class VideoAssembler(VideoAssemblerInterface):
         a_main = num_images
         fade_start = max(0.0, audio_duration - 2.0)
         filters.append(
-            f"[{a_main}:a]adelay=0,afade=t=out:st={fade_start}:d=2[voice]"
+            f"[{a_main}:a]alimiter=limit=0.95:level=false,afade=t=out:st={fade_start}:d=2[voice]"
         )
         audio_map = "[voice]"
         a_total = a_main + 1
@@ -519,8 +527,8 @@ class VideoAssembler(VideoAssemblerInterface):
         # --- Build command ---
         cmd = ['ffmpeg', '-nostdin', '-y']
 
-        for img in valid_images:
-            cmd.extend(['-i', img])
+        for index, img in enumerate(valid_images):
+            cmd.extend(['-i', self.scene_video_files[index] if self.scene_video_files and self.scene_video_files[index] else img])
         cmd.extend(['-i', str(self.voiceover_file)])
 
         if self.background_music and os.path.isfile(self.background_music):
@@ -537,9 +545,8 @@ class VideoAssembler(VideoAssemblerInterface):
             '-preset', os.getenv('VIDEO_RENDER_PRESET', 'veryfast'),
             '-crf', str(max(16, min(28, int(os.getenv('VIDEO_RENDER_CRF', '20'))))),
             '-c:a', 'aac',
-            '-ar', '48000',
             '-ac', '2',
-            '-b:a', '192k',
+            '-b:a', os.getenv('VIDEO_AUDIO_BITRATE', '320k'),
             '-shortest',
             '-movflags', '+faststart',
             str(self.output_file)
