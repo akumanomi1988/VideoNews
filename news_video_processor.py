@@ -460,6 +460,8 @@ class NewsVideoProcessor:
                     voiceover_file=audio_path,
                     output_file=output_file,
                     media_images=media_images,
+                    synthetic_scene_flags=[self.config.get(CONFIG_SETTINGS, {}).get('media_source', 'huggingface')
+                                           in ('huggingface', 'azure', 'ai')] * len(media_images),
                     background_music=self.config.get(CONFIG_VIDEO_RESULT, {}).get('background_music', ''),
                     aspect_ratio='9:16'
                 )
@@ -585,6 +587,8 @@ class NewsVideoProcessor:
                     voiceover_file=audio_path,
                     output_file=output_file,
                     media_images=media_images,
+                    synthetic_scene_flags=[self.config.get(CONFIG_SETTINGS, {}).get('media_source', 'huggingface')
+                                           in ('huggingface', 'azure', 'ai')] * len(media_images),
                     background_music=self.config.get(CONFIG_VIDEO_RESULT, {}).get('background_music', ''),
                     aspect_ratio='16:9'
                 )

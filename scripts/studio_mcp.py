@@ -191,8 +191,9 @@ class VideoNewsStudio:
         project = {
             "schema_version": 2, "id": uuid.uuid4().hex, "title": title,
             "visual_profile": "NewSphere Cinematic",
-            "production_preferences": {"target_duration_seconds": 390 if video_format == "long" else 60,
-                                       "duration_range_seconds": [300, 480] if video_format == "long" else [45, 75]},
+            "production_preferences": {"target_duration_seconds": 240 if video_format == "long" else 60,
+                                       "minimum_duration_seconds": 180 if video_format == "long" else 10,
+                                       "duration_range_seconds": [180, 300] if video_format == "long" else [45, 75]},
             "format": video_format, "aspect_ratio": _SUPPORTED[video_format],
             "sources": [], "editorial_brief": {}, "script": "", "narration": [],
             "storyboard": [], "youtube_metadata": {}, "asset_records": [],
@@ -524,6 +525,14 @@ class VideoNewsStudio:
         tags = metadata.get("tags", [])
         if not 5 <= len(title) <= 100 or len(description) > 5000 or not isinstance(tags, list):
             raise ValueError("invalid YouTube title, description or tags")
+        candidates = metadata.get("title_candidates", [])
+        concepts = metadata.get("thumbnail_concepts", [])
+        for key, values, count, limit in (("title_candidates", candidates, 3, 100),
+                                          ("thumbnail_concepts", concepts, 2, 1000)):
+            if not isinstance(values, list) or (values and len(values) != count):
+                raise ValueError(f"{key} must contain exactly {count} options when supplied")
+            if any(not isinstance(value, str) or not value.strip() or len(value) > limit for value in values):
+                raise ValueError(f"{key} contains an invalid option")
         clean = {"title": title, "description": description,
                  "tags": [str(tag)[:60] for tag in tags[:30]],
                  "hashtags": [str(tag)[:80] for tag in metadata.get("hashtags", [])[:15]],
@@ -532,7 +541,8 @@ class VideoNewsStudio:
                  "thumbnail_path": "",
                  "language": str(metadata.get("language", "es"))[:10],
                  "category_id": str(metadata.get("category_id", "25"))[:4],
-                 "contains_synthetic_media": bool(metadata.get("contains_synthetic_media", False))}
+                 "contains_synthetic_media": bool(metadata.get("contains_synthetic_media", False)),
+                 "title_candidates": candidates, "thumbnail_concepts": concepts}
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
@@ -728,6 +738,9 @@ class VideoNewsStudio:
         brief = cls._validate_editorial_brief(project.get("editorial_brief", {}))
         if brief["approval_status"] != "approved":
             raise StudioError("The active editorial brief is only a proposal; approve it before production")
+        minimum = project.get("production_preferences", {}).get("minimum_duration_seconds", 0)
+        if brief["format"] == "long" and brief["target_duration_seconds"] < minimum:
+            raise StudioError(f"The long-form workflow requires at least {minimum} seconds")
         if project.get("format") != brief["format"] or project.get("aspect_ratio") != brief["aspect_ratio"]:
             raise StudioError("Project format conflicts with the approved editorial brief")
         source_urls = {item.get("url") for item in project.get("sources", [])}
@@ -1281,6 +1294,7 @@ class VideoNewsStudio:
                                        image_durations=image_durations,
                                        scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
                                        scene_transitions=[scene["transition"] for scene in project["storyboard"]],
+                                       synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                        background_music=self._config().get("video_result", {}).get("background_music") or None)
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
@@ -1330,6 +1344,7 @@ class VideoNewsStudio:
                                image_durations=image_durations,
                                scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
                                scene_transitions=[scene["transition"] for scene in project["storyboard"]],
+                               synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                background_music=self._config().get("video_result", {}).get("background_music") or None).assemble_video(
                                    position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
@@ -1380,6 +1395,10 @@ class VideoNewsStudio:
                     problems.append("YouTube description must credit source publishers: " +
                                     ", ".join(dict.fromkeys(missing_credits)))
             metadata_text = json.dumps(project.get("youtube_metadata", {}), ensure_ascii=False)
+            if project.get("format") == "long" and project.get("production_preferences", {}).get("minimum_duration_seconds", 0) >= 180:
+                metadata = project.get("youtube_metadata", {})
+                if len(metadata.get("title_candidates", [])) != 3 or len(metadata.get("thumbnail_concepts", [])) != 2:
+                    problems.append("Long-form packaging requires three title candidates and two thumbnail concepts")
             if "\ufffd" in metadata_text or any(ord(character) < 32 and character not in "\n\r\t"
                                                     for character in metadata_text):
                 problems.append("YouTube metadata contains invalid Unicode or control characters")
@@ -1395,6 +1414,9 @@ class VideoNewsStudio:
                 if duration <= 0:
                     problems.append("Invalid video duration")
                 else:
+                    minimum = project.get("production_preferences", {}).get("minimum_duration_seconds", 0)
+                    if project.get("format") == "long" and duration < minimum:
+                        problems.append(f"Long-form video is below the required minimum of {minimum} seconds")
                     try:
                         media = self._probe_media(video)
                         expected = (1080, 1920) if project.get("aspect_ratio") == "9:16" else (1920, 1080)
@@ -1779,7 +1801,8 @@ class VideoNewsStudio:
             "visual_provider_primary": os.getenv("MEDIA_SOURCE", config.get("settings", {}).get("media_source", "huggingface")),
             "visual_profile_default": "NewSphere Cinematic",
             "production_defaults": {"format": "long", "aspect_ratio": "16:9",
-                                    "target_duration_seconds": 390, "duration_range_seconds": [300, 480]},
+                                    "target_duration_seconds": 240, "minimum_duration_seconds": 180,
+                                    "duration_range_seconds": [180, 300]},
             "image_generation_limits": {
                 "max_scenes_per_job": int(os.getenv("VIDEO_IMAGE_MAX_SCENES_PER_JOB", "12")),
                 "max_attempts_per_scene": int(os.getenv("VIDEO_IMAGE_MAX_ATTEMPTS_PER_SCENE", "2")),

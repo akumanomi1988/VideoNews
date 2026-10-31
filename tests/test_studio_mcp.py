@@ -108,13 +108,32 @@ def test_new_projects_default_to_newssphere_cinematic_without_touching_legacy_pr
     new = studio.create_project("NewSphere visual identity check")
     assert new["visual_profile"] == "NewSphere Cinematic"
     assert new["format"] == "long" and new["aspect_ratio"] == "16:9"
-    assert new["production_preferences"]["target_duration_seconds"] == 390
+    assert new["production_preferences"]["target_duration_seconds"] == 240
     short = studio.create_project("Explicit short preference override", video_format="short")
     assert short["format"] == "short" and short["aspect_ratio"] == "9:16"
     assert short["production_preferences"]["target_duration_seconds"] == 60
     old = {"id": uuid.uuid4().hex, "title": "Old project", "visual_profile": "legacy preset"}
     studio._save(old)
     assert studio._read(old["id"])["visual_profile"] == "legacy preset"
+
+
+def test_new_long_workflow_requires_three_minutes_and_preserves_packaging_options(studio):
+    project = studio.create_project("NewSphere production standard")
+    brief = valid_brief(video_format="long", duration=120)
+    studio.save_editorial_brief(project["id"], brief)
+    with pytest.raises(StudioError, match="at least 180"):
+        studio._require_approved_brief(studio._read(project["id"]))
+    brief["target_duration_seconds"] = 240
+    studio.save_editorial_brief(project["id"], brief)
+    studio.save_editorial_brief(project["id"], brief)
+    assert any("three title" in issue for issue in studio.review_video(project["id"])["issues"])
+    metadata = {"title": "Verified final title", "description": "Source: Example authority.", "tags": [],
+                "title_candidates": ["Verified angle one", "Verified angle two", "Verified angle three"],
+                "thumbnail_concepts": ["A precise component detail", "A wide explanatory tableau"]}
+    result = studio.save_youtube_metadata(project["id"], metadata)
+    assert result["youtube_metadata"]["title_candidates"] == metadata["title_candidates"]
+    assert result["youtube_metadata"]["thumbnail_concepts"] == metadata["thumbnail_concepts"]
+    assert not any("three title" in issue for issue in studio.review_video(project["id"])["issues"])
 
 
 def test_script_edit_invalidates_obsolete_assets_and_approvals(studio, project):

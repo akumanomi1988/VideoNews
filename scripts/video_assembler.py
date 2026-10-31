@@ -104,6 +104,7 @@ class VideoAssembler(VideoAssemblerInterface):
         image_durations: Optional[List[float]] = None,
         scene_motions: Optional[List[str]] = None,
         scene_transitions: Optional[List[str]] = None,
+        synthetic_scene_flags: Optional[List[bool]] = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.subtitle_file = subtitle_file
@@ -116,6 +117,7 @@ class VideoAssembler(VideoAssemblerInterface):
         self.image_durations = image_durations
         self.scene_motions = scene_motions or []
         self.scene_transitions = scene_transitions or []
+        self.synthetic_scene_flags = synthetic_scene_flags or []
         if any(value not in {"slow_push_in", "slow_pull_out", "subtle_pan_left", "subtle_pan_right", "static"}
                for value in self.scene_motions):
             raise ValueError("Unsupported scene camera movement")
@@ -332,6 +334,8 @@ class VideoAssembler(VideoAssemblerInterface):
             raise ValueError("scene_motions must have one entry per image")
         if self.scene_transitions and len(self.scene_transitions) != num_images:
             raise ValueError("scene_transitions must have one entry per image")
+        if self.synthetic_scene_flags and len(self.synthetic_scene_flags) != num_images:
+            raise ValueError("synthetic_scene_flags must have one entry per image")
         transition_seconds = min(0.35, max(0.0, audio_duration / max(2, num_images * 4)))
         overlap_frames = int(round(transition_seconds * fps))
         # Quantize fades to the same frame clock as scene lengths. Otherwise
@@ -481,6 +485,35 @@ class VideoAssembler(VideoAssemblerInterface):
                 has_subtitles = True
 
         last_video_label = "[outv]" if has_subtitles else "[vid]"
+        badge_path = None
+        if any(self.synthetic_scene_flags):
+            # Compose after camera motion/subtitles so the discrete marker stays
+            # fixed in the lower-left safe zone and never gets zoomed or cropped.
+            diameter = max(22, round(target_w / 30))
+            margin_x = round(target_w * 0.028)
+            margin_y = round(target_h * (0.12 if self.aspect_ratio == "9:16" else 0.06))
+            badge = Image.new("RGBA", (diameter, diameter), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(badge)
+            draw.ellipse((1, 1, diameter - 2, diameter - 2), fill=(5, 20, 31, 215),
+                         outline=(45, 203, 213, 235), width=max(1, diameter // 32))
+            font_path = Path(os.getenv("WINDIR", "C:/Windows")) / "Fonts" / "arialbd.ttf"
+            badge_font = (ImageFont.truetype(str(font_path), max(10, round(diameter * 0.36)))
+                          if font_path.is_file() else ImageFont.load_default())
+            draw.text((diameter / 2, diameter / 2), "IA", font=badge_font,
+                      anchor="mm", fill=(245, 250, 252, 255))
+            badge_path = str(Path(self.output_file).parent / f"_ia_badge_{uuid.uuid4().hex}.png")
+            badge.save(badge_path)
+            active = []
+            cursor = 0.0
+            for index, frames in enumerate(frame_counts):
+                length = frames / fps - (transition_seconds if index < num_images - 1 else 0)
+                if self.synthetic_scene_flags[index]:
+                    active.append(f"gte(t,{cursor:.6f})*lt(t,{cursor + frames / fps:.6f})")
+                cursor += length
+            badge_index = num_images + 1 + int(bool(self.background_music and os.path.isfile(self.background_music)))
+            filters.append(f"{last_video_label}[{badge_index}:v]overlay=x={margin_x}:"
+                           f"y=H-h-{margin_y}:eof_action=repeat:enable='{'+'.join(active)}'[marked]")
+            last_video_label = "[marked]"
         self.logger.info(f"Subtitles: {'ON' if has_subtitles else 'OFF'} (map label: {last_video_label})")
 
         # --- Build command ---
@@ -492,6 +525,8 @@ class VideoAssembler(VideoAssemblerInterface):
 
         if self.background_music and os.path.isfile(self.background_music):
             cmd.extend(['-stream_loop', '-1', '-i', str(self.background_music)])
+        if badge_path:
+            cmd.extend(['-i', badge_path])
 
         cmd.extend(['-filter_complex', ';'.join(filters)])
         cmd.extend(['-map', last_video_label, '-map', audio_map])
@@ -532,6 +567,8 @@ class VideoAssembler(VideoAssemblerInterface):
         finally:
             if _local_srt and os.path.isfile(_local_srt):
                 os.remove(_local_srt)
+            if badge_path and os.path.isfile(badge_path):
+                os.remove(badge_path)
 
         if result.returncode != 0:
             self.logger.error(f"FFmpeg failed (exit {result.returncode}). "

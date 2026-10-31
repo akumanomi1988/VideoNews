@@ -219,7 +219,7 @@ square pixels with an explicit display aspect ratio.
 ### Editorial image direction
 
 New NewSphere projects default to landscape 16:9. Their production preferences
-recommend 390 seconds within a 300-480 second range; `studio_status` exposes the
+recommend 240 seconds within a 180-300 second range (minimum 180 seconds); `studio_status` exposes the
 same defaults. The strict editorial brief remains authoritative and must contain
 the exact approved target. Explicit Shorts remain supported, and existing projects
 are not migrated. Script word counts are estimates: actual voice and final-video
@@ -236,3 +236,26 @@ imposing dark offices and blue monitors. Thumbnail presets also preserve the
 caller-authored topic; they no longer substitute an unrelated fixed subject.
 These instructions require actual contact-sheet review after generation: passing
 prompt-contract tests is not evidence of improved visual quality.
+
+### Discreet synthetic-image marker and production gates
+
+Studio passes scene provenance to the renderer. It draws a small circular `IA`
+marker in the lower-left safe zone only while synthetic scenes are visible,
+including their outgoing crossfade. It stays fixed during camera movements and
+does not overlap the default centered captions. Preview and final outputs use
+the same marker. The legacy AI image workflow also enables it; explicitly selected
+stock media does not. Description credits and the YouTube synthetic-media
+declaration remain separate from this small visual marker.
+
+Use clean original art. The renderer cannot remove a banner already baked into
+an imported image; restore the original generated asset for a corrected edition.
+The demonstration clip under the Urda project's `ia_badge_preview/` uses its
+preserved original art and does not change the published video.
+
+New long projects enforce a 180-second minimum and preserve three `title_candidates`
+and two `thumbnail_concepts` in `save_youtube_metadata`; QA blocks incomplete
+packaging. The workflow skill's production-standard reference specifies the five
+editorial, narrative, video, audio and publication gates. Automated media checks
+do not certify subjective narrative quality, source truth or pronunciation.
+Report those separately with actual review evidence. Owner consent and channel,
+privacy and idempotency checks remain mandatory for any upload.
