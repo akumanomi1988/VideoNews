@@ -23,7 +23,7 @@ REQUIRED_TOOLS = {
     "save_sources", "save_editorial_brief", "save_script", "save_storyboard",
     "save_youtube_metadata", "import_asset", "list_assets", "generate_stock_images", "create_thumbnail", "generate_voice",
     "generate_subtitles", "render_preview", "render_video", "get_job",
-    "review_video", "publish_youtube", "get_project", "list_projects",
+    "review_video", "publish_youtube", "reconcile_youtube_upload", "get_project", "list_projects",
 }
 
 

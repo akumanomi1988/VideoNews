@@ -1891,6 +1891,86 @@ class VideoNewsStudio:
                     "channel_id": verification["channel_id"],
                     "youtube_verified": True}
 
+    def reconcile_youtube_upload(self, job_id: str, video_id: str) -> dict:
+        """Read YouTube state and persist a previously ambiguous insert; never uploads."""
+        if not isinstance(video_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            raise ValueError("video_id must be an 11-character YouTube video ID")
+        with _LOCK:
+            project = self._read(job_id)
+            if project.get("status") == "published":
+                if project.get("video_id") != video_id:
+                    raise StudioError("Project is already reconciled to a different YouTube video")
+                return {"job_id": job_id, "video_id": video_id,
+                        "url": "https://www.youtube.com/watch?v=" + video_id,
+                        "privacy": project.get("privacy_status"), "already_reconciled": True}
+            if project.get("status") not in ("upload_unknown", "upload_verification_failed"):
+                raise StudioError("Only an uncertain or unverified upload can be reconciled")
+            brief = self._require_approved_brief(project)
+            video = Path(project.get("video", "")).resolve()
+            if not video.is_file():
+                raise StudioError("Rendered project video is missing")
+            video_hash = self._hash(video)
+            from scripts import publishing_policy
+            history = [record for record in publishing_policy.records()
+                       if record.get("project_id") == job_id
+                       and record.get("video_sha256") == video_hash]
+            attempt = next((record for record in reversed(history)
+                            if record.get("outcome") == "upload_started"), None)
+            if not attempt:
+                raise StudioError("No audited upload attempt matches this project video")
+            channel_id = attempt.get("channel_id", "")
+            privacy = attempt.get("privacy_status", "")
+            if (not channel_id or privacy not in publishing_policy.PRIVACY_STATUSES
+                    or privacy != brief["privacy_status"]):
+                raise StudioError("Audited upload attempt conflicts with the approved brief")
+            owner_policy = publishing_policy.load()
+            if owner_policy and owner_policy.get("channel_id") != channel_id:
+                raise StudioError("Audited upload attempt does not match the owner-enrolled channel")
+
+            config = self._config()
+            secret_file = Path(config["youtube"]["credentials_file"]).resolve()
+            token_file = Path(config["youtube"].get("token_file", ".secrets/token.json")).resolve()
+            if not secret_file.is_file():
+                raise StudioError("YouTube OAuth client secrets not configured")
+            from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+            uploader = YoutubeMediaUploader(client_secrets_file=str(secret_file),
+                                            token_file=str(token_file))
+            channel = uploader.get_channel_info()
+            if channel.get("id") != channel_id:
+                raise StudioError("Authorized YouTube channel does not match the audited upload")
+            if channel.get("title", "").strip().casefold() != "newsphere":
+                raise StudioError("Authorized channel is not NewSphere")
+            response = uploader.youtube.videos().list(
+                part="snippet,status,contentDetails,processingDetails", id=video_id).execute()
+            items = response.get("items", [])
+            if len(items) != 1:
+                raise StudioError("YouTube did not return the candidate video for reconciliation")
+            remote = items[0]
+            snippet, status = remote.get("snippet", {}), remote.get("status", {})
+            if snippet.get("channelId") != channel_id:
+                raise StudioError("Candidate YouTube video belongs to a different channel")
+            if status.get("privacyStatus") != privacy:
+                raise StudioError("Candidate YouTube video privacy differs from the approved upload")
+            expected_title = str(project.get("youtube_metadata", {}).get("title", project["title"]))[:90]
+            if snippet.get("title") != expected_title:
+                raise StudioError("Candidate YouTube title does not match approved project metadata")
+            processing = remote.get("processingDetails", {}).get("processingStatus", "unknown")
+
+            project["video_id"] = video_id
+            project["privacy_status"] = privacy
+            project["youtube_verified_channel_id"] = channel_id
+            project["youtube_processing_status"] = processing
+            project["published_at"] = snippet.get("publishedAt") or datetime.now(timezone.utc).isoformat()
+            project["status"] = "published"
+            self._save(project)
+            publishing_policy.audit(job_id, video_hash, channel_id, "uploaded",
+                                    video_id, privacy)
+            return {"job_id": job_id, "video_id": video_id,
+                    "url": "https://www.youtube.com/watch?v=" + video_id,
+                    "privacy": privacy, "channel_id": channel_id,
+                    "title": snippet.get("title"), "processing_status": processing,
+                    "already_reconciled": False, "youtube_verified": True}
+
     def studio_status(self) -> dict[str, Any]:
         """Read-only runtime checks. Credential presence does not prove an API works."""
         import importlib.metadata

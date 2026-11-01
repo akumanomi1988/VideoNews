@@ -75,6 +75,10 @@ YouTube OAuth client secrets under `.secrets`; never commit OAuth tokens.
    are checked and every attempt is audited. YouTube Data API reads back the
    inserted video and verifies its channel and privacy. An uncertain or failed
    verification is locked for reconciliation; the video insert is never retried.
+   After a read-only lookup finds the candidate, call
+   `reconcile_youtube_upload(job_id, video_id)`. It verifies the audited project
+   hash, authenticated channel, approved title and effective privacy, then
+   persists the existing upload without making another `videos.insert` request.
 
 The disclosure field `youtube_metadata.contains_synthetic_media` is passed to
 YouTube. Set it when the video includes realistic synthetic or altered content.

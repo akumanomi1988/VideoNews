@@ -221,6 +221,12 @@ def publish_youtube(job_id: str,
 
 
 @mcp.tool()
+def reconcile_youtube_upload(job_id: str, video_id: str) -> dict:
+    """Read YouTube and persist an ambiguous existing upload; this tool never starts an upload."""
+    return call("reconcile_youtube_upload", job_id=job_id, video_id=video_id)
+
+
+@mcp.tool()
 def get_project(job_id: str) -> dict:
     """Inspect current project state and artifact paths without reading credentials."""
     return call("get_project", job_id=job_id)

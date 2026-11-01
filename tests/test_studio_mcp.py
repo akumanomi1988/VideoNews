@@ -487,6 +487,83 @@ def test_uncertain_upload_never_auto_retries(studio, project, monkeypatch, tmp_p
     assert upload.call_count == 1
 
 
+def test_reconcile_youtube_upload_persists_verified_existing_video_without_upload(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import publishing_policy
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    _setup_oauth(studio, monkeypatch, tmp_path)
+    publishing_policy.enroll("UCtestChannel123", 100, privacy_status="public", public_consent=True)
+    _set_brief_privacy(studio, project, "public")
+    data = studio._read(project["id"])
+    data.update(status="upload_unknown", privacy_status="public")
+    data["youtube_metadata"] = {"title": "Verified test video"}
+    studio._save(data)
+    digest = studio._hash(Path(project["video"]))
+    publishing_policy.audit(project["id"], digest, "UCtestChannel123", "upload_started",
+                             privacy_status="public")
+
+    class Request:
+        def execute(self):
+            return {"items": [{"id": "dQw4w9WgXcQ",
+                "snippet": {"channelId": "UCtestChannel123", "title": "Verified test video",
+                            "publishedAt": "2026-11-01T16:55:16Z"},
+                "status": {"privacyStatus": "public"},
+                "processingDetails": {"processingStatus": "succeeded"}}]}
+
+    class Videos:
+        def list(self, **kwargs):
+            assert kwargs == {"part": "snippet,status,contentDetails,processingDetails",
+                              "id": "dQw4w9WgXcQ"}
+            return Request()
+
+    class Uploader:
+        def __init__(self, client_secrets_file, token_file=None):
+            pass
+        def get_channel_info(self):
+            return {"id": "UCtestChannel123", "title": "NewSphere"}
+        youtube = type("YouTube", (), {"videos": lambda _self: Videos()})()
+
+    monkeypatch.setitem(sys.modules, "scripts.Uploaders.youtube_uploader",
+                        types.SimpleNamespace(YoutubeMediaUploader=Uploader))
+    result = studio.reconcile_youtube_upload(project["id"], "dQw4w9WgXcQ")
+    assert result["youtube_verified"] is True
+    assert result["processing_status"] == "succeeded"
+    assert studio._read(project["id"])["status"] == "published"
+    assert studio._read(project["id"])["video_id"] == "dQw4w9WgXcQ"
+    assert publishing_policy.records()[-1]["outcome"] == "uploaded"
+    assert publishing_policy.records()[-1]["video_id"] == "dQw4w9WgXcQ"
+
+
+def test_reconcile_rejects_video_with_wrong_publication_privacy(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import publishing_policy
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    _setup_oauth(studio, monkeypatch, tmp_path)
+    _set_brief_privacy(studio, project, "public")
+    data = studio._read(project["id"]); data.update(status="upload_unknown", privacy_status="public")
+    data["youtube_metadata"] = {"title": "Verified test video"}
+    studio._save(data)
+    publishing_policy.audit(project["id"], studio._hash(Path(project["video"])),
+                             "UCtestChannel123", "upload_started", privacy_status="public")
+
+    class Request:
+        def execute(self):
+            return {"items": [{"id": "dQw4w9WgXcQ",
+                "snippet": {"channelId": "UCtestChannel123", "title": "Verified test video"},
+                "status": {"privacyStatus": "private"}}]}
+    class Videos:
+        def list(self, **kwargs): return Request()
+    class Uploader:
+        def __init__(self, *args, **kwargs): pass
+        def get_channel_info(self): return {"id": "UCtestChannel123", "title": "NewSphere"}
+        youtube = type("YouTube", (), {"videos": lambda _self: Videos()})()
+    monkeypatch.setitem(sys.modules, "scripts.Uploaders.youtube_uploader",
+                        types.SimpleNamespace(YoutubeMediaUploader=Uploader))
+    with pytest.raises(StudioError, match="privacy"):
+        studio.reconcile_youtube_upload(project["id"], "dQw4w9WgXcQ")
+    assert studio._read(project["id"])["status"] == "upload_unknown"
+
+
 def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
         studio, project, monkeypatch, tmp_path):
     from scripts import publishing_policy
