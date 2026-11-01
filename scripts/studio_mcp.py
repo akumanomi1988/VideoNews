@@ -15,8 +15,8 @@ import tempfile
 import threading
 import uuid
 import copy
-import contextlib
 import sys
+import traceback
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -25,6 +25,9 @@ from scripts.atomic_storage import write_json, process_alive
 
 _LOCK = threading.RLock()
 _JOB_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="videonews-studio")
+_ACTIVE_JOB_IDS: set[str] = set()
+_ACTIVE_JOB_LOCK = threading.RLock()
+_JOB_STDOUT_CONTEXT = threading.local()
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _SUPPORTED = {"short": "9:16", "long": "16:9"}
 _BRIEF_FIELDS = {
@@ -38,6 +41,30 @@ _BRIEF_FIELDS = {
 
 class StudioError(RuntimeError):
     pass
+
+
+class _ThreadRoutedStdout:
+    """Route noisy provider prints per worker thread without swapping process stdout."""
+    def __init__(self, stream, worker_stream):
+        self._stream = stream
+        self._worker_stream = worker_stream
+
+    def write(self, value):
+        stream = self._worker_stream if getattr(_JOB_STDOUT_CONTEXT, "capture", False) else self._stream
+        return stream.write(value)
+
+    def flush(self):
+        stream = self._worker_stream if getattr(_JOB_STDOUT_CONTEXT, "capture", False) else self._stream
+        return stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def install_job_stdout_router() -> None:
+    """Install only in the MCP host; background provider output must not hijack JSON-RPC stdout."""
+    if not isinstance(sys.stdout, _ThreadRoutedStdout):
+        sys.stdout = _ThreadRoutedStdout(sys.stdout, sys.stderr)
 
 
 class VideoNewsStudio:
@@ -102,7 +129,8 @@ class VideoNewsStudio:
         job_id = uuid.uuid4().hex
         record = {"job_id": job_id, "project_id": project_id, "action": action,
                   "status": "queued", "created_at": datetime.now(timezone.utc).isoformat(), "worker_pid": os.getpid(),
-                  "result": None, "error": None}
+                  "worker_thread": "", "heartbeat_at": datetime.now(timezone.utc).isoformat(),
+                  "result": None, "error": None, "error_trace": []}
         path = folder / (job_id + ".json")
         with _LOCK:
             write_json(path,record)
@@ -112,20 +140,43 @@ class VideoNewsStudio:
         return {"job_id": job_id, "project_id": project_id, "status": "queued"}
 
     def _run_job(self, path: Path, record: dict[str, Any], arguments: dict[str, Any]) -> None:
+        stop_heartbeat = threading.Event()
+        with _ACTIVE_JOB_LOCK:
+            _ACTIVE_JOB_IDS.add(record["job_id"])
         record["status"] = "running"
-        record["started_at"] = datetime.now(timezone.utc).isoformat()
-        write_json(path,record)
+        record["worker_pid"] = os.getpid()
+        record["worker_thread"] = threading.current_thread().name
+        record["started_at"] = record["heartbeat_at"] = datetime.now(timezone.utc).isoformat()
+        write_json(path, record)
+
+        def heartbeat():
+            while not stop_heartbeat.wait(10):
+                record["heartbeat_at"] = datetime.now(timezone.utc).isoformat()
+                write_json(path, record)
+
+        heartbeat_thread = threading.Thread(target=heartbeat, name="videonews-job-heartbeat", daemon=True)
+        heartbeat_thread.start()
         try:
-            # Provider libraries print progress; keep it off the stdio MCP protocol channel.
-            with contextlib.redirect_stdout(sys.stderr):
-                result = getattr(self, record["action"])(record["project_id"], **arguments)
+            # redirect_stdout is process-global and can steal concurrent JSON-RPC replies.
+            _JOB_STDOUT_CONTEXT.capture = True
+            result = getattr(self, record["action"])(record["project_id"], **arguments)
             record["status"] = "succeeded"
             record["result"] = result
         except Exception as exc:
             record["status"] = "failed"
             record["error"] = f"{type(exc).__name__}: {exc}"[:1000]
-        record["finished_at"] = datetime.now(timezone.utc).isoformat()
-        write_json(path,record)
+            record["error_trace"] = [
+                {"file": Path(frame.filename).name, "line": frame.lineno, "function": frame.name}
+                for frame in traceback.extract_tb(exc.__traceback__)[-12:]
+            ]
+        finally:
+            _JOB_STDOUT_CONTEXT.capture = False
+            stop_heartbeat.set()
+            heartbeat_thread.join(timeout=2)
+            record["finished_at"] = record["heartbeat_at"] = datetime.now(timezone.utc).isoformat()
+            write_json(path, record)
+            with _ACTIVE_JOB_LOCK:
+                _ACTIVE_JOB_IDS.discard(record["job_id"])
 
     def get_job(self, job_id: str) -> dict:
         if not _ID.fullmatch(job_id):
@@ -133,7 +184,31 @@ class VideoNewsStudio:
         path = self._jobs_dir() / (job_id + ".json")
         if not path.is_file():
             raise StudioError("Job not found")
-        return json.loads(path.read_text(encoding="utf-8"))
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("status") in ("queued", "running"):
+            pid = record.get("worker_pid")
+            same_process = pid == os.getpid()
+            with _ACTIVE_JOB_LOCK:
+                active_here = job_id in _ACTIVE_JOB_IDS
+            try:
+                heartbeat_at = datetime.fromisoformat(record.get("heartbeat_at", record.get("created_at", "")))
+                if heartbeat_at.tzinfo is None:
+                    heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
+                stale_seconds = (datetime.now(timezone.utc) - heartbeat_at).total_seconds()
+            except (TypeError, ValueError):
+                stale_seconds = 10**9
+            status = record.get("status")
+            orphaned = not process_alive(pid)
+            orphaned |= same_process and status == "running" and not active_here
+            # A queued job may wait behind other work and has no worker heartbeat
+            # yet. Only running jobs can be declared stale from a heartbeat.
+            orphaned |= status == "running" and stale_seconds > 90
+            if orphaned:
+                record["status"] = "interrupted"
+                record["error"] = "Studio worker is no longer active; inspect persisted artifacts before resuming."
+                record["finished_at"] = datetime.now(timezone.utc).isoformat()
+                write_json(path, record)
+        return record
 
     @staticmethod
     def _config() -> dict[str, Any]:

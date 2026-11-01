@@ -193,3 +193,14 @@ Static relationship labels are painted after node fills, and receipt migration
 can refresh the still without re-encoding an unchanged motion clip. Scientific
 bar scales preserve ratios even below 1e-12; no arbitrary epsilon changes the
 plotted range. Both behaviors are covered by the final regression suite.
+
+## MCP background-job reliability
+
+The stdio host routes provider output per worker thread. Do not use
+`contextlib.redirect_stdout` around a background task: it changes process-wide
+stdout and can corrupt concurrent JSON-RPC messages. Job records persist the
+host PID, worker thread, heartbeat, terminal result, and a bounded traceback.
+`get_job` marks dead-process or stale running jobs as `interrupted` so they can
+be inspected and resumed; stale queued jobs remain queued because they may be
+waiting behind active work. After updating the server code, restart the host's
+MCP process to load the new stdout routing and recovery behavior.

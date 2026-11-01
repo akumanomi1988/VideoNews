@@ -13,13 +13,14 @@ from typing import Annotated, Any, Literal
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field
 
-from scripts.studio_mcp import VideoNewsStudio
+from scripts.studio_mcp import VideoNewsStudio, install_job_stdout_router
 from scripts.production_audio import AudioSettings
 from scripts.graphics_engine import GraphicSpec
 
 mcp = FastMCP("VideoNews AI Studio")
 _stdio_lock = threading.RLock()
 _studio = VideoNewsStudio()
+install_job_stdout_router()
 
 
 class _StrictBriefModel(BaseModel):

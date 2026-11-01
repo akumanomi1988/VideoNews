@@ -1052,12 +1052,16 @@ def test_async_job_persists_result_and_reuses_idempotency_key(studio, project, m
         stored = studio.get_job(first["job_id"])
     assert stored["status"] == "succeeded"
     assert stored["result"]["voice"] == "test"
+    assert stored["worker_pid"] > 0 and stored["worker_thread"]
+    assert stored["heartbeat_at"] and stored["finished_at"]
     second = studio.start_job("generate_voice", project["id"], {"voice": "test"},
                               idempotency_key="voice-job-0001")
     assert second["job_id"] == first["job_id"]
 
 
 def test_async_provider_output_does_not_pollute_stdout_mcp_channel(studio, project, capsys, monkeypatch):
+    from scripts.studio_mcp import _ThreadRoutedStdout
+    monkeypatch.setattr(sys, "stdout", _ThreadRoutedStdout(sys.stdout, sys.stderr))
     finished = threading.Event()
 
     def noisy_provider(project_id, voice):
@@ -1076,6 +1080,71 @@ def test_async_provider_output_does_not_pollute_stdout_mcp_channel(studio, proje
     captured = capsys.readouterr()
     assert result["status"] == "succeeded"
     assert "provider progress" not in captured.out
+    assert "provider progress" in captured.err
+
+
+def test_orphaned_running_job_is_interrupted_not_reported_complete(studio, project, monkeypatch):
+    import scripts.studio_mcp as studio_module
+    job_id = uuid.uuid4().hex
+    path = studio._jobs_dir() / f"{job_id}.json"
+    record = {"job_id": job_id, "project_id": project["id"], "action": "generate_voice",
+              "status": "running", "worker_pid": 99999999, "worker_thread": "old-worker",
+              "heartbeat_at": "2026-11-01T00:00:00+00:00", "result": None, "error": None}
+    from scripts.atomic_storage import write_json
+    write_json(path, record)
+    monkeypatch.setattr(studio_module, "process_alive", lambda _pid: False)
+    recovered = studio.get_job(job_id)
+    assert recovered["status"] == "interrupted"
+    assert recovered["result"] is None
+    assert "no longer active" in recovered["error"]
+
+
+def test_stale_job_with_live_process_is_recovered_by_heartbeat(studio, project, monkeypatch):
+    import scripts.studio_mcp as studio_module
+    job_id = uuid.uuid4().hex
+    path = studio._jobs_dir() / f"{job_id}.json"
+    record = {"job_id": job_id, "project_id": project["id"], "action": "generate_voice",
+              "status": "running", "worker_pid": 4242, "worker_thread": "lost-thread",
+              "heartbeat_at": "2020-01-01T00:00:00+00:00", "result": None, "error": None}
+    from scripts.atomic_storage import write_json
+    write_json(path, record)
+    monkeypatch.setattr(studio_module, "process_alive", lambda _pid: True)
+    recovered = studio.get_job(job_id)
+    assert recovered["status"] == "interrupted"
+    assert recovered["result"] is None
+
+
+def test_old_queued_job_with_live_process_is_not_mistaken_for_orphan(studio, project, monkeypatch):
+    import scripts.studio_mcp as studio_module
+    job_id = uuid.uuid4().hex
+    path = studio._jobs_dir() / f"{job_id}.json"
+    record = {"job_id": job_id, "project_id": project["id"], "action": "generate_voice",
+              "status": "queued", "worker_pid": 4242, "worker_thread": "",
+              "heartbeat_at": "2020-01-01T00:00:00+00:00", "result": None, "error": None}
+    from scripts.atomic_storage import write_json
+    write_json(path, record)
+    monkeypatch.setattr(studio_module, "process_alive", lambda _pid: True)
+    recovered = studio.get_job(job_id)
+    assert recovered["status"] == "queued"
+    assert recovered["result"] is None
+
+
+def test_thread_stdout_router_keeps_main_protocol_stream_separate():
+    import io
+    from scripts.studio_mcp import _ThreadRoutedStdout, _JOB_STDOUT_CONTEXT
+    main_stream, worker_stream = io.StringIO(), io.StringIO()
+    routed = _ThreadRoutedStdout(main_stream, worker_stream)
+    routed.write("json-rpc reply")
+    def provider_print():
+        _JOB_STDOUT_CONTEXT.capture = True
+        try:
+            routed.write("provider progress")
+        finally:
+            _JOB_STDOUT_CONTEXT.capture = False
+    worker = threading.Thread(target=provider_print)
+    worker.start(); worker.join()
+    assert main_stream.getvalue() == "json-rpc reply"
+    assert worker_stream.getvalue() == "provider progress"
 
 
 def test_project_listing_suppresses_approval_data(studio, project):
