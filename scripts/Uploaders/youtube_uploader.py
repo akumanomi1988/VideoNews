@@ -57,8 +57,14 @@ class YoutubeMediaUploader:
     def safe_print(self, text):
         try:
             print(text)
-        except UnicodeEncodeError:
-            print(text.encode('ascii', 'replace').decode('ascii'))
+        except (UnicodeEncodeError, OSError):
+            # MCP stdio hosts can close or replace their console stream while a
+            # long-running worker is still alive. Console output is diagnostic;
+            # it must never abort an upload before the videos.insert request.
+            try:
+                print(text.encode('ascii', 'replace').decode('ascii'))
+            except OSError:
+                return
 
     def authenticate_youtube(self):
         """Authenticates the user and returns a YouTube API client."""
@@ -237,9 +243,12 @@ class YoutubeMediaUploader:
         
         except Exception as e:
             log.exception("YouTube video.insert failed at stage=%s", stage)
-            raise RuntimeError(
+            error = RuntimeError(
                 f"YouTube video.insert failed at {stage}: {type(e).__name__}: {e}"
-            ) from e
+            )
+            error.upload_stage = stage
+            error.video_insert_started = stage == "execute_videos_insert_request"
+            raise error from e
 
     def validate_short_parameters(self, video_path, title, description, tags, default_language, privacy_status):
         """Validates parameters for short video uploads."""

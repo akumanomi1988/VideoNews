@@ -21,6 +21,8 @@ async def test_stdio_mcp_discovers_tools_and_calls_list_projects(tmp_path):
     environment = os.environ.copy()
     environment["VIDEO_STUDIO_DIR"] = str(tmp_path / "studio")
     environment["VIDEO_PUBLISH_POLICY_DIR"] = str(tmp_path / "publish-policy")
+    environment["YOUTUBE_CLIENT_SECRETS_FILE"] = str(tmp_path / "missing-client.json")
+    environment["YOUTUBE_TOKEN_FILE"] = str(tmp_path / "missing-token.json")
     parameters = StdioServerParameters(
         command=sys.executable,
         args=["-m", "scripts.studio_server"],

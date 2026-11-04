@@ -1759,6 +1759,7 @@ class VideoNewsStudio:
                 raise StudioError("Rendered video is missing")
             video_hash = self._hash(video)
             from scripts import publishing_policy
+            history = publishing_policy.records()
             automatic_policy = None
             if authorization_path.is_file():
                 try:
@@ -1785,9 +1786,6 @@ class VideoNewsStudio:
                 report = self.review_video(job_id)
                 if not report["ready_for_editorial_review"]:
                     raise StudioError("Resolve Studio quality issues before publishing")
-                history = publishing_policy.records()
-                if any(r.get("project_id") == job_id for r in history):
-                    raise StudioError("This project already has a publishing attempt; reconcile it or create a new project")
                 today = datetime.now(timezone.utc).date().isoformat()
                 daily_projects = {
                     r.get("project_id") for r in history
@@ -1838,10 +1836,24 @@ class VideoNewsStudio:
                     thumbnail_path, expected_aspect="16:9")
 
             history = publishing_policy.records()
-            if any(r.get("project_id") == job_id and r.get("outcome") in (
-                    "upload_started", "upload_unknown", "verification_failed", "uploaded")
-                   for r in history):
-                raise StudioError("This project already has a publishing attempt; reconcile before retry")
+            project_history = [r for r in history if r.get("project_id") == job_id]
+            if project_history:
+                latest = project_history[-1]
+                details = latest.get("details", {})
+                safe_preflight_recovery = (
+                    latest.get("outcome") in ("preflight_failed", "preflight_failure_recovered")
+                    and details.get("stage") in ("metadata_preflight", "thumbnail_preflight")
+                    and not latest.get("video_id")
+                    and latest.get("video_sha256") == video_hash
+                    and all(r.get("outcome") in {
+                                "upload_started", "upload_unknown",
+                                "preflight_failed", "preflight_failure_recovered"}
+                            and not r.get("video_id")
+                            and r.get("video_sha256") == video_hash
+                            for r in project_history)
+                )
+                if not safe_preflight_recovery:
+                    raise StudioError("This project already has a publishing attempt; reconcile before retry")
 
             project["status"] = "uploading"
             project["privacy_status"] = requested_privacy
@@ -1867,15 +1879,27 @@ class VideoNewsStudio:
                     str(video_id), account_id, requested_privacy)
             except BaseException as exc:
                 known_id = video_id or getattr(exc, "video_id", None)
-                project["status"] = ("upload_verification_failed" if known_id
-                                      else "upload_unknown")
+                stage = getattr(exc, "upload_stage", "")
+                confirmed_preflight = (
+                    not known_id
+                    and getattr(exc, "video_insert_started", True) is False
+                    and stage in ("metadata_preflight", "thumbnail_preflight")
+                )
+                project["status"] = (
+                    "upload_verification_failed" if known_id
+                    else "draft" if confirmed_preflight
+                    else "upload_unknown"
+                )
                 if known_id:
                     project["video_id"] = str(known_id)
                 self._save(project)
                 publishing_policy.audit(
                     job_id, video_hash, account_id,
-                    "verification_failed" if known_id else "upload_unknown",
-                    str(known_id or ""), requested_privacy)
+                    "verification_failed" if known_id else
+                    "preflight_failed" if confirmed_preflight else "upload_unknown",
+                    str(known_id or ""), requested_privacy,
+                    details={"stage": stage, "error_type": type(exc).__name__}
+                    if confirmed_preflight else None)
                 raise
             project["video_id"] = str(video_id)
             project["privacy_status"] = verification["privacy_status"]
@@ -1890,6 +1914,50 @@ class VideoNewsStudio:
                     "privacy": verification["privacy_status"],
                     "channel_id": verification["channel_id"],
                     "youtube_verified": True}
+
+    def recover_upload_preflight_failure(self, job_id: str, *,
+                                         video_sha256: str,
+                                         error_stage: str,
+                                         error_type: str) -> dict:
+        """Owner-local recovery for a proven failure before any insert request.
+
+        This method is intentionally not exposed as an MCP tool. It can clear an
+        `upload_unknown` state only when the observed failure stage is before
+        request construction, the local video hash is unchanged, the channel
+        policy still matches, and the audit trail has exactly one unambiguous
+        start/unknown pair without a YouTube video ID.
+        """
+        if error_stage not in ("metadata_preflight", "thumbnail_preflight"):
+            raise StudioError("Only a recorded preflight failure can be recovered safely")
+        if error_type not in ("OSError", "UnicodeEncodeError", "ValueError"):
+            raise StudioError("The failure type is not a safe preflight-only error")
+        with _LOCK:
+            project = self._read(job_id)
+            video = Path(project.get("video", "")).resolve()
+            if (project.get("status") != "upload_unknown" or not video.is_file()
+                    or self._hash(video) != video_sha256 or project.get("video_id")):
+                raise StudioError("Project or video hash does not match the recoverable upload attempt")
+            from scripts import publishing_policy
+            owner_policy = publishing_policy.load()
+            if not owner_policy or project.get("privacy_status") != owner_policy.get("privacy_status"):
+                raise StudioError("Owner publishing policy changed; refusing preflight recovery")
+            rows = [r for r in publishing_policy.records() if r.get("project_id") == job_id]
+            if (len(rows) != 2 or [r.get("outcome") for r in rows] !=
+                    ["upload_started", "upload_unknown"]
+                    or any(r.get("video_id") or r.get("video_sha256") != video_sha256
+                           or r.get("channel_id") != owner_policy.get("channel_id")
+                           for r in rows)
+                    or rows[-1].get("privacy_status") != owner_policy.get("privacy_status")):
+                raise StudioError("Audit history is not a single, hash-bound ambiguous attempt")
+            project["status"] = "draft"
+            self._save(project)
+            publishing_policy.audit(
+                job_id, video_sha256, owner_policy["channel_id"],
+                "preflight_failure_recovered", privacy_status=owner_policy["privacy_status"],
+                details={"stage": error_stage, "error_type": error_type})
+            return {"job_id": job_id, "status": project["status"],
+                    "video_sha256": video_sha256,
+                    "recovered_before_insert": True}
 
     def reconcile_youtube_upload(self, job_id: str, video_id: str) -> dict:
         """Read YouTube state and persist a previously ambiguous insert; never uploads."""
@@ -1972,7 +2040,7 @@ class VideoNewsStudio:
                     "already_reconciled": False, "youtube_verified": True}
 
     def studio_status(self) -> dict[str, Any]:
-        """Read-only runtime checks. Credential presence does not prove an API works."""
+        """Read-only runtime and live, non-interactive account checks."""
         import importlib.metadata
         import shutil
         import sys
@@ -1987,6 +2055,9 @@ class VideoNewsStudio:
         from scripts.publishing_policy import load as load_publish_policy
         publishing = load_publish_policy()
         from scripts.tts_service import kokoro_status
+        youtube_auth = self._readonly_youtube_verification(config, publishing)
+        media_source = os.getenv("MEDIA_SOURCE", config.get("settings", {}).get("media_source", "huggingface"))
+        azure_ready = bool(images.get("endpoint") and images.get("api_key") and paid_images)
         return {
             "server": "VideoNews AI Studio",
             "transport": "stdio",
@@ -2001,7 +2072,8 @@ class VideoNewsStudio:
             "paid_image_generation_enabled": bool(
                 paid_images and images.get("endpoint") and images.get("api_key")
             ),
-            "visual_provider_primary": os.getenv("MEDIA_SOURCE", config.get("settings", {}).get("media_source", "huggingface")),
+            "visual_provider_primary": "Azure MAI" if azure_ready else media_source,
+            "visual_provider_legacy_alias": media_source,
             "visual_profile_default": "NewSphere Cinematic",
             "production_defaults": {"format": "long", "aspect_ratio": "16:9",
                                     "target_duration_seconds": 240, "minimum_duration_seconds": 180,
@@ -2010,16 +2082,74 @@ class VideoNewsStudio:
                 "max_scenes_per_job": int(os.getenv("VIDEO_IMAGE_MAX_SCENES_PER_JOB", "12")),
                 "max_attempts_per_scene": int(os.getenv("VIDEO_IMAGE_MAX_ATTEMPTS_PER_SCENE", "2")),
             },
-            "youtube_client_secrets_present": Path(
-                config.get("youtube", {}).get("credentials_file", "")
-            ).is_file(),
-            "youtube_authorization_verified": False,
+            **youtube_auth,
             "publishing_policy": "automatic_enabled" if publishing
             else "owner_enrollment_required",
             "publishing_default_privacy": publishing["privacy_status"] if publishing else None,
             "publishing_allowed_privacy": (publishing["allowed_privacy_statuses"]
                                            if publishing else []),
         }
+
+    @staticmethod
+    def _readonly_youtube_verification(config: dict[str, Any],
+                                       publishing: dict[str, Any] | None) -> dict[str, Any]:
+        """Verify the saved token against channels.list without launching OAuth UI."""
+        settings = config.get("youtube", {})
+        client_file = Path(settings.get("credentials_file", "")).resolve()
+        token_file = Path(settings.get("token_file", ".secrets/token.json")).resolve()
+        result = {
+            "youtube_client_secrets_present": client_file.is_file(),
+            "youtube_token_present": token_file.is_file(),
+            "youtube_authorization_verified": False,
+            "youtube_channel_id": None,
+            "youtube_channel_title": None,
+            "youtube_channel_matches_policy": False,
+            "youtube_authorization_error": None,
+        }
+        if not client_file.is_file() or not token_file.is_file():
+            result["youtube_authorization_error"] = "oauth_client_or_token_missing"
+            return result
+        try:
+            from google.auth.transport.requests import Request
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+
+            credentials = Credentials.from_authorized_user_file(
+                str(token_file), scopes=YoutubeMediaUploader.SCOPES)
+            if not credentials.valid:
+                if credentials.expired and credentials.refresh_token:
+                    credentials.refresh(Request())
+                else:
+                    result["youtube_authorization_error"] = "saved_token_invalid_or_not_refreshable"
+                    return result
+            service = build("youtube", "v3", credentials=credentials,
+                            cache_discovery=False)
+            response = service.channels().list(part="snippet", mine=True).execute()
+            items = response.get("items", [])
+            if len(items) != 1:
+                result["youtube_authorization_error"] = "youtube_did_not_return_one_authenticated_channel"
+                return result
+            channel = items[0]
+            channel_id = channel.get("id")
+            channel_title = channel.get("snippet", {}).get("title")
+            result.update(
+                youtube_authorization_verified=bool(channel_id and channel_title),
+                youtube_channel_id=channel_id,
+                youtube_channel_title=channel_title,
+                youtube_channel_matches_policy=bool(
+                    publishing
+                    and channel_id == publishing.get("channel_id")
+                    and str(channel_title or "").strip().casefold() == "newsphere"
+                ),
+            )
+        except Exception as exc:
+            # Never return exception text from OAuth or Google client failures;
+            # it may contain request details. The class and HTTP status suffice.
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            result["youtube_authorization_error"] = (
+                f"{type(exc).__name__}:{status}" if status else type(exc).__name__)
+        return result
 
     def generate_graphic(self, job_id: str, scene_id: str, specification: dict) -> dict:
         from scripts.graphics_engine import GraphicsEngine

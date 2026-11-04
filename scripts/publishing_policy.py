@@ -125,7 +125,8 @@ def revoke() -> None:
 
 
 def audit(project_id: str, video_sha256: str, channel_id: str,
-          outcome: str, video_id: str = "", privacy_status: str = "") -> None:
+          outcome: str, video_id: str = "", privacy_status: str = "",
+          details: dict | None = None) -> None:
     folder = _directory()
     folder.mkdir(parents=True, exist_ok=True)
     _secure_directory(folder)
@@ -133,6 +134,10 @@ def audit(project_id: str, video_sha256: str, channel_id: str,
               "video_sha256": video_sha256, "channel_id": channel_id,
               "video_id": video_id, "privacy_status": privacy_status,
               "outcome": outcome}
+    if details:
+        # Store only short, non-secret diagnostic metadata in the audit trail.
+        record["details"] = {str(key)[:80]: str(value)[:240]
+                             for key, value in details.items()}
     with audit_path().open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(record) + "\n")
     _secure_file(audit_path())

@@ -625,6 +625,49 @@ def test_auto_publish_unknown_outcome_is_audited_and_never_retried(
     assert upload.call_count == 1
 
 
+def test_proven_preflight_failure_can_be_recovered_without_reuploading_old_attempt(
+        studio, project, monkeypatch, tmp_path):
+    from scripts import publishing_policy
+
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: Mock(
+        returncode=0, stdout="20.5\n"))
+    monkeypatch.setattr(studio, "_probe_media", lambda _path: {
+        "duration_seconds": 20.5, "width": 1080, "height": 1920,
+        "video_codec": "h264", "audio_codec": "aac", "has_video": True, "has_audio": True})
+    _set_brief_privacy(studio, project, "public")
+    studio.save_youtube_metadata(project["id"], {
+        "title": "A verified NewSphere Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
+    monkeypatch.setattr(studio, "review_video", lambda _job_id: {
+        "ready_for_editorial_review": True, "issues": []})
+    publishing_policy.enroll("UCtestChannel123", 2, privacy_status="public", public_consent=True)
+    _setup_oauth(studio, monkeypatch, tmp_path)
+    video_hash = studio._hash(Path(project["video"]))
+    publishing_policy.audit(project["id"], video_hash, "UCtestChannel123",
+                            "upload_started", privacy_status="public")
+    publishing_policy.audit(project["id"], video_hash, "UCtestChannel123",
+                            "upload_unknown", privacy_status="public")
+    failed = studio._read(project["id"])
+    failed.update(status="upload_unknown", privacy_status="public")
+    studio._save(failed)
+
+    recovered = studio.recover_upload_preflight_failure(
+        project["id"], video_sha256=video_hash,
+        error_stage="metadata_preflight", error_type="OSError")
+    assert recovered["recovered_before_insert"] is True
+    assert studio._read(project["id"])["status"] == "draft"
+    upload = Mock(return_value={"id": "YT_PREFLIGHT_RECOVERED"})
+    _install_fake_youtube(monkeypatch, upload)
+
+    result = studio.publish_youtube(project["id"], privacy_status="public")
+    assert result["video_id"] == "YT_PREFLIGHT_RECOVERED"
+    assert result["privacy"] == "public"
+    assert upload.call_count == 1
+    assert [row["outcome"] for row in publishing_policy.records()] == [
+        "upload_started", "upload_unknown", "preflight_failure_recovered",
+        "upload_started", "uploaded"]
+
+
 def test_public_upload_must_be_verified_and_never_retried_on_mismatch(
         studio, project, monkeypatch, tmp_path):
     from scripts import publishing_policy
@@ -1054,6 +1097,81 @@ def test_thumbnail_failure_does_not_hide_successful_video_insert(tmp_path):
     assert body["snippet"]["defaultLanguage"] == "es"
     assert "defaultAudioLanguage" not in body["snippet"]
     assert body["status"]["privacyStatus"] == "private"
+
+
+def test_youtube_safe_print_does_not_abort_on_closed_mcp_console(monkeypatch):
+    from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+
+    uploader = YoutubeMediaUploader.__new__(YoutubeMediaUploader)
+
+    def closed_console(*_args, **_kwargs):
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr("builtins.print", closed_console)
+    uploader.safe_print("diagnostic only")
+
+
+def test_youtube_console_failure_is_tagged_as_preflight_and_never_inserts(tmp_path):
+    from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+
+    uploader = YoutubeMediaUploader.__new__(YoutubeMediaUploader)
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"mock video")
+    uploader.channel_description = ""
+    uploader.validate_short_parameters = lambda *args: None
+    uploader.safe_print = lambda *_args: (_ for _ in ()).throw(OSError(22, "Invalid argument"))
+    uploader.youtube = Mock()
+
+    with pytest.raises(RuntimeError, match="metadata_preflight") as raised:
+        uploader.upload(str(video), "A valid title", "description", [])
+
+    assert raised.value.upload_stage == "metadata_preflight"
+    assert raised.value.video_insert_started is False
+    uploader.youtube.videos.return_value.insert.assert_not_called()
+
+
+def test_readonly_youtube_status_does_not_start_oauth_or_claim_missing_token_is_verified(tmp_path):
+    from scripts.studio_mcp import VideoNewsStudio
+
+    status = VideoNewsStudio._readonly_youtube_verification({
+        "youtube": {
+            "credentials_file": str(tmp_path / "client.json"),
+            "token_file": str(tmp_path / "token.json"),
+        },
+    }, None)
+    assert status["youtube_client_secrets_present"] is False
+    assert status["youtube_token_present"] is False
+    assert status["youtube_authorization_verified"] is False
+    assert status["youtube_authorization_error"] == "oauth_client_or_token_missing"
+
+
+def test_studio_status_reports_effective_azure_provider_and_live_channel_fields(
+        studio, monkeypatch):
+    config = {
+        "azure_images": {"endpoint": "configured-endpoint", "api_key": "configured-key"},
+        "settings": {"media_source": "huggingface"},
+        "serpapi": {"api_key": "configured-key"},
+        "tts": {"provider": "kokoro"},
+    }
+    live = {
+        "youtube_client_secrets_present": True,
+        "youtube_token_present": True,
+        "youtube_authorization_verified": True,
+        "youtube_channel_id": "UCnewssphere",
+        "youtube_channel_title": "NewSphere",
+        "youtube_channel_matches_policy": True,
+        "youtube_authorization_error": None,
+    }
+    monkeypatch.setattr(studio, "_config", lambda: config)
+    monkeypatch.setattr(studio, "_readonly_youtube_verification",
+                        lambda _config, _policy: live)
+    monkeypatch.setattr("scripts.tts_service.kokoro_status", lambda _config: {"available": True})
+
+    status = studio.studio_status()
+    assert status["visual_provider_primary"] == "Azure MAI"
+    assert status["visual_provider_legacy_alias"] == "huggingface"
+    assert status["youtube_authorization_verified"] is True
+    assert status["youtube_channel_matches_policy"] is True
 
 
 def test_youtube_thumbnail_validation_checks_format_size_and_brief_aspect(tmp_path):
