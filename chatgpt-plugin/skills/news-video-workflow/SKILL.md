@@ -74,6 +74,9 @@ When selection was delegated but production was not, save `approval_status: "pro
 
 ## Produce from the approved brief
 
+For a complete, reproducible operator sequence—including the recovery decisions
+from the latest real NewSphere production—follow [the production runbook](references/reproducible-production-runbook.md).
+
 Read [the production standard](references/production-standard.md) for the required
 editorial/narrative workflow, packaging options, A-E gates and delivery report.
 Use [script direction](references/script-direction.md) to build a fact-rich spoken
