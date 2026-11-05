@@ -1,6 +1,15 @@
 from scripts.video_assembler import VideoAssembler
 
 
+def test_missing_media_does_not_write_to_mcp_host_stream(tmp_path, capsys, caplog, monkeypatch):
+    monkeypatch.setattr("scripts.video_assembler.shutil.which", lambda _: "ffmpeg.exe")
+    assembler = VideoAssembler(output_file=str(tmp_path / "out.mp4"))
+
+    assert assembler._is_valid_image_file(str(tmp_path / "missing.png")) is False
+    assert capsys.readouterr() == ("", "")
+    assert "File not found" in caplog.text
+
+
 def test_real_ffmpeg_preserves_geometry_and_explicit_display_aspect(tmp_path, monkeypatch):
     import json
     import shutil

@@ -8,7 +8,7 @@ from scripts.AI.text_to_image import AspectRatio, FluxImageGenerator, StylePrese
 
 @pytest.mark.parametrize("style", [StylePreset.NEWSPHERE_CINEMATIC,
                                   StylePreset.YOUTUBE_THUMBNAIL, StylePreset.NONE])
-def test_provider_receives_each_requested_subject_and_orientation(tmp_path, monkeypatch, style):
+def test_provider_receives_each_requested_subject_and_orientation(tmp_path, monkeypatch, style, capsys):
     generator = FluxImageGenerator(output_dir=str(tmp_path))
     monkeypatch.setattr(generator, "preflight", lambda: None)
     provider = Mock(return_value="generated.png")
@@ -21,3 +21,7 @@ def test_provider_receives_each_requested_subject_and_orientation(tmp_path, monk
         assert actual.startswith(prompt)
         assert (width, height) == ratio.value
     assert provider.call_count == 2
+    # Provider diagnostics must not write through host stdout/stderr. In the
+    # Windows MCP host, Colorama's wrapper can flush the JSON-RPC stream and
+    # fail the job before or after a billable provider request.
+    assert capsys.readouterr() == ("", "")

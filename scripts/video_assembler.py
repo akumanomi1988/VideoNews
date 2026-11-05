@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from colorama import init, Fore
+from colorama import Fore
 
 import moviepy.editor as mp
 from moviepy.video.tools.subtitles import SubtitlesClip
@@ -31,8 +31,6 @@ from .interfaces import VideoAssembler as VideoAssemblerInterface, VideoMetadata
 from .utils.app_logger import trace
 # Subtitles are rendered directly by FFmpeg; no external subtitler import required.
 
-# Initialize colorama for colored terminal output
-init(autoreset=True)
 
 # Constants for configuration and supported formats
 SUPPORTED_IMAGE_FORMATS = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp')
@@ -187,11 +185,11 @@ class VideoAssembler(VideoAssemblerInterface):
         adjusted_clips = []
         for media_file in self.media_videos:
             try:
-                print(Fore.CYAN + f"Processing video: {media_file}")
+                self.logger.debug("Processing video: %s", media_file)
                 video_clip = VideoFileClip(media_file)
                 adjusted_clips.append(self.adjust_aspect_ratio(video_clip))
             except Exception as e:
-                print(Fore.RED + f"Error processing video {media_file}: {e}")
+                self.logger.exception("Error processing video %s", media_file)
         return adjusted_clips
 
     def process_image_files(self, audio_duration: float) -> List[VideoFileClip]:
@@ -213,7 +211,7 @@ class VideoAssembler(VideoAssemblerInterface):
                 clip = self._create_zoom_clip(image_file, duration_per_image)
                 adjusted_clips.append(self.adjust_aspect_ratio(clip))
             except Exception as e:
-                print(Fore.RED + f"Error processing image {image_file}: {e}")
+                self.logger.exception("Error processing image %s", image_file)
         return adjusted_clips
 
     def _create_zoom_clip(self, image_file: str, duration: float) -> ImageClip:
@@ -227,10 +225,10 @@ class VideoAssembler(VideoAssemblerInterface):
         Check if the image file exists and has a supported format.
         """
         if not os.path.isfile(image_file):
-            print(Fore.YELLOW + f"File not found: {image_file}. Skipping.")
+            self.logger.warning("File not found: %s. Skipping.", image_file)
             return False
         if not image_file.lower().endswith(SUPPORTED_IMAGE_FORMATS):
-            print(Fore.YELLOW + f"Unsupported image format: {image_file}. Skipping.")
+            self.logger.warning("Unsupported image format: %s. Skipping.", image_file)
             return False
         return True
 
@@ -592,7 +590,7 @@ class VideoAssembler(VideoAssemblerInterface):
                 Fore.RED + f"❌ FFmpeg assembly failed (exit {result.returncode}). "
                 f"See {debug_log} for details."
             )
-        print(Fore.GREEN + f"Video assembled using ffmpeg: {self.output_file}")
+        self.logger.info("Video assembled using FFmpeg: %s", self.output_file)
 
     def split_subtitles(self, subtitle_text: str, width: int = 15) -> str:
         """

@@ -6,10 +6,8 @@ import socket
 from urllib.parse import urlsplit
 from enum import Enum
 import os
-from colorama import Fore, init
 import requests
 
-init(autoreset=True)
 
 
 class AspectRatio(Enum):
@@ -108,7 +106,6 @@ class FluxImageGenerator:
             final_prompt = f"{custom_prompt}. with this style -> {style_preset.value}"
 
         width, height = aspect_ratio.value
-        print(Fore.BLUE + f"Image prompt\t ::-> {final_prompt}")
         self.preflight()
         attempts = max_attempts if max_attempts is not None else int(
             os.getenv("VIDEO_IMAGE_MAX_ATTEMPTS_PER_SCENE", "2"))
@@ -173,5 +170,4 @@ class FluxImageGenerator:
             if isinstance(cost, (int, float)) and cost >= 0:
                 info["cost_usd"] = float(cost)
         self.last_generation_info = info
-        print(Fore.GREEN + f"Azure image saved to {output_path}")
         return output_path
