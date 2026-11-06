@@ -142,3 +142,34 @@ narration is now its lossless WAV; auxiliary MP3 is optional. See repository
 - If a result is `uploading`, `upload_unknown` or verification failed, stop and reconcile the existing upload. Use `reconcile_youtube_upload(job_id, video_id)` only after a read-only YouTube lookup identifies the matching video; the tool independently verifies the audited project hash, channel, approved title and privacy before persisting the result. Never retry an uncertain insert.
 
 Never ask for OAuth credentials in chat. Never publish during exploration or recommendation. ChatGPT Plus does not provide API access or an API key. Do not claim a Windows render, plugin connection, QA result or YouTube publication without observing its actual result.
+
+## Windows production recovery notes
+
+Follow the detailed repository-local runbook for every production. In
+particular:
+
+- Use enum keys (`NEWSPHERE_CINEMATIC`) rather than display labels for image
+  styles. After any failed image job, inspect its state and per-scene assets
+  before retrying paid generation.
+- Never use Colorama/`print()` for provider or renderer diagnostics in MCP
+  workers. On Windows this can flush the host protocol stream and raise
+  `OSError: [Errno 22]`. Inspect job/PID/heartbeat, project state, files and
+  hashes to determine whether work occurred; do not infer failure from the
+  transport error.
+- When Kokoro alignment fails, inspect `alignment_failure.json`. Rewrite the
+  short or problematic phrase naturally, preserve the existing narration scene
+  IDs, verify image links, and rerun voice sequentially. Do not fabricate times.
+- YouTube metadata preflight in the current uploader expects language `es`,
+  even if the editorial narration language is `es-ES`. Saving metadata clears
+  the thumbnail path: regenerate the thumbnail and repeat QA before upload.
+  A proven preflight failure before insert can be corrected after verifying no
+  `upload_started` audit exists; never apply this reasoning to an uncertain
+  insert.
+- Enforce the owner's separate one-public-upload-per-`Europe/Madrid`-date rule
+  by checking local audit and YouTube-confirmed uploads before production.
+  Persistent policy UTC limits do not replace that local-date check.
+- After `publish_youtube`, verify the exact channel, title, privacy, processing,
+  duration/definition, metadata, thumbnail, project state and audit through
+  read-only YouTube API calls. A failed/uncertain insert is never retried;
+  reconcile only an unambiguous matching ID. Do not claim YouTube confirmed a
+  synthetic-media status field unless its returned value was actually observed.
