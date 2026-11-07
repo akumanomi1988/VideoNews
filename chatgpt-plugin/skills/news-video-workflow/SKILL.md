@@ -165,9 +165,11 @@ particular:
   A proven preflight failure before insert can be corrected after verifying no
   `upload_started` audit exists; never apply this reasoning to an uncertain
   insert.
-- Enforce the owner's separate one-public-upload-per-`Europe/Madrid`-date rule
-  by checking local audit and YouTube-confirmed uploads before production.
-  Persistent policy UTC limits do not replace that local-date check.
+- Each explicit create-and-publish invocation produces a new, distinct video,
+  even if another episode was published today. There is no calendar-date
+  production quota. Inspect prior projects to avoid repeated events and unknown
+  upload outcomes. Keep owner-enrolled limits, quality gates and per-project
+  idempotency. Continue an interrupted invocation on its active project.
 - After `publish_youtube`, verify the exact channel, title, privacy, processing,
   duration/definition, metadata, thumbnail, project state and audit through
   read-only YouTube API calls. A failed/uncertain insert is never retried;

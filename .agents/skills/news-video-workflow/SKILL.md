@@ -63,11 +63,12 @@ quality gates allow it.
   If metadata/thumbnail validation fails before `videos.insert`, verify the
   project remains `draft` and has no `upload_started` audit before correcting
   and retrying the official Studio publish method.
-- **Keep the Madrid-local daily rule separate from the policy's UTC limit.**
-  Before creating a daily episode, inspect audit and YouTube-confirmed uploads
-  for the current `Europe/Madrid` calendar date. Any confirmed public upload,
-  or unresolved public attempt for that date, blocks another production/upload.
-  The persistent owner policy still independently enforces its configured cap.
+- **Each explicit skill execution requests a new production.** Do not block
+  because another video was published today. Check recent projects for topic
+  duplication and unresolved uploads, not for a one-video-per-date quota.
+  Preserve the independently enrolled owner policy limits and per-project
+  upload idempotency. Resume the current run after interruption rather than
+  creating another project for the same invocation.
 - **Do not equate a successful render with editorial release.** Inspect the
   actual contact sheet, check source support claim by claim, and distinguish
   this judgment from automated QA. Do not publish if the story, visuals,
