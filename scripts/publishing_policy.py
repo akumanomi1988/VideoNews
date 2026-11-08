@@ -9,7 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 PRIVACY_STATUSES = ("public", "private", "unlisted")
-MAX_UPLOADS_PER_DAY = 100
+
+def valid_upload_limit(value: object) -> bool:
+    """None means unlimited; retain positive legacy caps without an upper bound."""
+    return value is None or (type(value) is int and value > 0)
 
 
 def _directory() -> Path:
@@ -68,22 +71,21 @@ def load() -> dict | None:
             or data["privacy_status"] not in allowed
             or type(data.get("public_consent")) is not bool
             or ("public" in allowed and data["public_consent"] is not True)
-            or type(data.get("max_uploads_per_day")) is not int
-            or not 1 <= data["max_uploads_per_day"] <= MAX_UPLOADS_PER_DAY):
+            or "max_uploads_per_day" not in data
+            or not valid_upload_limit(data["max_uploads_per_day"])):
         return None
     return data
 
 
-def enroll(channel_id: str, max_uploads_per_day: int,
+def enroll(channel_id: str, max_uploads_per_day: int | None = None,
            privacy_status: str = "private",
            allowed_privacy_statuses: list[str] | None = None,
            *, public_consent: bool = False,
            channel_title: str = "NewSphere") -> dict:
     if not isinstance(channel_id, str) or not channel_id.startswith("UC"):
         raise ValueError("Invalid YouTube channel ID")
-    if (type(max_uploads_per_day) is not int
-            or not 1 <= max_uploads_per_day <= MAX_UPLOADS_PER_DAY):
-        raise ValueError(f"max_uploads_per_day must be 1-{MAX_UPLOADS_PER_DAY}")
+    if not valid_upload_limit(max_uploads_per_day):
+        raise ValueError("max_uploads_per_day must be a positive integer or None (unlimited)")
     if privacy_status not in PRIVACY_STATUSES:
         raise ValueError("privacy_status must be public, private, or unlisted")
     allowed = list(allowed_privacy_statuses or [privacy_status])

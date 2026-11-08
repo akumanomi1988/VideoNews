@@ -23,7 +23,7 @@ truth if an interface changes.
   project state, audit records and output files before any retry.
 - Local owner publishing policy is the independent authorization boundary. A
   brief or model instruction cannot enroll the owner, change allowed visibility,
-  raise limits, or change the bound channel.
+  or change the bound channel.
 
 ## 1. Preflight the actual MCP instance
 
@@ -42,7 +42,7 @@ truth if an interface changes.
    around an unknown upload result.
 4. For publication requests, verify the local policy explicitly permits the
    desired privacy, expected NewSphere channel ID is
-   `UCXX3S1RI4iahIcbsOl_m3gw`, and daily cap has not been reached. If these checks
+   `UCXX3S1RI4iahIcbsOl_m3gw`. Each invocation creates a new episode even if another was published today. If these checks
    fail, report the exact observed blocker and stop before production or upload
    as appropriate. Never print OAuth tokens, API keys or client secrets.
 
@@ -211,7 +211,7 @@ truth if an interface changes.
    not permit it.
 2. Call `publish_youtube(project_id, privacy_status=...)` once. Do not call
    Google's insert API directly. The official Studio path validates channel,
-   hash-bound idempotency, daily limit, metadata, thumbnail and QA, then records
+   hash-bound idempotency, metadata, thumbnail and QA, then records
    its audit.
 3. Verify the returned ID with read-only YouTube verification: channel ID,
    title, privacy, language, processing state and custom thumbnail. Distinguish

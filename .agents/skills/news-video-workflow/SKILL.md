@@ -34,6 +34,8 @@ quality gates allow it.
 
 ## Operational lessons from real Windows production
 
+For automation and legacy-cap removal, see `docs/AUTOMATED_PRODUCTION.md`.
+
 - **Treat `studio_status` as instance-specific.** If the active MCP reports a
   missing token, stale settings, or unavailable capability while a fresh local
   Studio check disagrees, do not call the system healthy and do not mutate the
@@ -66,8 +68,8 @@ quality gates allow it.
 - **Each explicit skill execution requests a new production.** Do not block
   because another video was published today. Check recent projects for topic
   duplication and unresolved uploads, not for a one-video-per-date quota.
-  Preserve the independently enrolled owner policy limits and per-project
-  upload idempotency. Resume the current run after interruption rather than
+  Preserve channel/visibility consent and per-project upload idempotency.
+  Upload volume is unlimited; an earlier upload today never blocks a new run. Resume the current run after interruption rather than
   creating another project for the same invocation.
 - **Do not equate a successful render with editorial release.** Inspect the
   actual contact sheet, check source support claim by claim, and distinguish

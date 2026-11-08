@@ -136,7 +136,7 @@ narration is now its lossless WAV; auxiliary MP3 is optional. See repository
 `docs/AUDIO_GRAPHICS_UPGRADE.md` for current limitations before claiming acceptance.
 
 - `publish_youtube` is only for an explicit publish request. It respects the active brief's privacy status and requires a locally enrolled owner policy or an exact one-use owner authorization.
-- Local enrollment is channel-bound, private to the Windows owner, limited to 1-100 uploads per UTC day and revocable. Its default and allowed visibility values come from `studio_status`. Only the owner can enroll or change it. ChatGPT cannot create, expand or revoke that consent through MCP.
+- Local enrollment is channel-bound, private to the Windows owner, unlimited by default and revocable. Its default and allowed visibility values come from `studio_status`. Only the owner can enroll or change it. ChatGPT cannot create, expand or revoke that consent through MCP.
 - For explicit `CREATE_AND_PUBLISH`, use the requested status when stated. If omitted, check `studio_status` and use the enrolled policy's default only when that policy explicitly allows it; otherwise report the local enrollment requirement.
 - Studio checks policy, channel, file hash, idempotency, review status and metadata before inserting, then reads the video back and verifies its channel and effective privacy. Return the actual video ID and URL only after verification.
 - If a result is `uploading`, `upload_unknown` or verification failed, stop and reconcile the existing upload. Use `reconcile_youtube_upload(job_id, video_id)` only after a read-only YouTube lookup identifies the matching video; the tool independently verifies the audited project hash, channel, approved title and privacy before persisting the result. Never retry an uncertain insert.
@@ -168,7 +168,7 @@ particular:
 - Each explicit create-and-publish invocation produces a new, distinct video,
   even if another episode was published today. There is no calendar-date
   production quota. Inspect prior projects to avoid repeated events and unknown
-  upload outcomes. Keep owner-enrolled limits, quality gates and per-project
+  upload outcomes. Keep channel/visibility consent, quality gates and per-project
   idempotency. Continue an interrupted invocation on its active project.
 - After `publish_youtube`, verify the exact channel, title, privacy, processing,
   duration/definition, metadata, thumbnail, project state and audit through

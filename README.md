@@ -74,7 +74,8 @@ there is no silent ChatGPT image export API.
 One-time owner enrollment is available through
 `.\.venv\Scripts\python.exe -m scripts.owner_publish_policy enroll`; it verifies
 the OAuth channel is NewSphere and stores a user-only privacy policy with a
-daily limit of up to 100 uploads per UTC day. New enrollment defaults to
+no daily upload cap by default. Remove a legacy cap with
+`python -m scripts.owner_publish_policy remove-upload-limit`. New enrollment defaults to
 `private`; public or unlisted uploads require explicit owner consent when
 enrolling those modes. `--privacy-status`
 selects another enrolled default, and `--allow-privacy-status` can authorize

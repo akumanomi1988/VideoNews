@@ -1794,7 +1794,8 @@ class VideoNewsStudio:
                     and str(r.get("at", "")).startswith(today)
                 }
                 daily_count = len(daily_projects)
-                if daily_count >= automatic_policy["max_uploads_per_day"]:
+                upload_limit = automatic_policy["max_uploads_per_day"]
+                if upload_limit is not None and daily_count >= upload_limit:
                     raise StudioError("Owner-configured daily YouTube upload limit reached")
                 metadata = project.get("youtube_metadata", {})
                 if not metadata.get("title"):
@@ -2086,6 +2087,8 @@ class VideoNewsStudio:
             "publishing_policy": "automatic_enabled" if publishing
             else "owner_enrollment_required",
             "publishing_default_privacy": publishing["privacy_status"] if publishing else None,
+            "publishing_max_uploads_per_day": publishing["max_uploads_per_day"] if publishing else None,
+            "publishing_uploads_unlimited": bool(publishing and publishing["max_uploads_per_day"] is None),
             "publishing_allowed_privacy": (publishing["allowed_privacy_statuses"]
                                            if publishing else []),
         }

@@ -37,7 +37,7 @@ def test_owner_can_configure_non_public_default(tmp_path, monkeypatch, privacy):
 
 @pytest.mark.parametrize("channel_id,limit,privacy", [
     ("invalid", 2, "public"), ("UCchannel123", 0, "public"),
-    ("UCchannel123", 101, "public"), ("UCchannel123", True, "public"),
+    ("UCchannel123", -1, "public"), ("UCchannel123", True, "public"),
     ("UCchannel123", 2, "invalid"),
 ])
 def test_policy_rejects_invalid_enrollment(tmp_path, monkeypatch, channel_id, limit, privacy):
@@ -66,7 +66,7 @@ def test_public_consent_binds_only_newssphere_channel(tmp_path, monkeypatch):
     {"max_uploads_per_day": True},
     {"max_uploads_per_day": "2"},
     {"max_uploads_per_day": 0},
-    {"max_uploads_per_day": 101},
+    {"max_uploads_per_day": -1},
     {"allowed_privacy_statuses": ["public", "bogus"]},
     {"allowed_privacy_statuses": [["public"]]},
     {"allowed_privacy_statuses": ["private"]},
@@ -80,3 +80,47 @@ def test_policy_fails_closed_when_persisted_policy_is_tampered(
     data.update(tamper)
     policy.policy_path().write_text(json.dumps(data), encoding="utf-8")
     assert policy.load() is None
+
+
+@pytest.mark.parametrize("limit", [None, 101, 10000])
+def test_unlimited_default_and_large_optional_limits_round_trip(tmp_path, monkeypatch, limit):
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
+    result = policy.enroll("UCchannel123", limit, privacy_status="public", public_consent=True)
+    assert result["max_uploads_per_day"] == limit
+    assert policy.load() == result
+
+
+def test_missing_limit_field_still_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
+    policy.enroll("UCchannel123")
+    data = json.loads(policy.policy_path().read_text(encoding="utf-8"))
+    del data["max_uploads_per_day"]
+    policy.policy_path().write_text(json.dumps(data), encoding="utf-8")
+    assert policy.load() is None
+
+
+def test_owner_command_removes_cap_without_expanding_visibility(tmp_path, monkeypatch):
+    from scripts import owner_publish_policy as cli
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
+    original = policy.enroll("UCchannel123", 100, privacy_status="public", public_consent=True)
+    monkeypatch.setattr(cli.VideoNewsStudio, "_config", staticmethod(lambda: {}))
+    monkeypatch.setattr(cli.VideoNewsStudio, "_readonly_youtube_verification",
+                        staticmethod(lambda *_args: {"youtube_channel_matches_policy": True}))
+    assert cli.main(["remove-upload-limit"]) == 0
+    current = policy.load()
+    assert current["max_uploads_per_day"] is None
+    for field in ["channel_id", "privacy_status", "allowed_privacy_statuses", "public_consent"]:
+        assert current[field] == original[field]
+    assert policy.records()[-1]["outcome"] == "upload_limit_removed"
+
+
+def test_owner_command_refuses_cap_removal_for_unverified_channel(tmp_path, monkeypatch):
+    from scripts import owner_publish_policy as cli
+    monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "policy"))
+    original = policy.enroll("UCchannel123", 100)
+    monkeypatch.setattr(cli.VideoNewsStudio, "_config", staticmethod(lambda: {}))
+    monkeypatch.setattr(cli.VideoNewsStudio, "_readonly_youtube_verification",
+                        staticmethod(lambda *_args: {"youtube_channel_matches_policy": False}))
+    with pytest.raises(SystemExit):
+        cli.main(["remove-upload-limit"])
+    assert policy.load() == original

@@ -36,14 +36,34 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
     enroll = actions.add_parser("enroll")
-    enroll.add_argument("--max-uploads-per-day", type=int, default=2)
+    enroll.add_argument("--max-uploads-per-day", type=int, default=None,
+                        help="Optional positive cap; omitted means unlimited uploads")
     enroll.add_argument("--privacy-status", choices=policy.PRIVACY_STATUSES,
                         default="private")
     enroll.add_argument("--allow-privacy-status", action="append",
                         choices=policy.PRIVACY_STATUSES,
                         help="Allow an additional per-video status; may be repeated")
     actions.add_parser("revoke")
+    actions.add_parser("remove-upload-limit",
+                       help="Remove only the cap from an already authorized channel policy")
     args = parser.parse_args(argv)
+    if args.action == "remove-upload-limit":
+        current = policy.load()
+        if not current:
+            parser.error("An enabled owner-enrolled policy is required")
+        verification = VideoNewsStudio._readonly_youtube_verification(
+            VideoNewsStudio._config(), current)
+        if not verification["youtube_channel_matches_policy"]:
+            parser.error("Saved OAuth token must verify the already enrolled NewSphere channel")
+        policy.enroll(current["channel_id"], None,
+                      privacy_status=current["privacy_status"],
+                      allowed_privacy_statuses=current["allowed_privacy_statuses"],
+                      public_consent=current["public_consent"],
+                      channel_title=current["channel_title"])
+        policy.audit("owner-policy", "", current["channel_id"], "upload_limit_removed",
+                     details={"previous_limit": current["max_uploads_per_day"]})
+        print("Daily upload cap removed; channel and visibility consent preserved.")
+        return 0
     if not sys.stdin.isatty():
         parser.error("owner policy changes require an interactive local console")
     if args.action == "revoke":
@@ -55,8 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Automatic YouTube publishing revoked.")
         return 0
 
-    if not 1 <= args.max_uploads_per_day <= policy.MAX_UPLOADS_PER_DAY:
-        parser.error(f"--max-uploads-per-day must be 1-{policy.MAX_UPLOADS_PER_DAY}")
+    if not policy.valid_upload_limit(args.max_uploads_per_day):
+        parser.error("--max-uploads-per-day must be positive when supplied")
     config = VideoNewsStudio._config()
     secrets_file = Path(config.get("youtube", {}).get("credentials_file", "")).expanduser().resolve()
     if not secrets_file.is_file():
@@ -80,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     allowed_label = ",".join(allowed)
     print(f"Channel verified: {channel['title']} ({channel_id})")
     print(f"Default privacy: {args.privacy_status}; allowed: {allowed_label}; "
-          f"limit: {args.max_uploads_per_day} per UTC day.")
+          f"limit: {args.max_uploads_per_day if args.max_uploads_per_day else 'unlimited'}.")
     if public_consent:
         print("This enables automatic PUBLIC publishing after each explicit ChatGPT upload request.")
     phrase = (f"ENABLE YOUTUBE AUTO-PUBLISH {channel_id} DEFAULT {args.privacy_status.upper()} "

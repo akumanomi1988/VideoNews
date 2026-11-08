@@ -564,8 +564,9 @@ def test_reconcile_rejects_video_with_wrong_publication_privacy(
     assert studio._read(project["id"])["status"] == "upload_unknown"
 
 
-def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
-        studio, project, monkeypatch, tmp_path):
+@pytest.mark.parametrize("upload_limit", [1, None])
+def test_owner_enrolled_auto_publish_preserves_idempotency_without_daily_quota(
+        studio, project, monkeypatch, tmp_path, upload_limit):
     from scripts import publishing_policy
 
     monkeypatch.setenv("VIDEO_PUBLISH_POLICY_DIR", str(tmp_path / "owner-policy"))
@@ -579,7 +580,15 @@ def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
         "title": "A verified private Short", "description": "Source: Example authority. Source-backed report.", "tags": []})
     monkeypatch.setattr(studio, "review_video", lambda _job_id: {
         "ready_for_editorial_review": True, "issues": [], "requires_human_fact_check": True})
-    publishing_policy.enroll("UCtestChannel123", 1, privacy_status="public", public_consent=True)
+    publishing_policy.enroll("UCtestChannel123", upload_limit, privacy_status="public", public_consent=True)
+    if upload_limit is None:
+        # Exceed both former caps (one per local day and 100 per UTC day).
+        from datetime import datetime, timezone
+        history = [dict(project_id=f"earlier-{i}", video_sha256=f"different-{i}",
+                        channel_id="UCtestChannel123", outcome="upload_started",
+                        at=datetime.now(timezone.utc).isoformat()) for i in range(110)]
+        publishing_policy.audit_path().write_text(
+            "".join(json.dumps(row) + "\n" for row in history), encoding="utf-8")
     _setup_oauth(studio, monkeypatch, tmp_path)
     upload = Mock(return_value={"id": "YT_AUTO_PUBLIC_1"})
     _install_fake_youtube(monkeypatch, upload)
@@ -591,9 +600,9 @@ def test_owner_enrolled_auto_publish_is_private_bounded_and_idempotent(
     assert studio.publish_youtube(project["id"])["already_published"] is True
     assert upload.call_count == 1
     records = publishing_policy.records()
-    assert [record["outcome"] for record in records] == ["upload_started", "uploaded"]
+    assert [record["outcome"] for record in records[-2:]] == ["upload_started", "uploaded"]
     assert all(record["channel_id"] == "UCtestChannel123" for record in records)
-    assert all(record["video_sha256"] == studio._hash(Path(project["video"])) for record in records)
+    assert all(record["video_sha256"] == studio._hash(Path(project["video"])) for record in records[-2:])
 
 
 def test_auto_publish_unknown_outcome_is_audited_and_never_retried(
