@@ -79,9 +79,17 @@ from the latest real NewSphere production—follow [the production runbook](refe
 
 Read [the production standard](references/production-standard.md) for the required
 editorial/narrative workflow, packaging options, A-E gates and delivery report.
-Use [script direction](references/script-direction.md) to build a fact-rich spoken
-explanation. Avoid filling sections with repeated caveats or discussion of our
-editorial process. Every paragraph and visual beat must advance the actual story.
+Before every script, follow the required workflow and reusable agent prompt in
+[script direction](references/script-direction.md). Draft three story-specific
+hook candidates, choose one supported by evidence that pays off the
+title/thumbnail promise, then build a source-linked beat map before writing
+narration. Establish the story and its stake immediately; deliver useful value
+in the first 30 seconds. Make each beat add a fact, explanation, complication
+or consequence, and resolve curiosity honestly. Pair narration with visuals
+that add evidence or meaning. Avoid generic openings, filler, repeated caveats,
+false suspense and conclusions that restate the video. Use the brief's approved
+angle, audience and duration; verify duration after Kokoro synthesis. Never
+claim predicted virality, views or retention gains.
 Use a small lower-left circular IA marker; do not bake large banners into scene art.
 
 For new NewSphere productions without an explicit format or duration, use landscape
@@ -106,7 +114,7 @@ Plan a visual progression with specific actions and varied shot families; use a
 shared photographic treatment without repeating dark offices, monitors or blue
 holograms. Review the sequence for redundancy before paid image generation.
 
-1. Draft original narration in ChatGPT, grounded in the retrieved sources. Save it with `save_script`. Match scene narration exactly to the script and persist a coherent scene-by-scene `save_storyboard`; every scene needs a unique ID and a concrete visual prompt.
+1. The active LLM agent drafts original narration in ChatGPT, grounded in the retrieved sources and following the script-direction prompt. VideoNews MCP does not generate the script; `save_script` only persists caller-authored narration. Save the final script with `save_script`. Match scene narration exactly to the script and persist a coherent scene-by-scene `save_storyboard`; every scene needs a unique ID and a concrete visual prompt.
 2. Aim for the approved spoken duration. For Spanish speech, estimate at a natural delivery rate, then verify the actual TTS duration. Studio enforces the target tolerance after synthesis and again after rendering; revise the script if it falls outside the approved range. Do not silently change target duration, format, or orientation.
 3. For NewSphere Cinematic, call `generate_images` as the primary visual step after saving the storyboard. Supply one scene-specific prompt per scene; the tool persists each image with `scene_id`, SHA-256, provider/model, prompt, dimensions and synthetic-media provenance, and skips valid completed assets on resume. Do not send generic article phrases as prompts. Use infographic or diagram prompts for exact facts, maps, numbers or named events; never imply an AI illustration is documentary evidence. If generation fails, stop and report the exact scene/provider failure. Never silently replace it with Pexels or a placeholder. Use `generate_stock_images` only when the user/project explicitly chooses licensed stock; preserve photographer/license/source credits. The configured image provider can incur charges, and no cost should be invented.
 4. Save complete Unicode YouTube metadata with source credits and accurate synthetic-media disclosure. Create a thumbnail after visuals and metadata are ready. The current renderer creates a checked 1280×720 composition.

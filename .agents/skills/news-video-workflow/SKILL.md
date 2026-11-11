@@ -13,8 +13,10 @@ canonical plugin instructions and the repeatable production runbook:
 2. `chatgpt-plugin/skills/news-video-workflow/references/reproducible-production-runbook.md`
    — exact preflight-to-delivery sequence, recovery checks and the observed
    production reference.
-3. Read the referenced script, visual and production-standard guidance in that
-   skill when the current production needs it.
+3. Before drafting any narration, read and apply
+   `chatgpt-plugin/skills/news-video-workflow/references/script-direction.md`,
+   including its reusable hook, beat-map and script prompt. Read the visual and
+   production-standard guidance when those stages are part of the request.
 
 Use the MCP tools exposed by this repository's configured VideoNews server.
 Start with `studio_status`, then operate one project ID sequentially. Confirm
