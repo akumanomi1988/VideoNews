@@ -1,6 +1,6 @@
 # NewSphere visual direction
 
-Read this before writing a storyboard or revising image prompts. ChatGPT authors
+Read this before writing a storyboard or revising image prompts. The active agent authors
 the visual concepts; Python validates and executes them without a second LLM call.
 
 ## Design the sequence before individual prompts
@@ -59,6 +59,14 @@ Put the visual explanation in `visual_concept`, camera-safe placement in
 Set `semantic_review_required` to true: an attractive image is not factual proof.
 Use `on_screen_text`/deterministic overlays for exact numbers and wording. Never
 ask the image generator to invent a chart, map, survey sample or readable data.
+Do not request blank white boards, empty caption panels or fake dashboards to be
+filled later unless a supported composition step will actually fill them. For a
+data scene, use `generate_graphic` with registered sources and inspect its output
+before rendering. If a layout rejects dense text, shorten labels or split the
+explanation into supported panels without dropping attribution or changing values.
+Use acoustically resolved narration cues for animation; static graphics are valid
+when motion adds no explanation. Check that generated graphic text remains safe
+after subtitles and any final framing are applied.
 
 ## Example: AI and the limits of replacing human knowledge
 

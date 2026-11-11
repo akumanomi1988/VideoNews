@@ -37,6 +37,12 @@ quality gates allow it.
 ## Operational lessons from real Windows production
 
 For automation and legacy-cap removal, see `docs/AUTOMATED_PRODUCTION.md`.
+The maintained autonomous task prompt is
+`chatgpt-plugin/skills/news-video-workflow/references/autonomous-production-task.md`.
+Use the checkout's current guidance for each run rather than relying on an older
+installed plugin copy. Read script direction for writing, visual direction for
+storyboarding and the production standard for release; do not load unrelated
+global skills as another source of VideoNews policy.
 
 - **Treat `studio_status` as instance-specific.** If the active MCP reports a
   missing token, stale settings, or unavailable capability while a fresh local

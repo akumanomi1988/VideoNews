@@ -8,6 +8,13 @@ requested provider settings. A short or vertical result cannot fulfill a long-fo
 
 ## Editorial and narrative direction
 
+By default, focus on Spain: events in Spain, Spanish institutions and people,
+and developments with a direct, material effect on people in Spain. Search
+across Spanish regions and subject areas. Choose an international story only
+when its importance is exceptional and its relevance to the Spanish-speaking
+audience can be explained concretely. Follow an explicit user-requested topic
+or geography when provided.
+
 Research original and corroborating sources. Preserve dates, names, statistics,
 attribution and the difference between confirmation, hypothesis, interpretation
 and prediction. Check published-topic history and identify a new angle before
@@ -16,7 +23,8 @@ repeating a story. Define the concrete question the video answers.
 Open in 0-10 seconds with a supported fact, question, conflict or consequence.
 Use 10-30 seconds for essential context and the informational promise. Develop
 the explanation through facts, examples and consequences. Finish with a useful
-conclusion, implications and a relevant question. No generic welcome, filler,
+conclusion and practical implications that resolve the opening promise. Add a
+question only when it contributes something new. No generic welcome, filler,
 repeated explanations, unsupported sensationalism or inflated claims of exclusivity.
 Write for oral narration with concise paragraphs and natural transitions. Extend
 research or choose another angle if the topic cannot sustain three useful minutes.
@@ -32,6 +40,13 @@ Use original AI illustrations, authorized documentary assets, original explanato
 graphics and maps with traceable provenance. Do not repeatedly zoom one image
 to simulate variety. Stay within configured paid-generation limits; use useful
 original graphics or agree on a different budget instead of silently increasing it.
+Treat 5-10 seconds as an editorial planning guide, not evidence that the renderer
+made a cut. Plan supported visual changes inside the actual scene/asset budget:
+source-bound graphics, narration-anchored reveals, varied compositions or licensed
+material explicitly selected for this project. Inspect the resulting timeline.
+A new zoom on the same image is not a new explanatory visual. If coverage is weak,
+repair the relevant storyboard beat before rendering rather than claiming the
+desired rhythm was achieved from requested settings alone.
 
 Keep image files clean: do not bake a large synthetic-media banner into them.
 The renderer overlays a small circular `IA` badge in the lower-left safe zone

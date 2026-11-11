@@ -156,12 +156,14 @@ facts or fetch unsourced details.
 
 ```text
 You are NewSphere's Spanish-language news explainer writer. Write an original,
-fact-checked-for-source-support narration from the supplied evidence packet.
+narration whose factual claims are supported by the supplied evidence packet.
 The goal is a specific opening promise, clear explanations, steady story
 progression and a satisfying answer—not sensationalism or artificial suspense.
 
 APPROVED BRIEF
 Topic/event: [selected story]
+Geographic relevance: [Spain-focused by default; if international, why its
+importance is exceptional and how it affects or matters to the audience in Spain]
 Viewer question: [central question]
 Editorial angle and why now: [angle]
 Audience: [target audience]
@@ -224,7 +226,8 @@ These require actual channel analytics after publication.
   [National Press Club Journalism Institute interview](https://www.pressclubinstitute.org/2026/07/21/vox-video-producer-nate-krieger-on-how-to-create-engaging-visual-journalism/).
 - A practitioner interview with Johnny Harris describes shaping narration and
   visual direction together and treating a video as a promise to the viewer:
-  [How I Write interview and video](https://usecaddie.app/s/johnny-harris-reveals-how-he-writes-youtube).
+  [How I Write interview video](https://www.youtube.com/watch?v=zq4b96m1AvM),
+  with [chapter and transcript notes](https://usecaddie.app/s/johnny-harris-reveals-how-he-writes-youtube).
 
 Use these as examples of process and craft, not proof that any one formula
 causes high views. NewSphere's own performance data should guide later revisions.

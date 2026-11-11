@@ -24,10 +24,48 @@ An alternative request or recommendation is never permission to publish. “Adel
 
 ## Discover and compare news
 
-1. Use `research_news` for the requested topic, country and language. Treat each result as an unverified lead. Use `retrieve_article` on the original source URL and seek independent corroboration or a primary record.
+### Default editorial geography: Spain first
+
+When the user has not named a country or topic, prioritize news about Spain:
+events in Spain, Spanish institutions and people, or developments with a direct,
+material effect on people in Spain. Search across Spanish regions and beats—
+politics, economy, society, science, technology, climate, transport and public
+services—not only Madrid, AI or national politics.
+
+Choose an international story only when its importance is exceptional: for
+example, a major conflict or geopolitical change, a severe cross-border crisis,
+a global health or economic shock, or a scientific/technological development
+with broad consequences. Explain the concrete reason it matters to NewSphere's
+Spanish-speaking audience. A foreign story is not exceptional merely because it
+is dramatic, widely reported, visually striking or trending elsewhere.
+
+If the user explicitly requests another country, topic or region, follow that
+request. For a general shortlist, lead with strong Spain-related candidates;
+include an international option only if it meets the exceptional-importance
+test. If no current Spanish candidate is sufficiently sourced, widen the
+search across Spanish subjects and regions before considering an exceptional
+international story. Never fill the list with stale or weak items just to meet
+a count.
+
+1. Use `research_news` for the requested topic, country and language. With no
+   explicit geographic request, begin with Spain-focused queries and varied
+   Spanish regions/beats. Treat each result as an unverified lead. Use
+   `retrieve_article` on the original source URL and seek independent
+   corroboration or a primary record.
 2. Use publication dates, publisher names, article text, `duplicate_of`, `freshness_heuristic`, `already_processed`, and `similar_processed_project` as evidence. Similarity, date buckets and project matches are heuristics; inspect their cited items before deciding.
-3. Explain source quality, what each source supports, unresolved claims, timeliness, NewSphere topic duplication, audience relevance and visual possibilities. Viewer interest is editorial judgment only: do not invent search volume, virality, audience metrics, quotations or future performance.
-4. If sourcing is weak, dates conflict, or the event cannot be established, say so and stop. Do not make a script from unsupported facts.
+3. Explain source quality, what each source supports, unresolved claims,
+   timeliness, NewSphere topic duplication, relevance to Spain and visual
+   possibilities. For an international selection, state why its importance
+   clears the exceptional-importance test. Viewer interest is editorial
+   judgment only: do not invent search volume, virality, audience metrics,
+   quotations or future performance.
+4. A stale, empty or failing news provider is a discovery failure, not evidence
+   that there is no news. Vary queries across Spanish regions and subjects and
+   use current web search, including primary records and reliable regional
+   reporting. For daily news verify a new event/update within 48 hours; an old
+   article republished today is not a new event. If sources still cannot establish
+   a candidate, try another event before reporting the documented blocker. Never
+   make a script from unsupported facts.
 5. Preserve the current shortlist in conversation. Resolve “la segunda”, “esa”, “la anterior” and “haz la que recomiendas” against the most recent shortlist and the active project. If either is ambiguous, ask one short disambiguating question.
 
 ## Persist an editorial brief
@@ -113,6 +151,9 @@ Before authoring scene prompts, read [visual direction](references/visual-direct
 Plan a visual progression with specific actions and varied shot families; use a
 shared photographic treatment without repeating dark offices, monitors or blue
 holograms. Review the sequence for redundancy before paid image generation.
+Generate and inspect planned source-bound static graphics before `generate_images`
+so covered data scenes are not needlessly generated as paid illustrations.
+Narration-anchored graphic animations require verified voice boundaries first.
 
 1. The active LLM agent drafts original narration in ChatGPT, grounded in the retrieved sources and following the script-direction prompt. VideoNews MCP does not generate the script; `save_script` only persists caller-authored narration. Save the final script with `save_script`. Match scene narration exactly to the script and persist a coherent scene-by-scene `save_storyboard`; every scene needs a unique ID and a concrete visual prompt.
 2. Aim for the approved spoken duration. For Spanish speech, estimate at a natural delivery rate, then verify the actual TTS duration. Studio enforces the target tolerance after synthesis and again after rendering; revise the script if it falls outside the approved range. Do not silently change target duration, format, or orientation.
@@ -152,6 +193,14 @@ narration is now its lossless WAV; auxiliary MP3 is optional. See repository
 Never ask for OAuth credentials in chat. Never publish during exploration or recommendation. ChatGPT Plus does not provide API access or an API key. Do not claim a Windows render, plugin connection, QA result or YouTube publication without observing its actual result.
 
 ## Windows production recovery notes
+
+For scheduled autonomous production, use the maintained
+[task prompt](references/autonomous-production-task.md). Load the repository
+guidance at the start of each run; installed plugin caches may be older. Updating
+this file does not update an already saved scheduler prompt: save that prompt
+through the scheduler's official update tool and read it back. Preserve the
+existing trigger unless the user asks to change it. Editing these skills is not
+a request to launch a production or run the scheduled task immediately.
 
 Follow the detailed repository-local runbook for every production. In
 particular:

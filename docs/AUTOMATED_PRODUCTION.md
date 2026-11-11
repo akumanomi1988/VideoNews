@@ -20,31 +20,23 @@ when the active server has loaded an unlimited policy.
 
 ## Automation instructions
 
-1. Read the repository-local `news-video-workflow` skill and call `studio_status`.
-   Verify the NewSphere channel, public consent, FFmpeg, Kokoro/alignment and image
-   provider. If MCP OAuth diagnostics disagree with the actual token, use the
-   documented non-interactive channel verification and official local recovery.
-2. Inspect recent projects for repeated events, active jobs and uncertain uploads.
-   Prior successful uploads today never consume a production quota.
-3. Search at least four distinct global queries in Spanish and English. Treat
-   provider results as leads. Broaden stale or irrelevant results through current
-   web search across science, technology, economy and international affairs.
-4. Choose a fresh event from the last 48 hours, supported by a primary record or
-   independent reliable reporting. Explain editorial interest without inventing
-   audience metrics. Search another topic when the first repeats an existing event.
-5. Create a new long-form 16:9 project, 1920x1080, Spanish narration, NewSphere
-   Cinematic, target 210 seconds with 30-second tolerance. Persist sources,
-   approved brief, original scene-linked script and matching storyboard IDs.
-6. Generate configured original visuals, Kokoro em_alex WAV and acoustic alignment,
-   captions, thumbnail, preview and final MP4. Preserve valid work during recovery.
-   Use music only with verified rights. Keep bounded failure retries; an unlimited
-   publication count does not mean unlimited retries of a failed operation.
-7. Run technical QA and inspect actual frames and source support. Repair critical
-   defects before publication. Distinguish automated checks from editorial judgment.
-8. Publish through the official Studio method once with public visibility. Verify
-   channel, title, metadata, thumbnail and completed processing through YouTube
-   reads. Reconcile uncertain outcomes; never repeat an uncertain insert. Report
-   the observed URL, project, media properties, QA and any actual blocker.
+The maintained scheduler prompt is
+[autonomous-production-task.md](../chatgpt-plugin/skills/news-video-workflow/references/autonomous-production-task.md).
+Use its full contents when updating the existing scheduled task through the
+host scheduler's official update tool. Read the saved task back and compare the
+prompt; preserve its enabled state and trigger unless the user requests a
+schedule change. Do not create another task or start a production to test a prompt
+update.
+
+The prompt loads the repository-local workflow and references every run. It
+prioritizes Spain, admits exceptionally important international stories with a
+specific audience rationale, uses three factual hook candidates and a source-linked
+beat map, and requires useful visual coverage rather than repeated generic images.
+It preserves the automation's explicit 210-second target with 30-second tolerance;
+this is a task-specific brief rather than the general skill's 240-second default.
+It requires acoustic alignment, the primary Kokoro WAV, licensed music or an
+explicit no-track reason, actual artifact inspection, and one official public
+upload with readback and per-project idempotency.
 
 External provider quotas, billing balances and rate limits are controlled by their
 services. Report their actual errors rather than claiming they have been removed.

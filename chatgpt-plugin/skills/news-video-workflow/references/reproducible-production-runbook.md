@@ -48,10 +48,13 @@ truth if an interface changes.
 
 ## 2. Discover, verify and select a story
 
-1. Run several independent `research_news` queries across the requested topic,
-   region and language. For a daily episode, prefer stories published or newly
-   updated in the preceding 48 hours. Search results are candidates, not proof
-   of complete coverage.
+1. Unless the user explicitly names another topic or geography, make Spain the
+   primary editorial territory. Start with several independent
+   `research_news` queries covering Spanish national and regional news across
+   different beats. Prefer events in Spain or stories with a direct, material
+   consequence for people in Spain. For a daily episode, prefer stories
+   published or newly updated in the preceding 48 hours. Search results are
+   candidates, not proof of complete coverage.
 2. If results are stale, empty, repetitive or the provider errors, broaden the
    queries and use the available web search route in Spanish and English. Vary
    subject areas; do not keep querying only AI if the assignment covers global
@@ -65,9 +68,15 @@ truth if an interface changes.
    Deduplicate by event/entities, not just title similarity. Retain plausible
    alternatives in the conversation and project brief.
 5. Select using an explained editorial judgment: freshness, source quality,
-   relevance to Spanish-speaking viewers, visual storytelling opportunity and
-   fit with NewSphere. Do not state unobserved search demand, virality, audience
-   metrics or predicted performance as facts.
+   relevance to Spain, visual storytelling opportunity and fit with NewSphere.
+   Prefer a well-sourced Spain story over a similarly strong unrelated foreign
+   story. Select an international story only when its importance is exceptional
+   (such as a major geopolitical shift, severe cross-border crisis, global
+   health/economic shock or broadly consequential scientific/technological
+   development); state its concrete relevance to the Spanish-speaking
+   audience. Do not treat drama, foreign coverage volume or visual potential
+   alone as exceptional importance. Do not state unobserved search demand,
+   virality, audience metrics or predicted performance as facts.
 6. If the evidence is too weak or materially contradictory, stop before making
    a script. If the user asked only to explore or recommend, do not create a
    project or publish anything.
@@ -96,13 +105,21 @@ truth if an interface changes.
    consent.
 5. Read back with `get_project`. Confirm the exact brief, sources, project ID,
    target, orientation and approval status before drafting assets.
+   Settle the brief before saving narration. Changing sources, the selected
+   story or narrative decisions afterward can clear the script and dependent
+   artifacts. After any brief revision, read back the project before synthesis;
+   never start Kokoro with empty narration or assume earlier artifacts still
+   belong to the active revision.
 
 ## 4. Write a scene-linked script and storyboard
 
-1. Draft the complete original Spanish narration in ChatGPT from verified
-   sources. Use an engaging opening, a clear explanatory progression, concrete
-   implications and a useful close. Attribute claims in the script or narration
-   where attribution is needed. Do not pad the script to satisfy duration.
+1. Follow `script-direction.md`: establish the viewer promise, compare three
+   factual hooks, then create a source-linked beat map. The active agent writes
+   the Spanish narration; `save_script` does not call another LLM. Deliver
+   specific value in the opening, explain mechanisms and consequences, and
+   resolve the promise at the end. Review the draft for repetition, generic
+   questions and excessive caveats before any synthesis. Keep hook/beat/source
+   notes in the production record, outside spoken narration.
 2. Divide narration into natural scene-sized segments. Give every segment a
    stable, unique ID such as `scene-01` and preserve those IDs in order. Call
    `save_script` with a list of `{ "scene_id": "...", "text": "..." }` records,
@@ -128,6 +145,11 @@ truth if an interface changes.
 1. Check current `studio_status.image_generation_limits`. Keep within the
    configured scene and retry caps; do not increase them to compensate for weak
    prompts.
+   Create source-bound static graphics for planned data/diagram scenes first,
+   using `generate_graphic` and inspect the result. This gives those scenes a
+   valid asset before paid image generation; do not pay for an AI illustration
+   that will immediately be replaced by a chart. Add narrated animations only
+   after verified voice boundaries exist.
 2. Call `generate_images` with prompts in storyboard order. NewSphere Cinematic
    uses the configured Azure MAI provider as the primary source. The tool
    returns an asynchronous job; poll that exact job with `get_job` until a
@@ -214,10 +236,17 @@ truth if an interface changes.
    hash-bound idempotency, metadata, thumbnail and QA, then records
    its audit.
 3. Verify the returned ID with read-only YouTube verification: channel ID,
-   title, privacy, language, processing state and custom thumbnail. Distinguish
+   title, privacy, language, processing state and thumbnail evidence. Distinguish
    successful upload from completed processing; do not say playback is ready
    until YouTube reports processing complete. Read `get_project` again to
    confirm persisted ID, URL/state, privacy and verification.
+   Compare metadata with the uploader's actual transformations: it normalizes
+   tags and can append its configured footer/tag line to the description. Check
+   preserved source links and Unicode; a deliberate suffix is not a missing
+   description. `videos.list` does not provide a `hasCustomThumbnail` boolean:
+   combine the successful thumbnail-set result with returned thumbnail details.
+   Report synthetic-media API status only if returned; distinguish the submitted
+   flag, the visible IA marker, and the description disclosure from API readback.
 4. Confirm retry idempotency with a safe project read or the supported Studio
    call that returns the existing publication. Never make a second insert for a
    project that has an uncertain `uploading`, `upload_unknown` or
