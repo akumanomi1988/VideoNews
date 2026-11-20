@@ -1,12 +1,12 @@
 import requests
-from colorama import Fore, init
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from dateutil import parser as dateparser
 from .interfaces import NewsProvider
 from scripts.utils.file_cache import FileCache
 
-init(autoreset=True)
+log = logging.getLogger(__name__)
 
 ENGINE = "google_news"
 BASE_URL = "https://serpapi.com/search"
@@ -83,17 +83,17 @@ class SerpAPIProvider(NewsProvider):
         if use_cache:
             cached = self.cache.get(cache_key)
             if cached is not None:
-                print(Fore.GREEN + f"SerpAPI cache hit for: {query}")
+                log.info(f"SerpAPI cache hit for: {query}")
                 return cached[:limit]
 
-        print(Fore.CYAN + f"Fetching from SerpAPI: {query} (gl={gl}, hl={lang})")
+        log.info(f"Fetching from SerpAPI: {query} (gl={gl}, hl={lang})")
         try:
             resp = requests.get(BASE_URL, params=params, timeout=30)
             resp.raise_for_status()
             data = resp.json()
 
             if 'news_results' not in data:
-                print(Fore.YELLOW + f"SerpAPI returned no news_results: {data.get('error', 'unknown')}")
+                log.warning(f"SerpAPI returned no news_results: {data.get('error', 'unknown')}")
                 return []
 
             articles = self._standardize_articles(data['news_results'])
@@ -104,21 +104,21 @@ class SerpAPIProvider(NewsProvider):
             return articles[:limit]
 
         except requests.exceptions.Timeout:
-            print(Fore.RED + "SerpAPI request timed out")
+            log.error("SerpAPI request timed out")
             return []
         except requests.exceptions.RequestException as e:
             error_data = getattr(e, 'response', None)
             if error_data is not None:
                 try:
                     details = error_data.json()
-                    print(Fore.RED + f"SerpAPI error: {details}")
+                    log.error(f"SerpAPI error: {details}")
                 except Exception:
-                    print(Fore.RED + f"SerpAPI error: {error_data.status_code} {error_data.reason}")
+                    log.error(f"SerpAPI error: {error_data.status_code} {error_data.reason}")
             else:
-                print(Fore.RED + f"SerpAPI request failed: {e}")
+                log.error(f"SerpAPI request failed: {e}")
             return []
         except Exception as e:
-            print(Fore.RED + f"Unexpected SerpAPI error: {e}")
+            log.error(f"Unexpected SerpAPI error: {e}")
             return []
 
     def _standardize_articles(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

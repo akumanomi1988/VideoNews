@@ -306,6 +306,14 @@ class VideoNewsStudio:
 
     def save_editorial_brief(self, job_id: str, brief: dict[str, Any]) -> dict:
         brief = self._validate_editorial_brief(brief)
+        from scripts.editorial_quality import format_range
+        bounds = format_range(brief.get("editorial_format"))
+        if bounds and not bounds[0] <= brief["target_duration_seconds"] <= bounds[1]:
+            # Caught here, before paid images and voice, not after the render.
+            raise ValueError(
+                f"{brief['editorial_format']} targets {bounds[0]}-{bounds[1]} s, not "
+                f"{brief['target_duration_seconds']} s; adjust the target or omit editorial_format "
+                "for a classic single-story episode")
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
@@ -331,12 +339,55 @@ class VideoNewsStudio:
             self._save(project)
             return self._public(project)
 
+    def rank_editorial_candidates(self, candidates: list[dict]) -> dict:
+        """Read-only editorial ranking based on explicitly reviewed criteria."""
+        from scripts.editorial_quality import rank_candidates
+        if not 1 <= len(candidates) <= 20:
+            raise ValueError("Supply 1–20 editorial assessments")
+        published_urls = set()
+        with _LOCK:
+            for entry in self.list_projects(limit=100):
+                if entry["status"] == "published":
+                    published_urls.update(s["url"] for s in self._read(entry["id"]).get("sources", []))
+        return rank_candidates(candidates, published_urls)
+
+    def plan_end_screen(self, job_id: str, related_project_id: str,
+                        relationship: str, playlist_id: str | None = None) -> dict:
+        """Record a manual YouTube Studio handoff for a local master."""
+        if not relationship.strip() or len(relationship) > 500:
+            raise ValueError("State the editorial relationship in 1–500 characters")
+        if playlist_id is not None and not re.fullmatch(r"[A-Za-z0-9_-]{10,100}", playlist_id):
+            raise ValueError("Invalid playlist ID")
+        with _LOCK:
+            project = self._read(job_id)
+            related = self._read(related_project_id)
+            if (job_id == related_project_id or related["status"] != "published"
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{11}", related.get("video_id") or "")):
+                raise ValueError("Choose a different published Studio project")
+            if project["aspect_ratio"] != "16:9" or not project.get("video"):
+                raise ValueError("A rendered landscape master is required")
+            file = Path(project["video"])
+            duration = self._probe_duration(file)
+            if duration < 25:
+                raise ValueError("YouTube end screens require at least 25 seconds")
+            plan = {
+                "project_id": job_id, "file_sha256": self._hash(file),
+                "start_seconds": round(duration - 18, 3), "end_seconds": round(duration, 3),
+                "related_video_id": related["video_id"], "related_title": related["title"],
+                "relationship": relationship.strip(), "playlist_id": playlist_id,
+                "placement": "Fit above subtitles in reviewed empty image space",
+                "state": "manual_youtube_studio_pending",
+            }
+            target = self._dir(job_id) / "end_screen_plan.json"
+            target.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+            return {**plan, "path": str(target)}
+
     @staticmethod
     def _validate_editorial_brief(brief: dict[str, Any]) -> dict[str, Any]:
         """Validate the stable conversational brief contract without editorial inference."""
         if not isinstance(brief, dict) or len(json.dumps(brief, ensure_ascii=False)) > 20000:
             raise ValueError("brief must be an object no larger than 20000 characters")
-        unknown = set(brief) - _BRIEF_FIELDS
+        unknown = set(brief) - _BRIEF_FIELDS - {"editorial_format"}
         missing = _BRIEF_FIELDS - set(brief)
         if unknown or missing:
             raise ValueError(f"brief schema mismatch; missing={sorted(missing)}, unknown={sorted(unknown)}")
@@ -344,6 +395,10 @@ class VideoNewsStudio:
             raise ValueError("selection_mode must be manual or delegated")
         if brief["format"] not in _SUPPORTED or brief["aspect_ratio"] != _SUPPORTED[brief["format"]]:
             raise ValueError("format and aspect_ratio must be short/9:16 or long/16:9")
+        if "editorial_format" in brief and (
+                brief["format"] != "long"
+                or brief["editorial_format"] not in ("DAILY_BRIEF", "DEEP_DIVE", "BREAKING_EXPLAINER")):
+            raise ValueError("Unsupported editorial format for this production")
         duration = brief["target_duration_seconds"]
         if isinstance(duration, bool) or not isinstance(duration, int) or not 10 <= duration <= 3600:
             raise ValueError("target_duration_seconds must be an integer from 10 to 3600")
@@ -403,13 +458,13 @@ class VideoNewsStudio:
     @staticmethod
     def _invalidate_brief_dependencies(project: dict, old: dict, new: dict) -> None:
         """Clear only artifacts downstream of changed editorial decisions."""
-        changed = {key for key in _BRIEF_FIELDS if old.get(key) != new.get(key)}
+        changed = {key for key in _BRIEF_FIELDS | {"editorial_format"} if old.get(key) != new.get(key)}
         old_story = old.get("selected_story", {})
         new_story = new.get("selected_story", {})
         story_changed = old_story.get("primary_url") != new_story.get("primary_url")
         narrative_changed = (story_changed or old.get("verified_sources") != new.get("verified_sources")
                              or bool(changed & {"editorial_angle", "tone", "target_audience", "language",
-                                               "narrative_concept", "opening_hook"}))
+                                               "narrative_concept", "opening_hook", "editorial_format"}))
         if narrative_changed:
             project["script"] = ""
             project["narration"] = []
@@ -490,7 +545,10 @@ class VideoNewsStudio:
                 project["preview"] = ""
             self._invalidate_review(project)
             self._save(project)
-            return self._public(project)
+            from scripts.editorial_quality import script_diagnostics
+            # Report opening, CTA and length problems before voice and images
+            # are paid for; the same checks run again on the rendered video.
+            return dict(self._public(project), script_diagnostics=script_diagnostics(project))
 
     def save_storyboard(self, job_id: str, scenes: list[dict[str, Any]]) -> dict:
         if not isinstance(scenes, list) or not 1 <= len(scenes) <= 60:
@@ -500,7 +558,7 @@ class VideoNewsStudio:
         allowed_fields = {"id", "narration", "visual_prompt", "visual_concept", "style",
                           "composition", "camera_movement", "transition", "documented_facts",
                           "semantic_review_required", "on_screen_text", "visual_type",
-                          "duration_seconds", "asset_ids"}
+                          "duration_seconds", "asset_ids", "callouts"}
         for index, scene in enumerate(scenes, 1):
             if not isinstance(scene, dict):
                 raise ValueError("each scene must be an object")
@@ -550,6 +608,7 @@ class VideoNewsStudio:
                 "visual_type": visual_type,
                 "duration_seconds": scene.get("duration_seconds"),
                 "asset_ids": list(scene.get("asset_ids", []))[:20],
+                "callouts": copy.deepcopy(scene.get("callouts", [])),
             })
             duration = normalized[-1]["duration_seconds"]
             if duration is not None and (not isinstance(duration, (int, float)) or not 0.2 <= duration <= 120):
@@ -557,6 +616,12 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            from scripts.editorial_overlays import validate_callouts
+            source_urls = {source.get("url") for source in project.get("sources", [])}
+            for scene in normalized:
+                validate_callouts(scene["callouts"], source_urls)
+                if scene["callouts"] and project["aspect_ratio"] != "16:9":
+                    raise ValueError("editorial callouts currently require landscape layout")
             previous = {scene["id"]: scene for scene in project.get("storyboard", [])}
             unchanged_scene_ids = {
                 scene["id"] for scene in normalized
@@ -573,6 +638,8 @@ class VideoNewsStudio:
                 asset for asset in project.get("asset_records", [])
                 if asset.get("scene_id") in unchanged_scene_ids
             ]
+            scene_order = {scene["id"]: index for index, scene in enumerate(normalized)}
+            retained_assets.sort(key=lambda asset: scene_order[asset["scene_id"]])
             retained_by_scene: dict[str, list[str]] = {}
             for asset in retained_assets:
                 retained_by_scene.setdefault(asset["scene_id"], []).append(asset["id"])
@@ -603,8 +670,10 @@ class VideoNewsStudio:
                 raise ValueError(f"{key} must contain exactly {count} options when supplied")
             if any(not isinstance(value, str) or not value.strip() or len(value) > limit for value in values):
                 raise ValueError(f"{key} contains an invalid option")
-        if metadata.get("thumbnail_layout", "overlay") not in ("overlay", "framed"):
-            raise ValueError("thumbnail_layout must be overlay or framed")
+        if not isinstance(metadata.get("contains_synthetic_media", False), bool):
+            raise ValueError("contains_synthetic_media must be a boolean")
+        if metadata.get("thumbnail_layout", "overlay") not in ("overlay", "framed", "rubber_hose"):
+            raise ValueError("thumbnail_layout must be overlay, framed or rubber_hose")
         clean = {"title": title, "description": description,
                  "tags": [str(tag)[:60] for tag in tags[:30]],
                  "hashtags": [str(tag)[:80] for tag in metadata.get("hashtags", [])[:15]],
@@ -615,13 +684,12 @@ class VideoNewsStudio:
                  "thumbnail_path": "",
                  "language": str(metadata.get("language", "es"))[:10],
                  "category_id": str(metadata.get("category_id", "25"))[:4],
-                 "contains_synthetic_media": bool(metadata.get("contains_synthetic_media", False)),
+                 # This is the YouTube declaration, separate from asset provenance.
+                 "contains_synthetic_media": metadata.get("contains_synthetic_media", False),
                  "title_candidates": candidates, "thumbnail_concepts": concepts}
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
-            if any(item.get("synthetic_media") for item in project.get("asset_records", [])):
-                clean["contains_synthetic_media"] = True
             credit=(project.get('music_selection',{}).get('track') or {}).get('attribution','')
             from scripts.music_credit import apply_credit
             clean['description']=apply_credit(clean['description'],credit)
@@ -826,7 +894,7 @@ class VideoNewsStudio:
         return brief
 
     def generate_images(self, job_id: str, prompts: list[str] | None = None,
-                        count: int | None = None, style: str = "NEWSPHERE_CINEMATIC") -> dict:
+                        count: int | None = None, style: str = "RUBBER_HOSE") -> dict:
         """Generate exactly one original AI visual for each missing storyboard scene.
 
         Completed scene assets are hash-verified and retained across retries. There is
@@ -1071,33 +1139,64 @@ class VideoNewsStudio:
             focal_point = (0.5, 0.22) if source.height > source.width else (0.5, 0.5)
             canvas = ImageOps.fit(source, (1280, 720), method=Image.Resampling.LANCZOS,
                                   centering=focal_point).convert("RGBA")
-            if metadata.get("thumbnail_layout") == "framed":
+            layout = metadata.get("thumbnail_layout")
+            if layout == "framed":
                 # Keep the complete informative subject above the text card.
                 canvas = Image.new("RGBA", (1280, 720), (5, 20, 34, 255))
                 subject = ImageOps.contain(source, (1240, 480), method=Image.Resampling.LANCZOS)
                 canvas.paste(subject, ((1280 - subject.width) // 2, (492 - subject.height) // 2))
-            overlay = Image.new("RGBA", canvas.size, (5, 20, 34, 95))
-            canvas = Image.alpha_composite(canvas, overlay)
-            draw = ImageDraw.Draw(canvas)
-            draw.rectangle((0, 0, 18, 720), fill=(0, 190, 210, 255))
-            draw.rectangle((56, 492, 1215, 704), fill=(4, 18, 31, 208))
             font_path = Path(os.getenv("WINDIR", "C:/Windows")) / "Fonts" / "arialbd.ttf"
-            font_size = 72
             brand_font = ImageFont.truetype(str(font_path), 25) if font_path.is_file() else ImageFont.load_default()
-            while font_size > 34:
-                font = ImageFont.truetype(str(font_path), font_size) if font_path.is_file() else ImageFont.load_default()
-                boxes = [draw.textbbox((0, 0), line, font=font) for line in text_lines]
-                total_height = sum(box[3] - box[1] for box in boxes) + 3 * (len(boxes) - 1)
-                if all(box[2] <= 1110 for box in boxes) and total_height <= 130:
-                    break
-                font_size -= 4
-            draw.text((82, 505), "NEWSPHERE", font=brand_font, fill=(0, 215, 225, 255))
-            text_y = 545
-            for index, line in enumerate(text_lines):
-                box = draw.textbbox((0, 0), line, font=font)
-                draw.text((82, text_y), line, font=font,
-                          fill=(255, 255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0, 255))
-                text_y += box[3] - box[1] + 3
+            if layout == "rubber_hose":
+                # 1930s cartoon card: cream paper, thick ink outline and a warm drop shadow.
+                card = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+                card_draw = ImageDraw.Draw(card)
+                text_lines = textwrap.wrap(title[:80], width=18, break_long_words=True)[:3]
+                font_size = 104
+                while font_size > 44:
+                    font = ImageFont.truetype(str(font_path), font_size) if font_path.is_file() else ImageFont.load_default()
+                    boxes = [card_draw.textbbox((0, 0), line, font=font) for line in text_lines]
+                    total_height = sum(box[3] - box[1] for box in boxes) + 4 * (len(boxes) - 1)
+                    if all(box[2] <= 1040 for box in boxes) and total_height <= 132:
+                        break
+                    font_size -= 4
+                card_draw.rounded_rectangle((60, 468, 1220, 700), radius=26,
+                                            fill=(246, 231, 190, 250),
+                                            outline=(28, 22, 18, 255), width=10)
+                card_draw.rounded_rectangle((72, 480, 1208, 688), radius=18,
+                                            outline=(214, 92, 44, 255), width=3)
+                brand = ImageFont.truetype(str(font_path), 30) if font_path.is_file() else ImageFont.load_default()
+                card_draw.text((96, 486), "NEWSPHERE", font=brand, fill=(176, 58, 30, 255))
+                text_y = 528
+                for line in text_lines:
+                    box = card_draw.textbbox((0, 0), line, font=font)
+                    card_draw.text((100, text_y + 7), line, font=font, fill=(214, 92, 44, 255))
+                    card_draw.text((96, text_y), line, font=font, fill=(26, 22, 20, 255),
+                                   stroke_width=3, stroke_fill=(250, 240, 208, 255))
+                    text_y += box[3] - box[1] + 4
+                card = card.rotate(-2, resample=Image.Resampling.BICUBIC, center=(640, 584))
+                canvas = Image.alpha_composite(canvas, card)
+            else:
+                overlay = Image.new("RGBA", canvas.size, (5, 20, 34, 95))
+                canvas = Image.alpha_composite(canvas, overlay)
+                draw = ImageDraw.Draw(canvas)
+                draw.rectangle((0, 0, 18, 720), fill=(0, 190, 210, 255))
+                draw.rectangle((56, 492, 1215, 704), fill=(4, 18, 31, 208))
+                font_size = 72
+                while font_size > 34:
+                    font = ImageFont.truetype(str(font_path), font_size) if font_path.is_file() else ImageFont.load_default()
+                    boxes = [draw.textbbox((0, 0), line, font=font) for line in text_lines]
+                    total_height = sum(box[3] - box[1] for box in boxes) + 3 * (len(boxes) - 1)
+                    if all(box[2] <= 1110 for box in boxes) and total_height <= 130:
+                        break
+                    font_size -= 4
+                draw.text((82, 505), "NEWSPHERE", font=brand_font, fill=(0, 215, 225, 255))
+                text_y = 545
+                for index, line in enumerate(text_lines):
+                    box = draw.textbbox((0, 0), line, font=font)
+                    draw.text((82, text_y), line, font=font,
+                              fill=(255, 255, 255, 255), stroke_width=1, stroke_fill=(0, 0, 0, 255))
+                    text_y += box[3] - box[1] + 3
             output = self._dir(job_id) / "thumbnail.jpg"
             canvas.convert("RGB").save(output, format="JPEG", quality=90, optimize=True)
             metadata["thumbnail_path"] = str(output)
@@ -1372,6 +1471,21 @@ class VideoNewsStudio:
             raise StudioError("Project image order does not match storyboard scene order")
         return ordered
 
+    @staticmethod
+    def _ordered_asset_records(project: dict) -> list[dict]:
+        """Keep per-scene renderer metadata aligned with storyboard image order."""
+        records_by_scene = {record.get("scene_id"): record
+                            for record in project.get("asset_records", [])}
+        ordered = []
+        for scene in project.get("storyboard", []):
+            record = records_by_scene.get(scene.get("id"))
+            if record is None:
+                raise StudioError(f"Scene {scene.get('id')} has no asset record")
+            ordered.append(record)
+        if len(ordered) != len(project.get("asset_records", [])):
+            raise StudioError("Asset records do not map one-to-one to storyboard scenes")
+        return ordered
+
     def render_video(self, job_id: str) -> dict:
         """Call existing FFmpeg VideoAssembler; no publishing side effects."""
         with _LOCK:
@@ -1379,6 +1493,7 @@ class VideoNewsStudio:
             self._require_editable(project)
             brief = self._require_approved_brief(project)
             images = self._ordered_scene_assets(project)
+            ordered_records = self._ordered_asset_records(project)
             if not images or not all(p.is_file() and p.stat().st_size for p in images):
                 raise StudioError("Generate images first")
             audio, music, mastered, bitrate = self._production_audio(project) if project.get("voice") else (None,None,False,None)
@@ -1390,15 +1505,17 @@ class VideoNewsStudio:
             output = self._dir(job_id) / "video.mp4"
             duration = self._probe_duration(audio)
             image_durations = self._scene_image_durations(project, duration)
+            from scripts.editorial_overlays import resolve_callouts
+            callouts = resolve_callouts(project, duration)
             assembler = VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                        output_file=str(output), media_images=[str(p) for p in images],
                                        aspect_ratio=_SUPPORTED[project["format"]],
                                        image_durations=image_durations,
                                        scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
                                        scene_transitions=[scene["transition"] for scene in project["storyboard"]],
-                                       synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
-                                       scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                                       background_music=music, audio_mastered=mastered, audio_bitrate=bitrate)
+                                       scene_video_files=[a.get("animation", "") for a in ordered_records],
+                                       background_music=music, audio_mastered=mastered, audio_bitrate=bitrate,
+                                       editorial_callouts=callouts)
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
@@ -1416,6 +1533,7 @@ class VideoNewsStudio:
                                   f"match approved {expected[0]}x{expected[1]} format")
             project["video"] = str(output)
             project["actual_video_qa"] = media
+            project["rendered_callouts"] = callouts
             self._invalidate_review(project)
             self._save(project)
             return {"job_id": job_id, "video": str(output), "bytes": output.stat().st_size}
@@ -1430,6 +1548,7 @@ class VideoNewsStudio:
                 self._require_editable(project)
                 self._require_approved_brief(project)
                 images = self._ordered_scene_assets(project)
+                ordered_records = self._ordered_asset_records(project)
                 audio, music, mastered, bitrate = self._production_audio(project) if project.get("voice") else (None,None,False,None)
                 srt = Path(project["subtitles"]) if project["subtitles"] else None
                 if not images or not all(p.is_file() and p.stat().st_size for p in images):
@@ -1441,15 +1560,16 @@ class VideoNewsStudio:
                 output = self._dir(job_id) / "preview.mp4"
                 duration = self._probe_duration(audio)
                 image_durations = self._scene_image_durations(project, duration)
+                from scripts.editorial_overlays import resolve_callouts
                 VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                output_file=str(output), media_images=[str(p) for p in images],
                                aspect_ratio=_SUPPORTED[project["format"]],
                                image_durations=image_durations,
                                scene_motions=[scene["camera_movement"] for scene in project["storyboard"]],
                                scene_transitions=[scene["transition"] for scene in project["storyboard"]],
-                               synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
-                                       scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                               background_music=music, audio_mastered=mastered, audio_bitrate=bitrate).assemble_video(
+                               scene_video_files=[a.get("animation", "") for a in ordered_records],
+                               background_music=music, audio_mastered=mastered, audio_bitrate=bitrate,
+                               editorial_callouts=resolve_callouts(project, duration)).assemble_video(
                                    position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
                     raise StudioError("Preview render produced no playable video")
@@ -1692,6 +1812,8 @@ class VideoNewsStudio:
                       },
                       "privacy": brief["privacy_status"] if brief else None,
                       "ready_for_editorial_review": not problems}
+            from scripts.editorial_quality import script_diagnostics
+            result["script_diagnostics"] = script_diagnostics(project, duration)
             return result
 
     def issue_owner_authorization(self, job_id: str, *, owner_confirmed: bool,
@@ -1907,14 +2029,58 @@ class VideoNewsStudio:
             project["youtube_verified_channel_id"] = verification["channel_id"]
             project["published_at"] = datetime.now(timezone.utc).isoformat()
             project["status"] = "published"
+            thumbnail_status = ("not_requested" if not thumbnail_path
+                                else "failed" if response.get("thumbnail_warning") else "set")
+            project["youtube_thumbnail_status"] = thumbnail_status
+            project["youtube_thumbnail_warning"] = response.get("thumbnail_warning", "")
             self._save(project)
             publishing_policy.audit(job_id, video_hash, account_id, "uploaded",
                                     str(video_id), verification["privacy_status"])
-            return {"job_id": job_id, "video_id": video_id,
-                    "url": "https://www.youtube.com/watch?v=" + str(video_id),
-                    "privacy": verification["privacy_status"],
-                    "channel_id": verification["channel_id"],
-                    "youtube_verified": True}
+            result = {"job_id": job_id, "video_id": video_id,
+                      "url": "https://www.youtube.com/watch?v=" + str(video_id),
+                      "privacy": verification["privacy_status"],
+                      "channel_id": verification["channel_id"],
+                      "youtube_verified": True,
+                      "thumbnail_status": thumbnail_status}
+            if thumbnail_status == "failed":
+                result["thumbnail_warning"] = project["youtube_thumbnail_warning"]
+                result["next_step"] = "Call retry_youtube_thumbnail; the video itself is published"
+            return result
+
+    def retry_youtube_thumbnail(self, job_id: str) -> dict:
+        """Set the reviewed custom thumbnail on this project's verified upload; never uploads video."""
+        with _LOCK:
+            project = self._read(job_id)
+            if project.get("status") != "published" or not project.get("video_id"):
+                raise StudioError("Only a verified published project can retry its thumbnail")
+            thumbnail = (project.get("youtube_metadata") or {}).get("thumbnail_path") or ""
+            if not thumbnail or not Path(thumbnail).is_file():
+                raise StudioError("Create the project thumbnail before retrying")
+            config = self._config()
+            secret_file = Path(config["youtube"]["credentials_file"]).resolve()
+            token_file = Path(config["youtube"].get("token_file", ".secrets/token.json")).resolve()
+            if not secret_file.is_file():
+                raise StudioError("YouTube OAuth client secrets not configured")
+            from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+            uploader = YoutubeMediaUploader(client_secrets_file=str(secret_file),
+                                            token_file=str(token_file))
+            expected = project.get("youtube_verified_channel_id")
+            if not expected or uploader.get_channel_info()["id"] != expected:
+                raise StudioError("Authenticated channel differs from the verified upload channel")
+            uploader.validate_thumbnail(thumbnail, expected_aspect="16:9")
+            try:
+                uploader.set_thumbnail(project["video_id"], thumbnail)
+            except Exception as exc:
+                project["youtube_thumbnail_status"] = "failed"
+                project["youtube_thumbnail_warning"] = f"{type(exc).__name__}: {exc}"[:500]
+                self._save(project)
+                raise StudioError("YouTube did not accept the thumbnail: "
+                                  + project["youtube_thumbnail_warning"]) from exc
+            project["youtube_thumbnail_status"] = "set"
+            project["youtube_thumbnail_warning"] = ""
+            self._save(project)
+            return {"job_id": job_id, "video_id": project["video_id"],
+                    "thumbnail": thumbnail, "thumbnail_status": "set"}
 
     def recover_upload_preflight_failure(self, job_id: str, *,
                                          video_sha256: str,
@@ -2171,8 +2337,12 @@ class VideoNewsStudio:
                 if specification.get('geometry') and specification['geometry']!=geometry:
                     raise StudioError('Inline map geometry differs from the imported dataset')
                 specification=dict(specification,geometry=geometry,geometry_source=record['source_url'])
+            # Graphics open with a staggered card entrance unless the caller asks
+            # for narration-timed motion (reveal/bars/...) or a still ('none').
+            specification = dict(specification)
+            specification.setdefault('animation', 'entrance')
             timing_sha = None
-            if specification.get('animation', 'none') != 'none':
+            if specification['animation'] not in ('none', 'entrance'):
                 from scripts.graphic_timing import bind_timing
                 if not project.get('voice') or not project.get('word_boundaries'):
                     raise StudioError('Generate aligned voice before animated graphics')

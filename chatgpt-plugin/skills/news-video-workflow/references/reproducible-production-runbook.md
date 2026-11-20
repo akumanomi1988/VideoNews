@@ -113,13 +113,20 @@ truth if an interface changes.
 
 ## 4. Write a scene-linked script and storyboard
 
-1. Follow `script-direction.md`: establish the viewer promise, compare three
-   factual hooks, then create a source-linked beat map. The active agent writes
-   the Spanish narration; `save_script` does not call another LLM. Deliver
-   specific value in the opening, explain mechanisms and consequences, and
-   resolve the promise at the end. Review the draft for repetition, generic
-   questions and excessive caveats before any synthesis. Keep hook/beat/source
-   notes in the production record, outside spoken narration.
+1. Follow `script-direction.md` and its NewSphere retention structure: open with a
+   one-sentence branded welcome that names the topic without spoiling the payoff,
+   then the sharpest supported tension by ~20 seconds, then one like/subscribe/
+   bell CTA with the "¿qué cambiarías tú?" comment question by ~35 seconds. Put a
+   specific "hoy vamos a ver" roadmap and the first hard fact before ~55 seconds.
+   A second CTA is optional and only after minute two. Resolve the promise and
+   close with a short branded despedida and a final CTA. Write with conviction:
+   human stakes first, concrete verbs, direct address, no fake outrage and no
+   doom adjectives the sources do not support; keep tragic stories respectful.
+   Create a source-linked beat map. The active agent writes the Spanish narration;
+   `save_script` does not call another LLM. Explain mechanisms and consequences.
+   Review the draft for repetition, generic questions and excessive caveats before
+   any synthesis. Keep hook/beat/source notes in the production record, outside
+   spoken narration.
 2. Divide narration into natural scene-sized segments. Give every segment a
    stable, unique ID such as `scene-01` and preserve those IDs in order. Call
    `save_script` with a list of `{ "scene_id": "...", "text": "..." }` records,
@@ -135,8 +142,7 @@ truth if an interface changes.
    documentary scenes.
 4. Use original wide 16:9 compositions for a long video. Identify synthetic
    illustrations as such; do not depict them as actual footage or photographic
-   evidence. A small lower-left circular “IA” marker is applied by the renderer
-   to synthetic scenes; avoid adding large disclaimers into prompts.
+   evidence. Keep illustrations and rendered scenes free of IA badges.
 5. Read back `get_project`. Verify narration order, scene IDs, aspect ratio,
    factual anchors and intended visual progression before paid image work.
 
@@ -148,12 +154,18 @@ truth if an interface changes.
    Create source-bound static graphics for planned data/diagram scenes first,
    using `generate_graphic` and inspect the result. This gives those scenes a
    valid asset before paid image generation; do not pay for an AI illustration
-   that will immediately be replaced by a chart. Add narrated animations only
-   after verified voice boundaries exist.
-2. Call `generate_images` with prompts in storyboard order. NewSphere Cinematic
-   uses the configured Azure MAI provider as the primary source. The tool
-   returns an asynchronous job; poll that exact job with `get_job` until a
-   terminal state.
+   that will immediately be replaced by a chart. These graphics get the default
+   staggered `entrance` motion automatically. After verified voice boundaries
+   exist, regenerate the data scenes whose explanation follows the narration
+   with a timed animation (`reveal`, `bars`, ...) and spelled-out `cue_phrases`.
+2. Call `generate_images` with prompts in storyboard order and
+   `style="RUBBER_HOSE"`. Prompts must be news-specific: who acts, how many,
+   where, when, what object and what visibly changes, plus 3-5 details taken from
+   the reporting. Generic "dramatic scene about X" prompts are a defect. The
+   preset supplies the 1930s ink-and-cel look; never mix in photorealism or
+   lettering. NewSphere uses the configured Azure MAI provider as the primary
+   source. The tool returns an asynchronous job; poll that exact job with
+   `get_job` until a terminal state.
 3. On recovery, inspect each scene's asset record, file existence, SHA-256,
    dimensions, provider/model, prompt and synthetic-media provenance. Continue
    only missing or invalid scenes. Preserve completed valid images; never launch
@@ -188,15 +200,26 @@ truth if an interface changes.
 
 ## 7. Save packaging and render
 
-1. Call `save_youtube_metadata` with a truthful title and description, source
-   credits, appropriate tags/hashtags, Spanish language, category, synthetic
-   media declaration, three title candidates and two thumbnail concepts. Keep
-   metadata Unicode intact and avoid claims beyond sources.
-2. After metadata is saved and images exist, call `create_thumbnail`. It creates
-   a 1280×720 thumbnail from a selected project scene and authored text. Poll the
-   job and read back the stored thumbnail path. Saving metadata again can clear
-   the generated thumbnail path, so if metadata changes, re-create/verify the
-   thumbnail before QA and publishing.
+1. Call `save_youtube_metadata` after applying
+   [packaging and SEO guidance](packaging-seo.md). Use a truthful, searchable
+   title of at most 90 characters and opening description lines that stand alone;
+   include 3-5 scope bullets, dated sources, credits
+   and 2-3 clickable hashtags written into the description. Add 10-15 natural
+   Spanish tags (broad, entity, topic, region, brand) under 500 total characters
+   — the current uploader publishes tags but not the separate `hashtags` field.
+   Keep the authored description around or below 3800 characters because the
+   uploader appends channel text, save Spanish language `es`, category, three
+   title candidates and two thumbnail concepts, and keep metadata Unicode intact
+   without claims beyond sources.
+2. Plan a strong thumbnail composition in the storyboard and name the selected
+   source scene using `thumbnail_scene_id`. After metadata is saved and images
+   exist, call `create_thumbnail` with `thumbnail_layout="rubber_hose"` for
+   the cream ink card and 3-6 concrete words. `overlay` and `framed` remain
+   valid for specific cases. It creates a 1280×720 thumbnail from a selected
+   project scene and authored text. Poll the job and read back the stored
+   thumbnail path. Saving metadata again can clear the generated thumbnail path,
+   so if metadata changes, re-create/verify the thumbnail before QA and
+   publishing.
 3. If a licensed music track is not explicitly selected and validated, render
    without music and record that reason. Never infer a commercial license from
    a filename or a track's presence on disk. No music is preferable to
@@ -245,8 +268,13 @@ truth if an interface changes.
    preserved source links and Unicode; a deliberate suffix is not a missing
    description. `videos.list` does not provide a `hasCustomThumbnail` boolean:
    combine the successful thumbnail-set result with returned thumbnail details.
+   `publish_youtube` returns `thumbnail_status` (`set`, `failed` or
+   `not_requested`). The uploader already retries a freshly inserted video for
+   about five minutes. If it still reports `failed`, the video is published:
+   call `retry_youtube_thumbnail(job_id)`, which only sets the thumbnail on the
+   verified upload and never inserts another video.
    Report synthetic-media API status only if returned; distinguish the submitted
-   flag, the visible IA marker, and the description disclosure from API readback.
+   YouTube declaration from any value read back through the API.
 4. Confirm retry idempotency with a safe project read or the supported Studio
    call that returns the existing publication. Never make a second insert for a
    project that has an uncertain `uploading`, `upload_unknown` or

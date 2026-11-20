@@ -2,7 +2,7 @@
   "mcpServers": {
     "videonews-windows": {
       "type": "stdio",
-      "command": "py",
+      "command": "C:\\Windows\\py.exe",
       "args": ["-3.11", "${PLUGIN_ROOT}/server/launch.py"],
       "env": {},
       "cwd": "${PLUGIN_ROOT}"

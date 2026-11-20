@@ -23,7 +23,8 @@ REQUIRED_TOOLS = {
     "save_sources", "save_editorial_brief", "save_script", "save_storyboard",
     "save_youtube_metadata", "import_asset", "list_assets", "generate_stock_images", "create_thumbnail", "generate_voice",
     "generate_subtitles", "render_preview", "render_video", "get_job",
-    "review_video", "publish_youtube", "reconcile_youtube_upload", "get_project", "list_projects",
+    "review_video", "publish_youtube", "retry_youtube_thumbnail", "reconcile_youtube_upload",
+    "get_project", "list_projects",
 }
 
 
@@ -48,9 +49,13 @@ async def verify() -> None:
         env = os.environ.copy()
         env["VIDEONEWS_REPO_PATH"] = str(REPO)
         env["VIDEO_STUDIO_DIR"] = str(Path(tmp) / "studio")
+        manifest = json.loads((REPO / "chatgpt-plugin" / "mcp.json").read_text(encoding="utf-8"))
+        server = manifest["mcpServers"]["videonews-windows"]
+        plugin_root = str(REPO / "chatgpt-plugin")
         params = StdioServerParameters(
-            command="py" if os.name == "nt" else sys.executable,
-            args=["-3.11", str(LAUNCHER)] if os.name == "nt" else [str(LAUNCHER)],
+            command=server["command"] if os.name == "nt" else sys.executable,
+            args=[arg.replace("${PLUGIN_ROOT}", plugin_root) for arg in server["args"]]
+                 if os.name == "nt" else [str(LAUNCHER)],
             cwd=str(REPO / "chatgpt-plugin"), env=env,
         )
         async with stdio_client(params) as (reader, writer):

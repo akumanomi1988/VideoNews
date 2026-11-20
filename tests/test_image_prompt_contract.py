@@ -7,7 +7,8 @@ from scripts.AI.text_to_image import AspectRatio, FluxImageGenerator, StylePrese
 
 
 @pytest.mark.parametrize("style", [StylePreset.NEWSPHERE_CINEMATIC,
-                                  StylePreset.YOUTUBE_THUMBNAIL, StylePreset.NONE])
+                                  StylePreset.YOUTUBE_THUMBNAIL, StylePreset.RUBBER_HOSE,
+                                  StylePreset.NONE])
 def test_provider_receives_each_requested_subject_and_orientation(tmp_path, monkeypatch, style, capsys):
     generator = FluxImageGenerator(output_dir=str(tmp_path))
     monkeypatch.setattr(generator, "preflight", lambda: None)

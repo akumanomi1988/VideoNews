@@ -37,6 +37,14 @@ silence or invalid metadata fail; no silent substitution occurs. New projects
 have no music until an authorized selection is made. No compatible track means
 no music with a recorded reason. Existing legacy configurations remain readable.
 
+NewSphere mix preference: when a suitable catalog track has verified commercial
+permission, intact catalog membership/hash and complete attribution, begin with
+`music_level=0.06` and `ducking=10` for a very soft bed under narration. This is a
+starting mix, not an unconditional setting: lower or remove it if speech clarity
+suffers. Never fetch music from an unverified source or infer rights from a
+“royalty-free” label alone. If no compatible licensed track is available, persist
+an explicit no-music reason.
+
 A circular crossfade loop unit blends the end with the beginning, with source
 rate preserved. Mixing applies configurable music level, sidechain ducking,
 fade-in/out, peak protection and measured final normalization. Required credits

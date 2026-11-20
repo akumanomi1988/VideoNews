@@ -10,10 +10,7 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
 from google.auth.transport.requests import Request
-from colorama import init, Fore, Style
-
-# Initialize colorama
-init(autoreset=True)
+from colorama import Fore, Style
 
 log = logging.getLogger(__name__)
 
@@ -55,16 +52,10 @@ class YoutubeMediaUploader:
             self.handle_error("Error inicializando el uploader", e, True)
 
     def safe_print(self, text):
-        try:
-            print(text)
-        except (UnicodeEncodeError, OSError):
-            # MCP stdio hosts can close or replace their console stream while a
-            # long-running worker is still alive. Console output is diagnostic;
-            # it must never abort an upload before the videos.insert request.
-            try:
-                print(text.encode('ascii', 'replace').decode('ascii'))
-            except OSError:
-                return
+        # stdout belongs to the MCP protocol. Diagnostics must neither wrap it
+        # with Colorama nor abort an operation when a host closes its console.
+        import re
+        log.info(re.sub(r'\x1b\[[0-9;]*m', '', str(text)))
 
     def authenticate_youtube(self):
         """Authenticates the user and returns a YouTube API client."""
@@ -77,7 +68,7 @@ class YoutubeMediaUploader:
 
             if not credentials or not credentials.valid:
                 if credentials and credentials.expired and credentials.refresh_token:
-                    print(Fore.CYAN + "Refreshing expired token...")
+                    self.safe_print("Refreshing expired token...")
                     credentials.refresh(Request())
                 else:
                     if not os.path.exists(self.client_secrets_file):
@@ -85,7 +76,7 @@ class YoutubeMediaUploader:
 
                     flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
                         self.client_secrets_file, self.SCOPES)
-                    print(Fore.CYAN + "Opening Google authorization in your default browser...")
+                    self.safe_print("Opening Google authorization in your default browser...")
                     # The port and PKCE state are generated for this live local-server
                     # session. Never ask the user to reconstruct or reuse a copied URL.
                     browser_name = "videonews-windows-default"
@@ -104,7 +95,7 @@ class YoutubeMediaUploader:
                         token.write(credentials.to_json())
 
             youtube = googleapiclient.discovery.build("youtube", "v3", credentials=credentials)
-            print(Fore.GREEN + "Authentication successful!")
+            self.safe_print("Authentication successful!")
             return youtube
         
         except Exception as e:
@@ -294,24 +285,24 @@ class YoutubeMediaUploader:
             
             except HttpError as e:
                 error_details = self.parse_http_error(e)
-                print(Fore.RED + f"Error en la API (Intento {attempt + 1}/{max_attempts}):")
-                print(Fore.RED + f"HTTP Status: {e.resp.status}")
-                print(Fore.RED + f"Error Details: {error_details}")
+                self.safe_print(Fore.RED + f"Error en la API (Intento {attempt + 1}/{max_attempts}):")
+                self.safe_print(Fore.RED + f"HTTP Status: {e.resp.status}")
+                self.safe_print(Fore.RED + f"Error Details: {error_details}")
                 
                 if e.resp.status in [403, 429]:  # Quota exceeded or rate limit
                     reason = error_details.get('reason', '')
                     if reason == 'quotaExceeded':
-                        print(Fore.RED + "❌ YouTube quota exceeded. Cannot upload.")
+                        self.safe_print(Fore.RED + "❌ YouTube quota exceeded. Cannot upload.")
                         raise
                     wait_time = 2 ** (attempt + 1)
-                    print(Fore.YELLOW + f"Esperando {wait_time} segundos antes de reintentar...")
+                    self.safe_print(Fore.YELLOW + f"Esperando {wait_time} segundos antes de reintentar...")
                     time.sleep(wait_time)
                 else:
                     raise
             
             except ssl.SSLEOFError as e:
-                print(Fore.RED + f"Error de conexión SSL (Intento {attempt + 1}/{max_attempts}): {str(e)}")
-                print(Fore.YELLOW + "Verifique su conexión a internet y reintentando...")
+                self.safe_print(Fore.RED + f"Error de conexión SSL (Intento {attempt + 1}/{max_attempts}): {str(e)}")
+                self.safe_print(Fore.YELLOW + "Verifique su conexión a internet y reintentando...")
                 time.sleep(5)
             
             except Exception as e:
@@ -334,6 +325,29 @@ class YoutubeMediaUploader:
         except Exception as e:
             return f"No se pudo parsear el error: {str(e)}. Contenido crudo: {error.content}"
 
+    # A freshly inserted video often rejects thumbnails for a minute or two
+    # while YouTube processes it; the generic API backoff (~1 min) gave up too
+    # early in production and a manual retry minutes later succeeded at once.
+    THUMBNAIL_RETRY_DELAYS = (0, 15, 30, 60, 90, 120)
+
+    @staticmethod
+    def _sleep(seconds):
+        time.sleep(seconds)
+
+    @staticmethod
+    def _thumbnail_error_is_transient(error):
+        if isinstance(error, (ssl.SSLError, ConnectionError, TimeoutError, OSError)) \
+                and not isinstance(error, HttpError):
+            return True
+        if not isinstance(error, HttpError):
+            return False
+        status = getattr(error.resp, "status", 0)
+        text = str(error)
+        if "quotaExceeded" in text or "uploadRateLimitExceeded" in text:
+            return False
+        # 403/404/409 right after insert mean "not ready yet" for this video.
+        return status in (403, 404, 409, 429) or status >= 500
+
     def set_thumbnail(self, video_id, thumbnail_path):
         try:
             if not os.path.isfile(thumbnail_path):
@@ -355,16 +369,30 @@ class YoutubeMediaUploader:
 
             self.validate_thumbnail(thumbnail_path)
 
-            print(Fore.CYAN + f"Setting thumbnail for video ID: {video_id}")
+            self.safe_print(Fore.CYAN + f"Setting thumbnail for video ID: {video_id}")
             from PIL import Image
             with Image.open(thumbnail_path) as image:
                 mime_type = "image/jpeg" if image.format == "JPEG" else "image/png"
-            media = MediaFileUpload(thumbnail_path, mimetype=mime_type, resumable=True)
-            request = self.youtube.thumbnails().set(videoId=video_id, media_body=media)
-            response = self.execute_request_with_retries(request)
-
-            print(Fore.GREEN + f"Thumbnail set for video ID: {video_id}")
-            return response
+            last_error = None
+            for attempt, delay in enumerate(self.THUMBNAIL_RETRY_DELAYS):
+                if delay:
+                    self.safe_print(Fore.YELLOW + f"Thumbnail: reintento {attempt + 1}/"
+                                    f"{len(self.THUMBNAIL_RETRY_DELAYS)} en {delay} s")
+                    self._sleep(delay)
+                # A fresh resumable upload per attempt: a failed one is not reusable.
+                media = MediaFileUpload(thumbnail_path, mimetype=mime_type, resumable=True)
+                request = self.youtube.thumbnails().set(videoId=video_id, media_body=media)
+                try:
+                    response = request.execute()
+                except Exception as error:
+                    if not self._thumbnail_error_is_transient(error):
+                        raise
+                    last_error = error
+                    continue
+                self.safe_print(Fore.GREEN + f"Thumbnail set for video ID: {video_id}")
+                return response
+            raise RuntimeError(f"Thumbnail not accepted after {len(self.THUMBNAIL_RETRY_DELAYS)} "
+                               f"attempts: {type(last_error).__name__}: {last_error}")
 
         except Exception as e:
             self.handle_error(f"Error estableciendo thumbnail para video {video_id}", e, True)
@@ -404,11 +432,7 @@ class YoutubeMediaUploader:
         error_type = type(error).__name__
         error_message = str(error)
 
-        def safe_print(text):
-            try:
-                print(text)
-            except UnicodeEncodeError:
-                print(text.encode('ascii', 'replace').decode('ascii'))
+        safe_print = self.safe_print
         
         safe_print(Fore.RED + Style.BRIGHT + f"\n[!] ERROR: {context}")
         safe_print(Fore.RED + f"Tipo: {error_type}")

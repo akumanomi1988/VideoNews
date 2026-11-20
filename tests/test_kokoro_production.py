@@ -17,7 +17,9 @@ def test_natural_chunking_preserves_transcript_and_encoder_bound():
     result = chunks(text)
     assert " ".join(result) == text
     assert all(len(part) <= 260 for part in result)
-    assert result[0] == "¿Qué ocurre?"
+    # A two-word question alone fails forced alignment; it keeps the next
+    # sentence as acoustic context instead of becoming its own chunk.
+    assert result[0].startswith("¿Qué ocurre? La investigación continúa")
 
 
 @pytest.mark.parametrize("provider,voice,speed", [

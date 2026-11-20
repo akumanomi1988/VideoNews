@@ -13,15 +13,27 @@ and a consequence or comparison. Explain their relationships spatially. Every de
 must clarify this story, not merely make the frame busier. Avoid empty rooms, lone
 bags, blank phones and anonymous office screens as default substitutes for explanation.
 Build foreground action, midground process and background context around one focal
-point. Use real-world texture and purposeful activity, not generic futuristic glow.
+point. Render every image in the NewSphere Rubber Hose style: 1930s hand-inked cartoon
+with noodle limbs, white gloves, oval shoes and pie-cut eyes; thick black contours,
+flat cel shading, light halftone, sepia grain and a cream, mustard, terracotta and
+faded-teal palette. Keep that treatment consistent; never mix in photorealism, 3D
+renders or modern vector flat art. People are anonymous vintage cartoon characters,
+never portraits of real identifiable individuals and never caricatures of victims.
+Name the exact action and count from the reporting (for example "three red rescue
+boats beside one wooden boat with nineteen passengers") plus three to five sourced
+details: clothing, gear, terrain, weather, hour and the visible consequence. Do not
+write prompts that could illustrate dozens of unrelated stories.
 If technical equipment cannot be represented accurately from sources, use an original
 functional schematic rather than inventing precise hardware that looks authoritative.
 Vary establishing shots, macro details, human-scale action, overhead arrangements,
 cutaways and clearly identified conceptual scenes. In a sequence of seven images aim
 for at least four shot families. Avoid consecutive near-identical compositions and
-repeated people staring at screens, generic offices, blue holograms and glowing brains.
-Keep materials, photographic treatment and restrained brand accents consistent while
+repeated people staring at screens, generic offices, holograms and glowing brains.
+Keep palette, contour weight and material treatment consistent while
 letting locations and natural light vary. Do not turn every location into a dark lab.
+When the story involves death, injury, rescue or distress, keep the image respectful:
+wide distance, backs turned, empty objects, weather, coastlines or maps instead of
+comic suffering.
 Use one strong visual idea per scene, a clear focal point and depth. Make the opening
 visually intriguing through a meaningful contrast or unresolved action, not spectacle.
 Respect the requested aspect ratio and reserve unobtrusive caption-safe space without
@@ -38,8 +50,18 @@ SCRIPT_DIRECTION = """
 Write an original, spoken news explanation, not a list of headlines or an essay
 about how responsible journalism works. Define one concrete question and answer it
 progressively through source-backed facts, context, examples and consequences.
-The first ten seconds should state a specific stake, contrast or unanswered question
-without generic greetings or invented suspense. Deliver the promised explanation.
+Open with one branded welcome sentence that names the story concretely, for example
+'Bienvenidos a NewSphere. Hoy vamos a hablar de ...', without spoiling the payoff.
+By about twenty seconds, state the sharpest supported tension, contrast or stake.
+By about thirty-five seconds, include one natural like/subscribe/bell call to action
+with the comment question '¿qué cambiarías tú?' tied to this story; two sentences
+maximum. Before about fifty-five seconds, give a concrete roadmap of what the video
+will explain and the first hard fact. A second call to action is optional and only
+after minute two. Speak with conviction: human stakes first, concrete verbs, direct
+address and controlled contrast, with energy rising toward the payoff. Passion is not
+volume: no all-caps, no stacked exclamations, no fake outrage and no doom adjectives
+the sources do not support. For stories involving death, injury or distress, keep
+gravity and respect and skip the jokes.
 Each paragraph must add new information: a fact, a supported example, a causal link
 clearly labeled as interpretation, a useful comparison or a practical implication.
 Keep the story's named entities, dates and measurable details when verified. Attribute
@@ -57,10 +79,10 @@ Replace abstract claims with supported specifics. A useful analogy must be label
 as explanatory and must not create false facts about the event. No invented exclusive
 details, victim scenes, exaggerated consequences, promises of virality or cliffhangers
 that the evidence cannot resolve. Do not turn public-interest tragedy into spectacle.
-Use at most one short invitation to comment/subscribe if appropriate to the subject;
-it is optional, and should normally be omitted for tragedy. End with the actual answer,
-its implications and a relevant open question if one remains. Do not repeat the whole
-script in the closing. Review aloud for awkward phrasing, repeated ideas and monotonous
-sentence patterns before saving. Target 3-5 minutes, roughly 500-650 spoken words as
-an estimate; actual synthesized duration is authoritative. Never pad with filler.
+End with the actual answer, its implications and a relevant open question if one
+remains, plus a brief branded sign-off with one final call to action. Do not repeat
+the whole script in the closing. Review aloud for awkward phrasing, repeated ideas and
+monotonous sentence patterns before saving. Target 3-5 minutes, roughly 500-650 spoken
+words as an estimate; actual synthesized duration is authoritative. Never pad with
+filler.
 """.strip()

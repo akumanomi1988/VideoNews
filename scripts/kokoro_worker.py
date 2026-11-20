@@ -11,9 +11,44 @@ import time
 from pathlib import Path
 
 
+MIN_SENTENCE_WORDS = 12
+# Two chunks merged after an alignment failure must stay inside the 29-second
+# encoder window; ~15 spoken characters per second at speed 1.0.
+RETRY_MERGE_LIMIT = 380
+
+
+def _merge_short_sentences(sentences, limit):
+    """Give very short sentences acoustic context from a neighbour.
+
+    Forced alignment scores each chunk on its own: with only a handful of
+    words, two low-probability tokens fail the whole chunk. Production
+    narration hit this with "¿Qué piden?" and short closing lines. Merging
+    keeps every word and its punctuation; only the chunk boundary moves.
+    """
+    merged = []
+    pending = ""
+    for sentence in sentences:
+        candidate = f"{pending} {sentence}".strip() if pending else sentence
+        if len(candidate.split()) < MIN_SENTENCE_WORDS:
+            pending = candidate
+            continue
+        merged.append(candidate)
+        pending = ""
+    if pending:
+        if merged and len(f"{merged[-1]} {pending}") <= limit:
+            merged[-1] = f"{merged[-1]} {pending}"
+        else:
+            merged.append(pending)
+    return merged
+
+
 def chunks(text, limit=260):
     """Keep sentence punctuation and bound encoder input to under 30 seconds."""
-    sentences = re.split(r"(?<=[.!?;:])\s+", text.strip())
+    # Colons and semicolons introduce a continuation, not a new utterance.
+    # Isolating e.g. "Pensemos en un engranaje:" produced low-confidence
+    # forced alignment despite a valid continuation in the source narration.
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
+    sentences = _merge_short_sentences(sentences, limit)
     result = []
     for sentence in sentences:
         words = sentence.split()
@@ -112,7 +147,10 @@ def main():
     pieces, words, regions, offset = [], [], [], 0.0
     chunk_dir = folder / "voice_chunks"
     chunk_dir.mkdir(parents=True, exist_ok=True)
-    for index, text in enumerate(chunks(request["text"])):
+    texts = chunks(request["text"])
+    index = 0
+    while index < len(texts):
+        text = texts[index]
         key = hashlib.sha256(json.dumps([text, request["voice"], request["speed"],
                                         str(model_path), request["alignment_model"]]).encode()).hexdigest()
         wav = chunk_dir / f"{key}.wav"
@@ -134,6 +172,12 @@ def main():
             try:
                 local_words = align_words(aligner, tokenizer, samples, rate, text)
             except Exception as exc:
+                following = texts[index + 1] if index + 1 < len(texts) else ""
+                if following and len(f"{text} {following}") <= RETRY_MERGE_LIMIT:
+                    # One deterministic retry with more acoustic context: the
+                    # same words, synthesized and aligned as one utterance.
+                    texts[index:index + 2] = [f"{text} {following}"]
+                    continue
                 sf.write(folder / "alignment_failed.wav", samples, rate, subtype="PCM_16")
                 (folder / "alignment_failure.json").write_text(json.dumps(
                     {"chunk": index, "text": text, "error": str(exc)}, ensure_ascii=False), encoding="utf-8")
@@ -149,7 +193,11 @@ def main():
         pause = np.zeros(round(rate * .12), dtype=np.float32)
         pieces.append(pause)
         offset += len(pause) / rate
+        index += 1
     samples = np.concatenate(pieces[:-1])
+    # A successful run supersedes diagnostics from an earlier failed attempt.
+    for stale in ("alignment_failure.json", "alignment_failed.wav"):
+        (folder / stale).unlink(missing_ok=True)
     previous = 0.0
     for word in words:
         if word["start"] < previous - .001 or word["end"] <= word["start"]:

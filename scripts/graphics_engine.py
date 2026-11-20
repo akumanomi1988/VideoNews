@@ -32,7 +32,7 @@ class GraphicSpec(BaseModel):
     aspect_ratio: Literal['16:9','9:16'] = '16:9'
     items: list[Datum] = Field(min_length=1,max_length=6)
     unit: str = Field(default='',max_length=25)
-    animation: Literal['none','reveal','bars','highlight','timeline','path','move','before_after'] = 'none'
+    animation: Literal['none','entrance','reveal','bars','highlight','timeline','path','move','before_after'] = 'none'
     cue_seconds: list[float] = Field(default_factory=list)
     cue_word_indices: list[int] = Field(default_factory=list)
     duration: float = Field(default=8.,ge=1,le=120)
@@ -48,8 +48,23 @@ class GraphicsEngine:
     def __init__(self, registered_sources):
         self.sources = set(registered_sources)
 
+    # Staggered opening for a scene's cards. It is pure presentation, not a claim
+    # about when the narration mentions each item, so it needs no voice timing.
+    ENTRANCE_FIRST_CUE = .35
+    ENTRANCE_STAGGER = .5
+    ENTRANCE_HOLD = 1.4
+
     def validate(self, data):
         spec = GraphicSpec.model_validate(data)
+        if spec.animation == 'entrance':
+            cues = [round(self.ENTRANCE_FIRST_CUE + self.ENTRANCE_STAGGER * i, 3)
+                    for i in range(len(spec.items))]
+            # A previously resolved spec carries exactly these cues; anything
+            # else means the caller wanted narration timing.
+            if (spec.cue_seconds and spec.cue_seconds != cues) or spec.cue_word_indices or spec.cue_phrases:
+                raise ValueError('Entrance animation is untimed; use reveal with cue_phrases for narration timing')
+            spec = spec.model_copy(update={'cue_seconds': cues,
+                                           'duration': round(cues[-1] + self.ENTRANCE_HOLD, 3)})
         if not math.isfinite(spec.duration) or any(not math.isfinite(t) for t in spec.cue_seconds):
             raise ValueError('Durations and cues must be finite')
         if spec.animation == 'bars' and spec.kind != 'statistical_chart':
@@ -89,13 +104,15 @@ class GraphicsEngine:
     def draw(self, spec, output, time=None):
         spec = self.validate(spec) if isinstance(spec,dict) else spec
         w,h = (1920,1080) if spec.aspect_ratio=='16:9' else (1080,1920)
-        im=Image.new('RGB',(w,h),(7,20,34)); d=ImageDraw.Draw(im)
+        from scripts.graphic_layouts import PAPER, INK, MUTED_INK, TEAL, MUSTARD
+        im=Image.new('RGB',(w,h),PAPER); d=ImageDraw.Draw(im)
         font=_font
         margin=int(w*.075); title_font=font(55 if w>h else 45)
         if d.textbbox((0,0),spec.title,font=title_font)[2] > w-2*margin:
             raise ValueError('Title exceeds safe width; shorten it')
-        d.text((margin,int(h*.07)),'NEWSPHERE',font=font(28),fill='#22d4df')
-        d.text((margin,int(h*.13)),spec.title,font=title_font,fill='white')
+        d.text((margin,int(h*.07)),'NEWSPHERE',font=font(28),fill=TEAL,stroke_width=1,stroke_fill=INK)
+        d.text((margin,int(h*.13)),spec.title,font=title_font,fill=INK)
+        d.line((margin,int(h*.205),w-margin,int(h*.205)),fill=MUSTARD,width=5)
         y0=int(h*.28); step=int(h*.47/len(spec.items)); size=min(40,int(step*.45))
         if spec.kind=='geographic_map':
             points=spec.geometry['coordinates'][0]
@@ -103,7 +120,7 @@ class GraphicsEngine:
             if max(xs)==min(xs) or max(ys)==min(ys):raise ValueError('Degenerate map geometry')
             scale=min((w*.35)/(max(xs)-min(xs)),(h*.4)/(max(ys)-min(ys)))
             polygon=[(int(w*.57+(x-min(xs))*scale),int(h*.7-(y-min(ys))*scale)) for x,y in points]
-            d.polygon(polygon,fill='#144957',outline='#22d4df',width=4)
+            d.polygon(polygon,fill=TEAL,outline=INK,width=5)
         from scripts.graphic_layouts import boxes, item, connections
         positions=boxes(spec,w,h)
         for i,box in enumerate(positions):
@@ -112,13 +129,13 @@ class GraphicsEngine:
         # Draw relationship labels last so node fills cannot cover their text.
         if time is None:connections(d,spec,positions,font)
         caption='Proyección equirectangular · Geometría de fuente registrada' if spec.kind=='geographic_map' else 'Fuentes registradas en el proyecto · Gráfico explicativo'
-        d.text((margin,int(h*.81)),caption,font=font(23),fill='#9bb9c6')
+        d.text((margin,int(h*.81)),caption,font=font(23),fill=MUTED_INK)
         im.save(output)
         return output
 
     def render(self,data,folder):
         spec=self.validate(data);folder=Path(folder);folder.mkdir(parents=True,exist_ok=True)
-        version='layout-v3-motion-v2-stat-scale-v2:' if spec.kind=='statistical_chart' else 'layout-v3-motion-v2:'
+        version='layout-v4-rubber-hose-motion-v4-eased:'
         digest=hashlib.sha256((version+spec.model_dump_json()).encode()).hexdigest()[:16]
         receipt=folder/(digest+'.json')
         if receipt.is_file():
@@ -132,15 +149,15 @@ class GraphicsEngine:
                 Path(cached['png']).is_file() and hashlib.sha256(Path(cached['png']).read_bytes()).hexdigest()==cached['sha256'] and
                 (not cached.get('animation') or Path(cached['animation']).is_file() and
                  hashlib.sha256(Path(cached['animation']).read_bytes()).hexdigest()==cached.get('animation_sha256'))):
-                if cached.get('static_layout_revision')!=4:
+                if cached.get('static_layout_revision')!=5:
                     self.draw(spec,cached['png'])
                     cached['sha256']=hashlib.sha256(Path(cached['png']).read_bytes()).hexdigest()
-                    cached['static_layout_revision']=4
+                    cached['static_layout_revision']=5
                     from scripts.atomic_storage import write_json
                     write_json(receipt,cached)
                 return cached
         png=folder/(digest+'.png');self.draw(spec,png)
-        result={'png':str(png),'sha256':hashlib.sha256(png.read_bytes()).hexdigest(),'spec':spec.model_dump(),'provider':'NewSphere GraphicsEngine','static_layout_revision':4}
+        result={'png':str(png),'sha256':hashlib.sha256(png.read_bytes()).hexdigest(),'spec':spec.model_dump(),'provider':'NewSphere GraphicsEngine','static_layout_revision':5}
         if spec.animation!='none':
             from scripts.graphic_motion import render
             video=render(self,spec,folder,digest,_font)

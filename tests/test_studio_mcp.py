@@ -133,6 +133,21 @@ def test_framed_thumbnail_uses_selected_integrity_checked_scene(studio, project)
         studio.create_thumbnail(project["id"])
 
 
+def test_rubber_hose_thumbnail_draws_cream_ink_card(studio, project):
+    from PIL import Image
+    selected = studio._dir(project["id"]) / "scene.png"
+    Image.new("RGB", (1280, 720), "green").save(selected)
+    project["images"] = [str(selected)]
+    project["asset_records"] = [{"scene_id": "scene-01", "path": str(selected), "sha256": studio._hash(selected)}]
+    project["youtube_metadata"] = {"thumbnail_text": "3.431 EN 3 DIAS", "thumbnail_scene_id": "scene-01", "thumbnail_layout": "rubber_hose"}
+    studio._save(project)
+    output = studio.create_thumbnail(project["id"])
+    with Image.open(output["thumbnail"]) as result:
+        assert result.size == (1280, 720) and result.format == "JPEG"
+        r, g, b = result.getpixel((640, 500))
+        assert r > 200 and g > 190 and b > 150
+
+
 def test_long_voice_job_retains_assets_saved_by_another_worker(studio, project, monkeypatch):
     from scripts import tts_service
     def worker(text, folder, config, provider, voice, speed):
@@ -373,7 +388,7 @@ def _set_brief_privacy(studio, project, privacy_status):
     studio.save_editorial_brief(project["id"], brief)
 
 
-def _install_fake_youtube(monkeypatch, upload, thumbnail_validation=None):
+def _install_fake_youtube(monkeypatch, upload, thumbnail_validation=None, thumbnail_setter=None):
     class Uploader:
         def __init__(self, client_secrets_file, token_file=None):
             assert Path(client_secrets_file).is_absolute()
@@ -399,6 +414,11 @@ def _install_fake_youtube(monkeypatch, upload, thumbnail_validation=None):
         def verify_video(self, video_id, expected_channel_id, expected_privacy_status):
             return {"video_id": video_id, "channel_id": expected_channel_id,
                     "privacy_status": expected_privacy_status}
+
+        def set_thumbnail(self, video_id, thumbnail_path):
+            if thumbnail_setter is None:
+                raise AssertionError("Unexpected thumbnail call")
+            return thumbnail_setter(video_id, thumbnail_path)
 
     monkeypatch.setitem(sys.modules, "scripts.Uploaders.youtube_uploader",
                         types.SimpleNamespace(YoutubeMediaUploader=Uploader))
@@ -472,6 +492,74 @@ def test_exact_owner_grant_can_publish_public_once_to_newssphere(
     assert publishing_policy.records()[-1]["privacy_status"] == "public"
     assert studio.publish_youtube(project["id"])['already_published'] is True
     assert upload.call_count == 1
+
+
+def test_thumbnail_failure_is_reported_and_retry_never_reuploads(
+        studio, project, monkeypatch, tmp_path):
+    _authorize(studio, project, monkeypatch, create_thumbnail=True)
+    _setup_oauth(studio, monkeypatch, tmp_path)
+    upload = Mock(return_value={"id": "YT_THUMB_1", "thumbnail_warning": "429 rate limited"})
+    setter = Mock(return_value={"kind": "youtube#thumbnailSetResponse"})
+    _install_fake_youtube(monkeypatch, upload, thumbnail_setter=setter)
+
+    result = studio.publish_youtube(project["id"])
+    assert result["thumbnail_status"] == "failed"
+    assert "retry_youtube_thumbnail" in result["next_step"]
+    assert studio._read(project["id"])["youtube_thumbnail_status"] == "failed"
+
+    retried = studio.retry_youtube_thumbnail(project["id"])
+    assert retried["thumbnail_status"] == "set"
+    assert setter.call_args.args[0] == "YT_THUMB_1"
+    assert upload.call_count == 1
+    stored = studio._read(project["id"])
+    assert stored["youtube_thumbnail_status"] == "set"
+    assert stored["youtube_thumbnail_warning"] == ""
+
+
+def test_thumbnail_retry_requires_a_verified_publication(studio, project):
+    with pytest.raises(StudioError, match="published"):
+        studio.retry_youtube_thumbnail(project["id"])
+
+
+def test_uploader_retries_transient_thumbnail_errors_only(tmp_path):
+    from PIL import Image
+    from googleapiclient.errors import HttpError
+    from scripts.Uploaders.youtube_uploader import YoutubeMediaUploader
+
+    thumbnail = tmp_path / "thumb.jpg"
+    Image.new("RGB", (1280, 720), "navy").save(thumbnail, format="JPEG")
+
+    def http_error(status, reason):
+        content = json.dumps({"error": {"errors": [{"reason": reason}], "message": reason}}).encode()
+        return HttpError(types.SimpleNamespace(status=status, reason=reason), content)
+
+    def uploader_with(outcomes):
+        uploader = object.__new__(YoutubeMediaUploader)
+        uploader.safe_print = lambda *_args, **_kwargs: None
+        uploader._sleep = lambda _seconds: None
+        calls = iter(outcomes)
+
+        def execute():
+            outcome = next(calls)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        uploader.youtube = Mock()
+        uploader.youtube.thumbnails.return_value.set.return_value.execute.side_effect = execute
+        return uploader
+
+    flaky = uploader_with([http_error(403, "forbidden"), http_error(429, "rateLimitExceeded"),
+                           {"kind": "youtube#thumbnailSetResponse"}])
+    assert flaky.set_thumbnail("vid", str(thumbnail))["kind"] == "youtube#thumbnailSetResponse"
+
+    quota = uploader_with([http_error(403, "quotaExceeded")])
+    with pytest.raises(HttpError):
+        quota.set_thumbnail("vid", str(thumbnail))
+
+    persistent = uploader_with([http_error(500, "backendError")] * 6)
+    with pytest.raises(RuntimeError, match="6 attempts"):
+        persistent.set_thumbnail("vid", str(thumbnail))
 
 
 def test_uncertain_upload_never_auto_retries(studio, project, monkeypatch, tmp_path):
@@ -878,7 +966,7 @@ def test_script_revision_versions_and_invalidates_only_dependent_assets(studio, 
     assert saved["versions"][-1]["section"] == "script"
 
 
-def test_asset_import_is_project_scoped_and_synthetic_disclosure_is_sticky(studio, project):
+def test_asset_provenance_is_independent_of_youtube_disclosure(studio, project):
     from PIL import Image
 
     studio.save_storyboard(project["id"], [{"id": "scene-1", "narration": "A newsroom illustration appears.", "visual_prompt": "A newsroom illustration"}])
@@ -894,11 +982,15 @@ def test_asset_import_is_project_scoped_and_synthetic_disclosure_is_sticky(studi
     assert Path(asset["path"]).suffix == ".png"
     assert asset["mime_type"] == "image/png"
     assert len(asset["sha256"]) == 64
-    studio.save_youtube_metadata(project["id"], {
-        "title": "Synthetic illustration test", "description": "Test", "tags": [],
-        "contains_synthetic_media": False,
-    })
-    assert studio.get_project(project["id"])["youtube_metadata"]["contains_synthetic_media"] is True
+    for disclose in (False, True):
+        studio.save_youtube_metadata(project["id"], {
+            "title": "Synthetic illustration test", "description": "Test", "tags": [],
+            "contains_synthetic_media": disclose,
+        })
+        saved = studio.get_project(project["id"])
+        assert saved["asset_records"][0]["synthetic_media"] is True
+        assert saved["youtube_metadata"]["contains_synthetic_media"] is disclose
+
 
 
 def test_asset_import_order_follows_storyboard_not_upload_order(studio, project):
@@ -1358,3 +1450,20 @@ def test_project_listing_suppresses_approval_data(studio, project):
     entries = studio.list_projects()
     assert len(entries) == 1 and entries[0]["id"] == project["id"]
     assert "approval_digest" not in entries[0]
+
+
+def test_editorial_format_brief_must_fit_its_duration_range(studio, project):
+    brief = valid_brief(video_format="long", duration=210)
+    brief["editorial_format"] = "DAILY_BRIEF"
+    with pytest.raises(ValueError, match="300-480"):
+        studio.save_editorial_brief(project["id"], brief)
+    brief["target_duration_seconds"] = 360
+    assert studio.save_editorial_brief(project["id"], brief)["editorial_brief"]["editorial_format"] == "DAILY_BRIEF"
+
+
+def test_save_script_reports_diagnostics_before_paid_production(studio, project):
+    saved = studio.save_script(project["id"], "En el vídeo de hoy repasamos una noticia con fuentes verificadas.")
+    diagnostics = saved["script_diagnostics"]
+    assert diagnostics["generic_opening"] is True
+    assert diagnostics["estimated_duration_seconds"] > 0
+    assert "script_diagnostics" not in studio._read(project["id"])
