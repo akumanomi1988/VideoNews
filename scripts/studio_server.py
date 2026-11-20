@@ -49,6 +49,7 @@ class BriefSource(_StrictBriefModel):
 
 
 class EditorialBrief(_StrictBriefModel):
+    editorial_format: Literal["DAILY_BRIEF", "DEEP_DIVE", "BREAKING_EXPLAINER"] | None = None
     selection_mode: Literal["manual", "delegated"]
     selected_story: BriefStory
     alternatives: list[BriefAlternative] = Field(max_length=20)
@@ -68,6 +69,16 @@ class EditorialBrief(_StrictBriefModel):
     privacy_status: Literal["public", "private", "unlisted"]
     approval_status: Literal["proposed", "approved"]
     duration_tolerance_seconds: int = Field(ge=3, le=300)
+
+
+class CandidateAssessment(_StrictBriefModel):
+    title: str = Field(min_length=1, max_length=500)
+    topic: str = Field(min_length=1, max_length=80)
+    source_urls: list[str] = Field(max_length=30)
+    ratings: dict[str, int]
+    repeats_event: bool
+    assessment: str = Field(min_length=1, max_length=2000)
+    exception_reason: str = Field(default="", max_length=500)
 
 
 def call(method: str, **kwargs: Any) -> Any:
@@ -111,9 +122,23 @@ def save_sources(job_id: str, sources: list[dict]) -> dict:
 
 
 @mcp.tool()
+def rank_editorial_candidates(candidates: list[CandidateAssessment]) -> dict:
+    """Rank the agent's sourced assessments against the NewSphere desk rubric."""
+    return call("rank_editorial_candidates", candidates=[item.model_dump() for item in candidates])
+
+
+@mcp.tool()
+def plan_end_screen(job_id: str, related_project_id: str, relationship: str,
+                    playlist_id: str | None = None) -> dict:
+    """Create a local handoff for placing a related video in YouTube Studio."""
+    return call("plan_end_screen", job_id=job_id, related_project_id=related_project_id,
+                relationship=relationship, playlist_id=playlist_id)
+
+
+@mcp.tool()
 def save_editorial_brief(job_id: str, brief: EditorialBrief) -> dict:
     """Persist strict, versioned editorial decisions; content changes reset approval to proposed."""
-    return call("save_editorial_brief", job_id=job_id, brief=brief.model_dump())
+    return call("save_editorial_brief", job_id=job_id, brief=brief.model_dump(exclude_none=True))
 
 
 @mcp.tool()

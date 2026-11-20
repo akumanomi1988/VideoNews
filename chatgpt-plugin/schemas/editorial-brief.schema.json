@@ -246,6 +246,23 @@
       "minimum": 3,
       "title": "Duration Tolerance Seconds",
       "type": "integer"
+    },
+    "editorial_format": {
+      "anyOf": [
+        {
+          "enum": [
+            "DAILY_BRIEF",
+            "DEEP_DIVE",
+            "BREAKING_EXPLAINER"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Editorial Format"
     }
   },
   "required": [

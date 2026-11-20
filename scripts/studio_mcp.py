@@ -331,12 +331,55 @@ class VideoNewsStudio:
             self._save(project)
             return self._public(project)
 
+    def rank_editorial_candidates(self, candidates: list[dict]) -> dict:
+        """Read-only editorial ranking based on explicitly reviewed criteria."""
+        from scripts.editorial_quality import rank_candidates
+        if not 1 <= len(candidates) <= 20:
+            raise ValueError("Supply 1–20 editorial assessments")
+        published_urls = set()
+        with _LOCK:
+            for entry in self.list_projects(limit=100):
+                if entry["status"] == "published":
+                    published_urls.update(s["url"] for s in self._read(entry["id"]).get("sources", []))
+        return rank_candidates(candidates, published_urls)
+
+    def plan_end_screen(self, job_id: str, related_project_id: str,
+                        relationship: str, playlist_id: str | None = None) -> dict:
+        """Record a manual YouTube Studio handoff for a local master."""
+        if not relationship.strip() or len(relationship) > 500:
+            raise ValueError("State the editorial relationship in 1–500 characters")
+        if playlist_id is not None and not re.fullmatch(r"[A-Za-z0-9_-]{10,100}", playlist_id):
+            raise ValueError("Invalid playlist ID")
+        with _LOCK:
+            project = self._read(job_id)
+            related = self._read(related_project_id)
+            if (job_id == related_project_id or related["status"] != "published"
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{11}", related.get("video_id") or "")):
+                raise ValueError("Choose a different published Studio project")
+            if project["aspect_ratio"] != "16:9" or not project.get("video"):
+                raise ValueError("A rendered landscape master is required")
+            file = Path(project["video"])
+            duration = self._probe_duration(file)
+            if duration < 25:
+                raise ValueError("YouTube end screens require at least 25 seconds")
+            plan = {
+                "project_id": job_id, "file_sha256": self._hash(file),
+                "start_seconds": round(duration - 18, 3), "end_seconds": round(duration, 3),
+                "related_video_id": related["video_id"], "related_title": related["title"],
+                "relationship": relationship.strip(), "playlist_id": playlist_id,
+                "placement": "Fit above subtitles in reviewed empty image space",
+                "state": "manual_youtube_studio_pending",
+            }
+            target = self._dir(job_id) / "end_screen_plan.json"
+            target.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+            return {**plan, "path": str(target)}
+
     @staticmethod
     def _validate_editorial_brief(brief: dict[str, Any]) -> dict[str, Any]:
         """Validate the stable conversational brief contract without editorial inference."""
         if not isinstance(brief, dict) or len(json.dumps(brief, ensure_ascii=False)) > 20000:
             raise ValueError("brief must be an object no larger than 20000 characters")
-        unknown = set(brief) - _BRIEF_FIELDS
+        unknown = set(brief) - _BRIEF_FIELDS - {"editorial_format"}
         missing = _BRIEF_FIELDS - set(brief)
         if unknown or missing:
             raise ValueError(f"brief schema mismatch; missing={sorted(missing)}, unknown={sorted(unknown)}")
@@ -344,6 +387,10 @@ class VideoNewsStudio:
             raise ValueError("selection_mode must be manual or delegated")
         if brief["format"] not in _SUPPORTED or brief["aspect_ratio"] != _SUPPORTED[brief["format"]]:
             raise ValueError("format and aspect_ratio must be short/9:16 or long/16:9")
+        if "editorial_format" in brief and (
+                brief["format"] != "long"
+                or brief["editorial_format"] not in ("DAILY_BRIEF", "DEEP_DIVE", "BREAKING_EXPLAINER")):
+            raise ValueError("Unsupported editorial format for this production")
         duration = brief["target_duration_seconds"]
         if isinstance(duration, bool) or not isinstance(duration, int) or not 10 <= duration <= 3600:
             raise ValueError("target_duration_seconds must be an integer from 10 to 3600")
@@ -403,13 +450,13 @@ class VideoNewsStudio:
     @staticmethod
     def _invalidate_brief_dependencies(project: dict, old: dict, new: dict) -> None:
         """Clear only artifacts downstream of changed editorial decisions."""
-        changed = {key for key in _BRIEF_FIELDS if old.get(key) != new.get(key)}
+        changed = {key for key in _BRIEF_FIELDS | {"editorial_format"} if old.get(key) != new.get(key)}
         old_story = old.get("selected_story", {})
         new_story = new.get("selected_story", {})
         story_changed = old_story.get("primary_url") != new_story.get("primary_url")
         narrative_changed = (story_changed or old.get("verified_sources") != new.get("verified_sources")
                              or bool(changed & {"editorial_angle", "tone", "target_audience", "language",
-                                               "narrative_concept", "opening_hook"}))
+                                               "narrative_concept", "opening_hook", "editorial_format"}))
         if narrative_changed:
             project["script"] = ""
             project["narration"] = []
@@ -500,7 +547,7 @@ class VideoNewsStudio:
         allowed_fields = {"id", "narration", "visual_prompt", "visual_concept", "style",
                           "composition", "camera_movement", "transition", "documented_facts",
                           "semantic_review_required", "on_screen_text", "visual_type",
-                          "duration_seconds", "asset_ids"}
+                          "duration_seconds", "asset_ids", "callouts"}
         for index, scene in enumerate(scenes, 1):
             if not isinstance(scene, dict):
                 raise ValueError("each scene must be an object")
@@ -550,6 +597,7 @@ class VideoNewsStudio:
                 "visual_type": visual_type,
                 "duration_seconds": scene.get("duration_seconds"),
                 "asset_ids": list(scene.get("asset_ids", []))[:20],
+                "callouts": copy.deepcopy(scene.get("callouts", [])),
             })
             duration = normalized[-1]["duration_seconds"]
             if duration is not None and (not isinstance(duration, (int, float)) or not 0.2 <= duration <= 120):
@@ -557,6 +605,12 @@ class VideoNewsStudio:
         with _LOCK:
             project = self._read(job_id)
             self._require_editable(project)
+            from scripts.editorial_overlays import validate_callouts
+            source_urls = {source.get("url") for source in project.get("sources", [])}
+            for scene in normalized:
+                validate_callouts(scene["callouts"], source_urls)
+                if scene["callouts"] and project["aspect_ratio"] != "16:9":
+                    raise ValueError("editorial callouts currently require landscape layout")
             previous = {scene["id"]: scene for scene in project.get("storyboard", [])}
             unchanged_scene_ids = {
                 scene["id"] for scene in normalized
@@ -573,6 +627,8 @@ class VideoNewsStudio:
                 asset for asset in project.get("asset_records", [])
                 if asset.get("scene_id") in unchanged_scene_ids
             ]
+            scene_order = {scene["id"]: index for index, scene in enumerate(normalized)}
+            retained_assets.sort(key=lambda asset: scene_order[asset["scene_id"]])
             retained_by_scene: dict[str, list[str]] = {}
             for asset in retained_assets:
                 retained_by_scene.setdefault(asset["scene_id"], []).append(asset["id"])
@@ -1390,6 +1446,8 @@ class VideoNewsStudio:
             output = self._dir(job_id) / "video.mp4"
             duration = self._probe_duration(audio)
             image_durations = self._scene_image_durations(project, duration)
+            from scripts.editorial_overlays import resolve_callouts
+            callouts = resolve_callouts(project, duration)
             assembler = VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                        output_file=str(output), media_images=[str(p) for p in images],
                                        aspect_ratio=_SUPPORTED[project["format"]],
@@ -1398,7 +1456,8 @@ class VideoNewsStudio:
                                        scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                        synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                        scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                                       background_music=music, audio_mastered=mastered, audio_bitrate=bitrate)
+                                       background_music=music, audio_mastered=mastered, audio_bitrate=bitrate,
+                                       editorial_callouts=callouts)
             assembler.assemble_video(position=Position.BOTTOM_CENTER)
             if not output.is_file() or not output.stat().st_size:
                 raise StudioError("FFmpeg returned no playable video")
@@ -1416,6 +1475,7 @@ class VideoNewsStudio:
                                   f"match approved {expected[0]}x{expected[1]} format")
             project["video"] = str(output)
             project["actual_video_qa"] = media
+            project["rendered_callouts"] = callouts
             self._invalidate_review(project)
             self._save(project)
             return {"job_id": job_id, "video": str(output), "bytes": output.stat().st_size}
@@ -1441,6 +1501,7 @@ class VideoNewsStudio:
                 output = self._dir(job_id) / "preview.mp4"
                 duration = self._probe_duration(audio)
                 image_durations = self._scene_image_durations(project, duration)
+                from scripts.editorial_overlays import resolve_callouts
                 VideoAssembler(subtitle_file=str(srt), voiceover_file=str(audio),
                                output_file=str(output), media_images=[str(p) for p in images],
                                aspect_ratio=_SUPPORTED[project["format"]],
@@ -1449,7 +1510,8 @@ class VideoNewsStudio:
                                scene_transitions=[scene["transition"] for scene in project["storyboard"]],
                                synthetic_scene_flags=[bool(a.get("synthetic_media")) for a in project["asset_records"]],
                                        scene_video_files=[a.get("animation", "") for a in project["asset_records"]],
-                               background_music=music, audio_mastered=mastered, audio_bitrate=bitrate).assemble_video(
+                               background_music=music, audio_mastered=mastered, audio_bitrate=bitrate,
+                               editorial_callouts=resolve_callouts(project, duration)).assemble_video(
                                    position=Position.BOTTOM_CENTER)
                 if not output.is_file() or not output.stat().st_size:
                     raise StudioError("Preview render produced no playable video")
@@ -1692,6 +1754,8 @@ class VideoNewsStudio:
                       },
                       "privacy": brief["privacy_status"] if brief else None,
                       "ready_for_editorial_review": not problems}
+            from scripts.editorial_quality import script_diagnostics
+            result["script_diagnostics"] = script_diagnostics(project, duration)
             return result
 
     def issue_owner_authorization(self, job_id: str, *, owner_confirmed: bool,

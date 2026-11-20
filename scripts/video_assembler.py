@@ -106,6 +106,7 @@ class VideoAssembler(VideoAssemblerInterface):
         scene_video_files: Optional[List[str]] = None,
         audio_mastered: bool = False,
         audio_bitrate: Optional[str] = None,
+        editorial_callouts: Optional[List[dict]] = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.subtitle_file = subtitle_file
@@ -121,6 +122,7 @@ class VideoAssembler(VideoAssemblerInterface):
         self.synthetic_scene_flags = synthetic_scene_flags or []
         self.scene_video_files = scene_video_files or []
         self.audio_mastered = audio_mastered
+        self.editorial_callouts = editorial_callouts or []
         self.audio_bitrate = audio_bitrate or os.getenv('VIDEO_AUDIO_BITRATE','320k')
         if any(value not in {"slow_push_in", "slow_pull_out", "subtle_pan_left", "subtle_pan_right", "static"}
                for value in self.scene_motions):
@@ -498,6 +500,13 @@ class VideoAssembler(VideoAssemblerInterface):
                 has_subtitles = True
 
         last_video_label = "[outv]" if has_subtitles else "[vid]"
+        local_callouts = None
+        if self.editorial_callouts:
+            from scripts.editorial_overlays import ass_document
+            local_callouts = Path(f"_vid_callouts_{uuid.uuid4().hex}.ass")
+            local_callouts.write_text(ass_document(self.editorial_callouts), encoding="utf-8")
+            filters.append(f"{last_video_label}ass={local_callouts.name}[editorial]")
+            last_video_label = "[editorial]"
         badge_path = None
         if any(self.synthetic_scene_flags):
             # Compose after camera motion/subtitles so the discrete marker stays
@@ -579,6 +588,8 @@ class VideoAssembler(VideoAssemblerInterface):
         finally:
             if _local_srt and os.path.isfile(_local_srt):
                 os.remove(_local_srt)
+            if local_callouts:
+                local_callouts.unlink(missing_ok=True)
             if badge_path and os.path.isfile(badge_path):
                 os.remove(badge_path)
 
