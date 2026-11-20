@@ -15,7 +15,9 @@ channel before selecting. Record why an exceptional off-beat story matters.
 Use optional `editorial_format` in the brief for a related 3–4 story
 `DAILY_BRIEF` (5–8 minutes), a `DEEP_DIVE` (6–10 minutes) or an exceptional
 `BREAKING_EXPLAINER` (2–4 minutes). These are editorial ranges. Set the
-actual target according to the supported material. Keep `format: long`
+actual target according to the supported material; `save_editorial_brief`
+rejects a target outside the format's range. A single-story episode of the
+classic 3–4 minute template omits `editorial_format` and keeps the welcome. Keep `format: long`
 and use the same production methods.
 
 For briefs with one of these formats, open on a sourced fact or practical
@@ -75,6 +77,24 @@ search across Spanish subjects and regions before considering an exceptional
 international story. Never fill the list with stale or weak items just to meet
 a count.
 
+### Default topic priority
+
+When the user has not set a topic, use this order as a tie-breaker between
+otherwise comparable, well-sourced Spanish candidates:
+
+1. **Politics**: government, parliament, parties, elections, policy decisions,
+   institutional conflicts and public accountability.
+2. **Weather and climate**: forecasts, warnings, extreme events, drought,
+   floods, heat and their direct effects on people and services.
+3. **Sensational, high-impact stories**: dramatic, surprising or conflict-led
+   events with concrete human consequences. Use them only when factual and
+   attributable; never inflate, invent or imitate tabloid framing.
+
+Topic preference never outranks freshness, source quality, corroboration or
+relevance. Do not pick a weak or stale politics item over a stronger weather
+story, and do not manufacture political relevance or sensationalism. An explicit
+user request for another topic or geography overrides this order.
+
 1. Use `research_news` for the requested topic, country and language. With no
    explicit geographic request, begin with Spain-focused queries and varied
    Spanish regions/beats. Treat each result as an unverified lead. Use
@@ -125,7 +145,7 @@ For selected stories, create one `create_project` and save source references plu
   "language": "es",
   "narrative_concept": "The story arc",
   "opening_hook": "A sourced opening line",
-  "visual_strategy": "NewSphere Cinematic original AI illustrations plus source-accurate graphics",
+  "visual_strategy": "RUBBER_HOSE 1930s cartoon illustrations plus source-accurate graphics",
   "image_sources": ["Azure MAI generated illustration", "Original local graphics"],
   "destination": "NewSphere",
   "privacy_status": "private",
@@ -145,18 +165,34 @@ from the latest real NewSphere production—follow [the production runbook](refe
 
 Read [the production standard](references/production-standard.md) for the required
 editorial/narrative workflow, packaging options, A-E gates and delivery report.
+Before storyboarding, read [visual direction](references/visual-direction.md).
+It defines both the RUBBER_HOSE illustration style and the matching
+GraphicsEngine palette/layout/motion rules; graphics are deterministic charts
+and diagrams, not generated scene images. Render and inspect static data graphics
+before image generation; bind any motion to verified Kokoro acoustic cues.
 Before every script, follow the required workflow and reusable agent prompt in
-[script direction](references/script-direction.md). Draft three story-specific
-hook candidates, choose one supported by evidence that pays off the
+[script direction](references/script-direction.md). Apply its NewSphere voice and
+retention structure: dynamic, passionate spoken Spanish; one branded welcome
+sentence naming the story; the sharpest supported tension by ~20 seconds; one
+like/subscribe/bell CTA with the "¿qué cambiarías tú?" comment question by ~35
+seconds; a specific "hoy vamos a ver" roadmap and first hard fact before ~55
+seconds; personality, appropriate light humour, concrete everyday examples and
+selective numerical anchors. A second CTA is optional and only after minute two.
+Perform its entertainment edit before saving narration: rewrite the dullest
+middle passage, cut table-reading and repeated explanations, and land a payoff
+plus a short branded despedida with a final CTA. Factual correctness alone does
+not pass the narrative gate.
+Draft three story-specific
+tension lines, choose one supported by evidence that pays off the
 title/thumbnail promise, then build a source-linked beat map before writing
-narration. Establish the story and its stake immediately; deliver useful value
-in the first 30 seconds. Make each beat add a fact, explanation, complication
-or consequence, and resolve curiosity honestly. Pair narration with visuals
-that add evidence or meaning. Avoid generic openings, filler, repeated caveats,
-false suspense and conclusions that restate the video. Use the brief's approved
+narration. Establish the story and its stake immediately, without spoiling the
+payoff; deliver useful value early. Make each beat add a fact, explanation,
+complication or consequence, and resolve curiosity honestly. Pair narration with
+visuals that add evidence or meaning. Avoid channel biography, filler, repeated
+caveats, fake outrage, false suspense and conclusions that restate the video. Use the brief's approved
 angle, audience and duration; verify duration after Kokoro synthesis. Never
 claim predicted virality, views or retention gains.
-Use a small lower-left circular IA marker; do not bake large banners into scene art.
+Keep illustrations, thumbnails and renders free of IA badges. Preserve source and asset provenance in Studio.
 
 For new NewSphere productions without an explicit format or duration, use landscape
 16:9 and a target of 240 seconds (4 minutes), within the owner's current 3-5
@@ -181,13 +217,18 @@ shared photographic treatment without repeating dark offices, monitors or blue
 holograms. Review the sequence for redundancy before paid image generation.
 Generate and inspect planned source-bound static graphics before `generate_images`
 so covered data scenes are not needlessly generated as paid illustrations.
+Graphics get a staggered card `entrance` by default, which needs no voice.
 Narration-anchored graphic animations require verified voice boundaries first.
 
-1. The active LLM agent drafts original narration in ChatGPT, grounded in the retrieved sources and following the script-direction prompt. VideoNews MCP does not generate the script; `save_script` only persists caller-authored narration. Save the final script with `save_script`. Match scene narration exactly to the script and persist a coherent scene-by-scene `save_storyboard`; every scene needs a unique ID and a concrete visual prompt.
+1. The active LLM agent drafts original narration in ChatGPT, grounded in the retrieved sources and following the script-direction prompt. VideoNews MCP does not generate the script; `save_script` only persists caller-authored narration. Save the final script with `save_script`. Its response includes `script_diagnostics` with an estimated duration: fix `generic_opening`, `early_cta_in_editorial_format`, `outside_target_duration` or `outside_format_guideline` before generating voice or images, when the fix is cheapest. Match scene narration exactly to the script and persist a coherent scene-by-scene `save_storyboard`; every scene needs a unique ID and a concrete visual prompt.
 2. Aim for the approved spoken duration. For Spanish speech, estimate at a natural delivery rate, then verify the actual TTS duration. Studio enforces the target tolerance after synthesis and again after rendering; revise the script if it falls outside the approved range. Do not silently change target duration, format, or orientation.
-3. For NewSphere Cinematic, call `generate_images` as the primary visual step after saving the storyboard. Supply one scene-specific prompt per scene; the tool persists each image with `scene_id`, SHA-256, provider/model, prompt, dimensions and synthetic-media provenance, and skips valid completed assets on resume. Do not send generic article phrases as prompts. Use infographic or diagram prompts for exact facts, maps, numbers or named events; never imply an AI illustration is documentary evidence. If generation fails, stop and report the exact scene/provider failure. Never silently replace it with Pexels or a placeholder. Use `generate_stock_images` only when the user/project explicitly chooses licensed stock; preserve photographer/license/source credits. The configured image provider can incur charges, and no cost should be invented.
-4. Save complete Unicode YouTube metadata with source credits and accurate synthetic-media disclosure. Create a thumbnail after visuals and metadata are ready. The current renderer creates a checked 1280×720 composition.
-5. Create narration with `generate_voice` (new default: `provider="kokoro", voice="em_alex", speed=1.0`, isolated CPU runtime). Check `studio_status` for local model/alignment presence; presence is not live synthesis evidence. Kokoro uses acoustic forced alignment of the known transcript and preserves completed chunks on retry. Inspect the voice report and fail on unresolved alignment; never invent word timings or silently switch to Edge. Edge remains an explicit alternative (`provider="edge"`, Spanish Neural voice); historical explicit Edge voice calls retain their meaning. Generate word-boundary subtitles with `generate_subtitles`, inspect `render_preview`, then create the final MP4 with `render_video`. These are asynchronous jobs: poll each job with `get_job`. Resume only the failed stage after repair. Run mutating production stages sequentially for one project.
+3. For NewSphere, call `generate_images` with `style="RUBBER_HOSE"` as the primary visual step after saving the storyboard. Supply one news-specific prompt per scene stating who acts, how many, where, when, what object changes and 3-5 details from the reporting; the preset supplies the 1930s hand-inked look with anonymous characters and no lettering. the tool persists each image with `scene_id`, SHA-256, provider/model, prompt, dimensions and synthetic-media provenance, and skips valid completed assets on resume. Do not send generic article phrases as prompts. Use infographic or diagram prompts for exact facts, maps, numbers or named events; never imply an AI illustration is documentary evidence. If generation fails, stop and report the exact scene/provider failure. Never silently replace it with Pexels or a placeholder. Use `generate_stock_images` only when the user/project explicitly chooses licensed stock; preserve photographer/license/source credits. The configured image provider can incur charges, and no cost should be invented.
+4. Before saving metadata, apply [packaging and SEO guidance](references/packaging-seo.md). Save complete Unicode YouTube metadata with a searchable, honest title and opening description, useful Spanish tags, source credits and the YouTube declaration described in the packaging guidance. Keep the title within 90 characters, author the description around or below 3800 characters, and include 2-3 clickable hashtags in the text. Create a thumbnail after visuals and metadata are ready, normally with `thumbnail_layout="rubber_hose"` and 3-6 punchy, honest words; the renderer creates a checked 1280×720 composition. Titles, thumbnail and opening must make the same promise.
+5. Create narration with `generate_voice` (new default: `provider="kokoro", voice="em_alex", speed=1.0`, isolated CPU runtime). Check `studio_status` for local model/alignment presence; presence is not live synthesis evidence. Kokoro uses acoustic forced alignment of the known transcript and preserves completed chunks on retry. Sentences under 12 words are aligned together with a neighbour, and a failed chunk is retried once merged with the next one; if alignment still fails, rewrite that sentence longer and more concrete rather than shorter. Inspect the voice report and fail on unresolved alignment; never invent word timings or silently switch to Edge. Edge remains an explicit alternative (`provider="edge"`, Spanish Neural voice); historical explicit Edge voice calls retain their meaning. Generate word-boundary subtitles with `generate_subtitles`, inspect `render_preview`, then create the final MP4 with `render_video`. These are asynchronous jobs: poll each job with `get_job`. Resume only the failed stage after repair. Run mutating production stages sequentially for one project.
+
+The configured local Kokoro model exposes three Spanish voices: `ef_dora`,
+`em_alex` and `em_santa`. The default remains `em_alex`; use either alternative
+only when explicitly selected and available in `studio_status`.
 6. Call `review_video` before publishing. It checks the approved brief, format, resolution, codecs, duration, sources, metadata, subtitles and scene asset association. If it reports an issue, explain it and stop publication until repaired. It generates a representative-frame contact sheet and marks semantic visual review as required; it cannot prove image-to-narration relevance or subtitle legibility automatically. Never report those as passed without human inspection.
 
 ## YouTube publication
@@ -216,6 +257,7 @@ narration is now its lossless WAV; auxiliary MP3 is optional. See repository
 - Local enrollment is channel-bound, private to the Windows owner, unlimited by default and revocable. Its default and allowed visibility values come from `studio_status`. Only the owner can enroll or change it. ChatGPT cannot create, expand or revoke that consent through MCP.
 - For explicit `CREATE_AND_PUBLISH`, use the requested status when stated. If omitted, check `studio_status` and use the enrolled policy's default only when that policy explicitly allows it; otherwise report the local enrollment requirement.
 - Studio checks policy, channel, file hash, idempotency, review status and metadata before inserting, then reads the video back and verifies its channel and effective privacy. Return the actual video ID and URL only after verification.
+- Report `thumbnail_status` from the publish result. If it is `failed`, call `retry_youtube_thumbnail`; it never uploads the video again.
 - If a result is `uploading`, `upload_unknown` or verification failed, stop and reconcile the existing upload. Use `reconcile_youtube_upload(job_id, video_id)` only after a read-only YouTube lookup identifies the matching video; the tool independently verifies the audited project hash, channel, approved title and privacy before persisting the result. Never retry an uncertain insert.
 
 Never ask for OAuth credentials in chat. Never publish during exploration or recommendation. ChatGPT Plus does not provide API access or an API key. Do not claim a Windows render, plugin connection, QA result or YouTube publication without observing its actual result.
@@ -233,7 +275,7 @@ a request to launch a production or run the scheduled task immediately.
 Follow the detailed repository-local runbook for every production. In
 particular:
 
-- Use enum keys (`NEWSPHERE_CINEMATIC`) rather than display labels for image
+- Use enum keys (`RUBBER_HOSE` for NewSphere art) rather than display labels for image
   styles. After any failed image job, inspect its state and per-scene assets
   before retrying paid generation.
 - Never use Colorama/`print()` for provider or renderer diagnostics in MCP

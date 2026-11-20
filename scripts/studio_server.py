@@ -167,7 +167,7 @@ def revise_script(job_id: str, script: str) -> dict:
 
 @mcp.tool()
 def generate_images(job_id: str, prompts: list[str] | None = None,
-                    count: int | None = None, style: str = "NEWSPHERE_CINEMATIC") -> dict:
+                    count: int | None = None, style: str = "RUBBER_HOSE") -> dict:
     """Generate and persist one original cinematic AI visual per missing storyboard scene; never falls back to stock."""
     return call("start_job", action="generate_images", project_id=job_id,
                 arguments={"prompts": prompts, "count": count, "style": style})
@@ -246,6 +246,12 @@ def publish_youtube(job_id: str,
 
 
 @mcp.tool()
+def retry_youtube_thumbnail(job_id: str) -> dict:
+    """Set the project's custom thumbnail on its verified published video; never uploads a video."""
+    return call("retry_youtube_thumbnail", job_id=job_id)
+
+
+@mcp.tool()
 def reconcile_youtube_upload(job_id: str, video_id: str) -> dict:
     """Read YouTube and persist an ambiguous existing upload; this tool never starts an upload."""
     return call("reconcile_youtube_upload", job_id=job_id, video_id=video_id)
@@ -259,9 +265,16 @@ def get_project(job_id: str) -> dict:
 
 @mcp.tool()
 def generate_graphic(job_id: str, scene_id: str, specification: GraphicSpec) -> dict:
-    """Render a source-bound local graphic and optional timed animation; import its still into the scene."""
+    """Render a source-bound local graphic and import it into the scene.
+
+    Motion defaults to a staggered card entrance (no voice needed). Use reveal/bars/
+    highlight/timeline/path/move/before_after with cue_phrases after aligned voice
+    for narration-timed motion, or animation="none" for a still.
+    """
     return call("start_job", action="generate_graphic", project_id=job_id,
-                arguments={"scene_id": scene_id, "specification": specification.model_dump()})
+                arguments={"scene_id": scene_id,
+                           # Unset fields stay unset so Studio can apply its motion default.
+                           "specification": specification.model_dump(exclude_unset=True)})
 
 
 @mcp.tool()

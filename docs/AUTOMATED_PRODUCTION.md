@@ -1,5 +1,23 @@
 # Production on every invocation
 
+## Windows MCP recovery (17 November 2026)
+
+The packaged manifests now invoke `C:\Windows\py.exe` directly so startup does
+not depend on the host application's inherited PATH. The desktop smoke check
+reads the manifest command rather than independently selecting a launcher.
+
+Repeated news searches previously imported `colorama.init()` and printed from
+the SerpAPI provider. Colorama can retain a redirected protocol stream and a
+later write can fail with Windows `OSError(22)`. The provider now uses logging
+without wrapping stdout/stderr. Repeated live MCP searches succeeded after this
+change; `tests/test_serpapi_stdio.py` checks a protocol stream that rejects writes.
+
+Kokoro's chunk splitter also treated colons/semicolons as utterance boundaries,
+isolating introductions such as "Pensemos en un engranaje:". Those fragments
+failed acoustic confidence during a real run. Continuations now remain together,
+while the existing encoder length bound is preserved. Never weaken alignment
+thresholds to accept a failed utterance; retain valid cached chunks on recovery.
+
 Each explicit create-and-publish invocation produces one new, distinct NewSphere
 episode, even when another episode was published on the same local or UTC date.
 Scheduled and manual invocations use this same rule. A resumed invocation keeps
@@ -29,7 +47,9 @@ schedule change. Do not create another task or start a production to test a prom
 update.
 
 The prompt loads the repository-local workflow and references every run. It
-prioritizes Spain, admits exceptionally important international stories with a
+prioritizes Spain, applies a default topic order (politics, then weather and
+climate, then high-impact/sensational stories with concrete consequences),
+admits exceptionally important international stories with a
 specific audience rationale, uses three factual hook candidates and a source-linked
 beat map, and requires useful visual coverage rather than repeated generic images.
 It preserves the automation's explicit 210-second target with 30-second tolerance;

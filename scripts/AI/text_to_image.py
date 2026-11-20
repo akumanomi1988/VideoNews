@@ -31,6 +31,16 @@ class StylePreset(Enum):
         "explicitly calls for them. Reserve unobtrusive caption-safe space within the environment, "
         "not a blank band. No generated text, logos, watermarks or documentary implications."
     )
+    RUBBER_HOSE = (
+        "NO TEXT. 1930s Rubber Hose cartoon aesthetic: hand-inked animation cels with rounded "
+        "noodle limbs, white four-fingered gloves, oval shoes, pie-cut or dot eyes, flexible "
+        "exaggerated poses and squash-and-stretch gestures. Warm cream, mustard, terracotta and "
+        "faded teal palette with sepia film grain, gentle cel wobble and soft vignetting. Clean "
+        "thick black contours, flat cel shading and light halftone texture. Keep the scene's "
+        "specific action, place, count and objects readable and unambiguous. Any human figures "
+        "are anonymous vintage cartoon characters, never real identifiable people and never "
+        "caricatures of victims. No lettering, logos, watermarks, modern devices or photographic realism."
+    )
     VINTAGE = "NO TEXT. Sepia tones with retro cars and vintage architecture, enhanced with a grainy effect, shot with a 35mm film camera for an authentic nostalgic feel."
     MINIMALIST = "NO TEXT. Clean and uncluttered design featuring geometric forms and soft pastel tones, illuminated by high-key lighting in a studio shot that emphasizes simplicity."
     NATURE_SCENE = "A breathtaking landscape showcasing majestic mountains and serene lakes, captured with a DSLR using natural lighting for a wide dynamic range that highlights the beauty of nature."

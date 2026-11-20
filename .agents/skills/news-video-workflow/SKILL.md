@@ -1,6 +1,6 @@
 ---
 name: news-video-workflow
-description: Operate this repository's VideoNews AI Studio MCP workflow for sourced NewSphere news research, cinematic video production, QA, recovery, and owner-authorized YouTube publishing.
+description: Operate this repository's VideoNews AI Studio MCP workflow for sourced NewSphere news research, Rubber Hose illustrated video production, QA, recovery, and owner-authorized YouTube publishing.
 ---
 
 # Repository-local VideoNews workflow
@@ -15,8 +15,30 @@ canonical plugin instructions and the repeatable production runbook:
    production reference.
 3. Before drafting any narration, read and apply
    `chatgpt-plugin/skills/news-video-workflow/references/script-direction.md`,
-   including its reusable hook, beat-map and script prompt. Read the visual and
-   production-standard guidance when those stages are part of the request.
+   including its NewSphere voice, entertainment edit, reusable hook, beat-map
+   and script prompt. Narration should be dynamic, passionate, conversational and
+   witty when appropriate; rewrite numerical catalogues and flat exposition before
+   generating voice. Follow its retention structure: one branded welcome sentence
+   naming the story, the sharpest supported tension by ~20 seconds, one
+   like/subscribe/bell CTA with the "¿qué cambiarías tú?" comment question by ~35
+   seconds, a specific "hoy vamos a ver" roadmap and first hard fact before ~55
+   seconds, and a branded despedida with a final CTA. A second CTA is optional and
+   only after minute two. Read the visual and production-standard guidance when
+   those stages are part of the request.
+4. Before saving titles, descriptions or tags, read and apply
+   `chatgpt-plugin/skills/news-video-workflow/references/packaging-seo.md`:
+   searchable subject, honest promise shared by title/thumbnail/opening,
+   title within 90 characters, description opening lines that stand alone,
+   10-15 natural Spanish tags and 2-3 clickable hashtags in the description.
+5. Before storyboarding, also read
+   `chatgpt-plugin/skills/news-video-workflow/references/visual-direction.md`.
+   It governs scene illustrations and deterministic GraphicsEngine charts:
+   graphics share the RUBBER_HOSE palette and inked paper feel, use a layout
+   that explains the data, and animate only from verified Kokoro cues. For music,
+   use only an intact, catalog-verified track with explicit commercial rights;
+   when one fits, start very quietly (`music_level=0.06`, `ducking=10`), otherwise
+   record no music. Local Spanish Kokoro choices are `ef_dora`, `em_alex` and
+   `em_santa` (default: `em_alex`).
 
 Use the MCP tools exposed by this repository's configured VideoNews server.
 Start with `studio_status`, then operate one project ID sequentially. Confirm
@@ -52,8 +74,11 @@ global skills as another source of VideoNews policy.
   host is demonstrably stale and the Studio's own method is used. Report that
   recovery; never imply it was a ChatGPT Desktop MCP call.
 - **Read the actual tool contract before calling it.** For `generate_images`,
-  use the `StylePreset` enum key such as `NEWSPHERE_CINEMATIC`, not the display
-  label `NewSphere Cinematic`. A rejected style is a preflight failure; check
+  use the `StylePreset` enum key `RUBBER_HOSE` for NewSphere art, not a display
+  label. Write news-specific prompts (who acts, how many, where, when, object,
+  visible change, 3-5 sourced details); the preset supplies the 1930s hand-inked
+  look. Use `thumbnail_layout="rubber_hose"` with 3-6 punchy, honest words. A
+  rejected style is a preflight failure; check
   `list_assets` before retrying so completed paid assets are not regenerated.
 - **Windows MCP workers must not emit Colorama output.** Colorama may wrap the
   host's protocol stream; `print()` can raise `OSError: [Errno 22]` before a
@@ -66,6 +91,16 @@ global skills as another source of VideoNews policy.
   confidence. Rewrite only the problematic sentence naturally, preserve the
   exact scene IDs/order with `save_script`, confirm valid assets remain linked,
   and rerun voice once. Never invent word times or start concurrent synthesis.
+- **Packaging is part of the brief, not a label at the end.** Apply
+  `packaging-seo.md`: name the searchable subject, keep the title within 90
+  characters, make the thumbnail and opening promise the same thing, put the
+  entity and topic in the first description lines, keep 10-15 natural Spanish
+  tags under 500 characters, and write 2-3 clickable hashtags into the
+  description (the separate `hashtags` field is not published). Never use
+  invented urgency, fake exclusives, keyword stuffing or claimed metrics.
+- **Use unmarked illustrations and exports.** Keep IA badges out of images,
+  thumbnails and renders. Set the YouTube declaration according to
+  the packaging guidance, independently from internal asset provenance.
 - **Metadata preflight is not an upload.** The uploader currently accepts base
   language codes such as `es`; use `language: "es"` for YouTube metadata even
   when the narration/brief uses `es-ES`. Saving metadata clears the stored

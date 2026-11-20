@@ -82,7 +82,8 @@ YouTube OAuth client secrets under `.secrets`; never commit OAuth tokens.
    persists the existing upload without making another `videos.insert` request.
 
 The disclosure field `youtube_metadata.contains_synthetic_media` is passed to
-YouTube. Set it when the video includes realistic synthetic or altered content.
+YouTube. Set it according to the platform disclosure requirements. Clearly
+non-realistic illustrations alone do not require disclosure.
 
 ## MCP transport and account setup
 
@@ -242,20 +243,11 @@ caller-authored topic; they no longer substitute an unrelated fixed subject.
 These instructions require actual contact-sheet review after generation: passing
 prompt-contract tests is not evidence of improved visual quality.
 
-### Discreet synthetic-image marker and production gates
+### Clean visual exports and production gates
 
-Studio passes scene provenance to the renderer. It draws a small circular `IA`
-marker in the lower-left safe zone only while synthetic scenes are visible,
-including their outgoing crossfade. It stays fixed during camera movements and
-does not overlap the default centered captions. Preview and final outputs use
-the same marker. The legacy AI image workflow also enables it; explicitly selected
-stock media does not. Description credits and the YouTube synthetic-media
-declaration remain separate from this small visual marker.
-
-Use clean original art. The renderer cannot remove a banner already baked into
-an imported image; restore the original generated asset for a corrected edition.
-The demonstration clip under the Urda project's `ia_badge_preview/` uses its
-preserved original art and does not change the published video.
+The renderer exports clean artwork in previews and final videos. Use original
+assets without visible badges or banners. Studio stores asset provenance
+separately from the YouTube disclosure selection.
 
 New long projects enforce a 180-second minimum and preserve three `title_candidates`
 and two `thumbnail_concepts` in `save_youtube_metadata`; QA blocks incomplete

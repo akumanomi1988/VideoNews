@@ -108,6 +108,8 @@ class VideoAssembler(VideoAssemblerInterface):
         audio_bitrate: Optional[str] = None,
         editorial_callouts: Optional[List[dict]] = None,
     ):
+        # Older Studio callers may still pass synthetic_scene_flags.
+        # The renderer no longer draws a badge from asset provenance.
         self.logger = logging.getLogger(__name__)
         self.subtitle_file = subtitle_file
         self.voiceover_file = voiceover_file
@@ -119,7 +121,6 @@ class VideoAssembler(VideoAssemblerInterface):
         self.image_durations = image_durations
         self.scene_motions = scene_motions or []
         self.scene_transitions = scene_transitions or []
-        self.synthetic_scene_flags = synthetic_scene_flags or []
         self.scene_video_files = scene_video_files or []
         self.audio_mastered = audio_mastered
         self.editorial_callouts = editorial_callouts or []
@@ -272,6 +273,18 @@ class VideoAssembler(VideoAssemblerInterface):
         except ValueError:
             return False
 
+    KEN_BURNS_SUPERSAMPLE = 2
+
+    @staticmethod
+    def _eased_progress(frame_count: int) -> str:
+        """Smoothstep 0→1 over the scene, as a zoompan expression of ``on``.
+
+        Linear motion starts and stops abruptly at every cut; easing lets the
+        camera settle into crossfades instead of colliding with them.
+        """
+        p = f"(on/{max(1, frame_count - 1)})"
+        return f"({p}*{p}*(3-2*{p}))"
+
     @staticmethod
     def _allocate_frame_counts(durations: List[float], total_frames: int) -> List[int]:
         """Allocate every output frame to a scene in proportion to its narration time."""
@@ -340,8 +353,6 @@ class VideoAssembler(VideoAssemblerInterface):
             raise ValueError("scene_motions must have one entry per image")
         if self.scene_transitions and len(self.scene_transitions) != num_images:
             raise ValueError("scene_transitions must have one entry per image")
-        if self.synthetic_scene_flags and len(self.synthetic_scene_flags) != num_images:
-            raise ValueError("synthetic_scene_flags must have one entry per image")
         transition_seconds = min(0.35, max(0.0, audio_duration / max(2, num_images * 4)))
         overlap_frames = int(round(transition_seconds * fps))
         # Quantize fades to the same frame clock as scene lengths. Otherwise
@@ -369,7 +380,9 @@ class VideoAssembler(VideoAssemblerInterface):
             fc = frame_counts[i]
             if self.scene_video_files and self.scene_video_files[i]:
                 filters.append(f"[{i}:v]fps={fps},scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-                               f"crop={target_w}:{target_h},setsar=1,tpad=stop_mode=clone:stop_duration=1,"
+                               # Hold the last frame for the whole scene: entrance
+                               # animations are shorter than the narration they open.
+                               f"crop={target_w}:{target_h},setsar=1,tpad=stop_mode=clone:stop_duration={fc/fps:.3f},"
                                f"trim=duration={fc/fps:.6f},setpts=PTS-STARTPTS[s{i}]")
                 concat_labels.append(f"[s{i}]")
                 continue
@@ -377,22 +390,28 @@ class VideoAssembler(VideoAssemblerInterface):
             # with centered framing keeps the composition away from title-safe edges.
             motion = self.scene_motions[i] if self.scene_motions else (
                 "slow_push_in" if i % 2 == 0 else "slow_pull_out")
+            eased = self._eased_progress(fc)
             if fc > 1 and motion == "slow_push_in":
-                zoom_expr = f"1+0.035*on/({fc}-1)"
+                zoom_expr = f"1+0.04*{eased}"
                 x_expr = "iw/2-(iw/zoom/2)"
             elif fc > 1 and motion == "slow_pull_out":
-                zoom_expr = f"1.035-0.035*on/({fc}-1)"
+                zoom_expr = f"1.04-0.04*{eased}"
                 x_expr = "iw/2-(iw/zoom/2)"
             elif fc > 1 and motion in ("subtle_pan_left", "subtle_pan_right"):
-                zoom_expr = "1.025"
-                progress = f"on/({fc}-1)" if motion == "subtle_pan_right" else f"1-on/({fc}-1)"
-                x_expr = f"(iw-iw/zoom)*({progress})"
+                zoom_expr = "1.03"
+                progress = eased if motion == "subtle_pan_right" else f"(1-{eased})"
+                x_expr = f"(iw-iw/zoom)*{progress}"
             else:
                 zoom_expr, x_expr = "1", "iw/2-(iw/zoom/2)"
             y_expr = "ih/2-(ih/zoom/2)"
+            # zoompan positions its crop on whole input pixels. At output size a
+            # 4% zoom over ~20 s moves less than a pixel per frame, so the frame
+            # freezes and then jumps (measured: 21 of 60 frames static). Working
+            # on a 2x canvas halves the step and makes the motion continuous.
+            work_w, work_h = target_w * self.KEN_BURNS_SUPERSAMPLE, target_h * self.KEN_BURNS_SUPERSAMPLE
             filters.append(
-                f"[{i}:v]scale=w={target_w}:h={target_h}:force_original_aspect_ratio=increase,"
-                f"crop={target_w}:{target_h},setsar=1,zoompan=z='{zoom_expr}':"
+                f"[{i}:v]scale=w={work_w}:h={work_h}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={work_w}:{work_h},setsar=1,zoompan=z='{zoom_expr}':"
                 f"x='{x_expr}':y='{y_expr}':"
                 f"d={fc}:fps={fps}:"
                 f"s={target_w}x{target_h},"
@@ -507,35 +526,6 @@ class VideoAssembler(VideoAssemblerInterface):
             local_callouts.write_text(ass_document(self.editorial_callouts), encoding="utf-8")
             filters.append(f"{last_video_label}ass={local_callouts.name}[editorial]")
             last_video_label = "[editorial]"
-        badge_path = None
-        if any(self.synthetic_scene_flags):
-            # Compose after camera motion/subtitles so the discrete marker stays
-            # fixed in the lower-left safe zone and never gets zoomed or cropped.
-            diameter = max(22, round(target_w / 30))
-            margin_x = round(target_w * 0.028)
-            margin_y = round(target_h * (0.12 if self.aspect_ratio == "9:16" else 0.06))
-            badge = Image.new("RGBA", (diameter, diameter), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(badge)
-            draw.ellipse((1, 1, diameter - 2, diameter - 2), fill=(5, 20, 31, 215),
-                         outline=(45, 203, 213, 235), width=max(1, diameter // 32))
-            font_path = Path(os.getenv("WINDIR", "C:/Windows")) / "Fonts" / "arialbd.ttf"
-            badge_font = (ImageFont.truetype(str(font_path), max(10, round(diameter * 0.36)))
-                          if font_path.is_file() else ImageFont.load_default())
-            draw.text((diameter / 2, diameter / 2), "IA", font=badge_font,
-                      anchor="mm", fill=(245, 250, 252, 255))
-            badge_path = str(Path(self.output_file).parent / f"_ia_badge_{uuid.uuid4().hex}.png")
-            badge.save(badge_path)
-            active = []
-            cursor = 0.0
-            for index, frames in enumerate(frame_counts):
-                length = frames / fps - (transition_seconds if index < num_images - 1 else 0)
-                if self.synthetic_scene_flags[index]:
-                    active.append(f"gte(t,{cursor:.6f})*lt(t,{cursor + frames / fps:.6f})")
-                cursor += length
-            badge_index = num_images + 1 + int(bool(self.background_music and os.path.isfile(self.background_music)))
-            filters.append(f"{last_video_label}[{badge_index}:v]overlay=x={margin_x}:"
-                           f"y=H-h-{margin_y}:eof_action=repeat:enable='{'+'.join(active)}'[marked]")
-            last_video_label = "[marked]"
         self.logger.info(f"Subtitles: {'ON' if has_subtitles else 'OFF'} (map label: {last_video_label})")
 
         # --- Build command ---
@@ -547,8 +537,6 @@ class VideoAssembler(VideoAssemblerInterface):
 
         if self.background_music and os.path.isfile(self.background_music):
             cmd.extend(['-stream_loop', '-1', '-i', str(self.background_music)])
-        if badge_path:
-            cmd.extend(['-i', badge_path])
 
         cmd.extend(['-filter_complex', ';'.join(filters)])
         cmd.extend(['-map', last_video_label, '-map', audio_map])
@@ -590,8 +578,6 @@ class VideoAssembler(VideoAssemblerInterface):
                 os.remove(_local_srt)
             if local_callouts:
                 local_callouts.unlink(missing_ok=True)
-            if badge_path and os.path.isfile(badge_path):
-                os.remove(badge_path)
 
         if result.returncode != 0:
             self.logger.error(f"FFmpeg failed (exit {result.returncode}). "

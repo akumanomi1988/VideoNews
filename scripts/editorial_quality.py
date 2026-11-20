@@ -46,25 +46,58 @@ def rank_candidates(candidates, published_urls):
     return {"eligible": eligible, "rejected": rejected}
 
 
+# Measured on Kokoro em_alex at speed 1.0: 631 Spanish words -> 233 s.
+SPANISH_WORDS_PER_SECOND = 2.7
+GREETING_OPENINGS = ("bienvenidos", "bienvenidas", "hola", "en el vídeo de hoy", "hoy vamos a hablar")
+CTA_WORDS = frozenset({"suscríbete", "suscribete", "campana", "like"})
+
+
+def format_range(editorial_format):
+    return FORMAT_RANGES.get(editorial_format)
+
+
+def estimated_duration_seconds(script):
+    return round(len(words(script)) / SPANISH_WORDS_PER_SECOND, 1)
+
+
 def script_diagnostics(project, duration=None):
     narration = project.get("narration", [])
     script = project.get("script", "")
     sentences = Counter(
-        " ".join(tokens)
+        " ".join(parts)
         for item in re.split(r"[.!?]+", script)
-        if len(tokens := words(item)) >= 6
+        if len(parts := words(item)) >= 6
     )
-    opening = " ".join(words(script)[:15])
-    editorial_format = project.get("editorial_brief", {}).get("editorial_format")
-    bounds = FORMAT_RANGES.get(editorial_format)
+    tokens = words(script)
+    opening = " ".join(tokens[:15])
+    brief = project.get("editorial_brief", {})
+    editorial_format = brief.get("editorial_format")
+    bounds = format_range(editorial_format)
+    estimate = estimated_duration_seconds(script)
+    measured_or_estimated = duration if duration is not None else estimate
+    if bounds:
+        # Editorial formats open on a sourced fact; the welcome and early CTA
+        # belong to the classic single-story template only.
+        generic_opening = opening.startswith(GREETING_OPENINGS)
+    else:
+        generic_opening = opening.startswith("en el vídeo de hoy")
+    first_quarter = set(tokens[:max(1, len(tokens) // 4)])
+    target = brief.get("target_duration_seconds")
+    tolerance = None
+    if isinstance(target, int):
+        tolerance = max(brief.get("duration_tolerance_seconds", 0), round(target * 0.10))
     return {
         "editorial_format": editorial_format,
         "segment_count": len(narration),
-        "word_count": len(words(script)),
-        "generic_opening": opening.startswith(("bienvenidos", "en el vídeo de hoy", "hoy vamos a hablar")),
+        "word_count": len(tokens),
+        "estimated_duration_seconds": estimate,
+        "generic_opening": generic_opening,
+        "early_cta_in_editorial_format": bool(bounds and first_quarter & CTA_WORDS),
         "repeated_sentences": [s for s, count in sentences.items() if count > 1],
         "measured_duration_seconds": duration,
-        "outside_format_guideline": bool(bounds and duration is not None and not bounds[0] <= duration <= bounds[1]),
+        "outside_format_guideline": bool(bounds and not bounds[0] <= measured_or_estimated <= bounds[1]),
+        "outside_target_duration": bool(tolerance is not None
+                                        and abs(measured_or_estimated - target) > tolerance),
         "editorial_review_required": [
             "opening_delivers_title_promise", "each_beat_adds_information", "sources_support_each_claim",
         ],
